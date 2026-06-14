@@ -7,7 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc && node scripts/copy-schema.js",
     "start": "node dist/server.js",
-    "test": "node --test dist/__tests__/**/*.test.js"
+    "test": "node --env-file=.env.test --test dist/__tests__/**/*.test.js"
   },
   "keywords": [],
   "author": "",
