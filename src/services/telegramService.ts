@@ -2,25 +2,24 @@ import { logger } from "../utils/logger";
 import { config } from "../config";
 import type { InlineKeyboardButton } from "../types";
 import {
-  getUserLanguage as getUserLanguageDb,
-  setUserLanguage as setUserLanguageDb,
-  getInterfaceLanguage as getInterfaceLanguageDb,
-  setInterfaceLanguage as setInterfaceLanguageDb,
+  ensureUser,
+  getUserByChatId,
+  updateUserPreferences,
+  type User,
 } from "../db/repos";
 
 const TELEGRAM_API = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`;
 
-// Telegram text message limit
-const MAX_MESSAGE_LENGTH = 4000;
+export const MAX_MESSAGE_LENGTH = 4000;
+export const TEXT_FILE_THRESHOLD = 3900;
 
-// Supported interface and transcription languages
 export const SUPPORTED_LANGUAGES = ["ky", "tg", "uz", "en", "ru"] as const;
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
 export const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
   ky: "Кыргызча",
   tg: "Тоҷикӣ",
-  uz: "O'zbekча",
+  uz: "O'zbekcha",
   en: "English",
   ru: "Русский",
 };
@@ -33,16 +32,31 @@ export const LANGUAGE_FLAGS: Record<SupportedLanguage, string> = {
   ru: "🇷🇺",
 };
 
+export const INTERFACE_LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
+  ky: "Кыргызча",
+  tg: "Тоҷикӣ",
+  uz: "O'zbekcha",
+  en: "English",
+  ru: "Русский",
+};
+
 // ---------------------------------------------------------------------------
 // Translations
 // ---------------------------------------------------------------------------
 const TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
   welcome: {
-    ky: "👋 <b>TilTap</b>ке кош келиңиз!\n\nВидео, аудио жана YouTube шилтемелерин кыргызча, тоҷикӣ, ўзбекча, орусча жана англисча распознап, которуп берем.",
-    tg: "👋 Хуш омадед ба <b>TilTap</b>!\n\nМан видео, аудио ва пайвандҳои YouTube-ро ба забонҳои қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ва англисӣ транскрипция мекунам.",
-    uz: "👋 <b>TilTap</b>ga xush kelibsiz!\n\nMen video, audio va YouTube havolalarini qirg'iz, tojik, o'zbek, rus va ingliz tillarida transkripsiya qilaman.",
-    en: "👋 Welcome to <b>TilTap</b>!\n\nI transcribe video, audio, and YouTube links in Kyrgyz, Tajik, Uzbek, Russian, and English.",
-    ru: "👋 Добро пожаловать в <b>TilTap</b>!\n\nЯ распознаю видео, аудио и ссылки YouTube на кыргызском, таджикском, узбекском, русском и английском.",
+    ky: "👋 <b>TilTap</b>ке кош келиңиз!\n\n🎙 Аудио, видео жана YouTube шилтемелерин расмийлоңуз.\n🌐 Кыргызча, тоҷикӣ, ўзбекча, русча жана англисча иштеиет.\n\nТөмөнкү баскычтарды колдонуңуз же медиа файлды түз эле жибериңиз.",
+    tg: "👋 Хуш омадед ба <b>TilTap</b>!\n\n🎙 Ман аудио, видео ва пайвандҳои YouTube-ро транскрипция мекунам.\n🌐 Ба забонҳои қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ва англисӣ.\n\nАз тугмаҳои зерин истифода баред ё мустақиман файл фиристед.",
+    uz: "👋 <b>TilTap</b>ga xush kelibsiz!\n\n🎙 Men audio, video va YouTube havolalarini transkripsiya qilaman.\n🌐 Qirg'iz, tojik, o'zbek, rus va ingliz tillarida.\n\nQuyidagi tugmalardan foydalaning yoki media faylni to'g'ridan-to'g'ri yuboring.",
+    en: "👋 Welcome to <b>TilTap</b>!\n\n🎙 I transcribe audio, video, and YouTube links.\n🌐 In Kyrgyz, Tajik, Uzbek, Russian, and English.\n\nUse the buttons below or send media directly.",
+    ru: "👋 Добро пожаловать в <b>TilTap</b>!\n\n🎙 Я распознаю аудио, видео и ссылки YouTube.\n🌐 На кыргызском, таджикском, узбекском, русском и английском.\n\nИспользуйте кнопки ниже или отправьте файл напрямую.",
+  },
+  help: {
+    ky: "<b>🆘 Жардам</b>\n\n<b>Файл жиберүү:</b> аудио, видео, үн каттуу же документ жибериңиз. Бот тилди сурайт, андан кийин иштей баштайт.\n\n<b>YouTube:</b> «🔗 YouTube шилтемеси» баскычын басыңыз же шилтемени түз эле жибериңиз.\n\n<b>Тил орнотуулар:</b> «⚙️ Орнотуулар» менен интерфейстин тилин жана которуу үчүн демейки тилди тандаңыз.\n\n<b>Командаалар:</b>\n/start — негизги меню\n/help — бул жардам\n/settings — тил орнотуулар\n/test — такырыкты текшерүү\n/stop — активдүү процессти токтотуу",
+    tg: "<b>🆘 Кӯмак</b>\n\n<b>Фиристодани файл:</b> аудио, видео ё файл фиристед. Бот забонро пурсонда, сипас корро оғоз мекунад.\n\n<b>YouTube:</b> тугмаи «🔗 Пайванди YouTube»-ро пахш кунед ё пайвандро мустақиман фиристед.\n\n<b>Танзимоти забон:</b> тавассути «⚙️ Танзимот» забони интерфейс ва забони пешфарзи тарҷумаро интихоб кунед.\n\n<b>Дастурҳо:</b>\n/start — менюи асосӣ\n/help — ин кӯмак\n/settings — танзимоти забон\n/test — санҷиши дақиқӣ\n/stop — қатъ кардани раванди фаъол",
+    uz: "<b>🆘 Yordam</b>\n\n<b>Fayl yuborish:</b> audio, video yoki hujjat yuboring. Bot tilni so'raydi, keyin ishlaydi.\n\n<b>YouTube:</b> «🔗 YouTube havolasi» tugmasini bosing yoki havolani to'g'ridan-to'g'ri yuboring.\n\n<b>Til sozlamalari:</b> «⚙️ Sozlamalar» orqali interfeys tilini va tarjima uchun standart tilni tanlang.\n\n<b>Buyruqlar:</b>\n/start — asosiy menyu\n/help — bu yordam\n/settings — til sozlamalari\n/test — aniqlik testi\n/stop — faol jarayonni to'xtatish",
+    en: "<b>🆘 Help</b>\n\n<b>Send a file:</b> send audio, video, voice, or a document. The bot will ask for the language, then start working.\n\n<b>YouTube:</b> tap «🔗 YouTube link» or send a link directly.\n\n<b>Language settings:</b> use «⚙️ Settings» to choose the interface language and default translation language.\n\n<b>Commands:</b>\n/start — main menu\n/help — this help\n/settings — language settings\n/test — accuracy test\n/stop — stop active process",
+    ru: "<b>🆘 Помощь</b>\n\n<b>Отправьте файл:</b> аудио, видео, голосовое или документ. Бот спросит язык, затем начнёт работу.\n\n<b>YouTube:</b> нажмите «🔗 Ссылка YouTube» или отправьте ссылку напрямую.\n\n<b>Настройки языка:</b> через «⚙️ Настройки» выберите язык интерфейса и язык перевода по умолчанию.\n\n<b>Команды:</b>\n/start — главное меню\n/help — эта помощь\n/settings — настройки языка\n/test — тест точности\n/stop — остановить активный процесс",
   },
   chooseInterfaceLanguage: {
     ky: "🌍 Интерфейстин тилин тандаңыз:",
@@ -51,12 +65,19 @@ const TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
     en: "🌍 Choose interface language:",
     ru: "🌍 Выберите язык интерфейса:",
   },
-  chooseTranscriptionLanguage: {
-    ky: "🎙️ Бул файл үчүн тилди тандаңыз:",
-    tg: "🎙️ Барои ин файл забонро интихоб кунед:",
-    uz: "🎙️ Ushbu fayl uchun tilni tanlang:",
-    en: "🎙️ Choose language for this file:",
-    ru: "🎙️ Выберите язык для этого файла:",
+  chooseSourceLanguage: {
+    ky: "🎙️ Распознаоо тилин тандаңыз:",
+    tg: "🎙️ Забони транскрипцияро интихоб кунед:",
+    uz: "🎙️ Transkripsiya tilini tanlang:",
+    en: "🎙️ Choose transcription language:",
+    ru: "🎙️ Выберите язык распознавания:",
+  },
+  chooseTargetLanguage: {
+    ky: "🌐 Кайсы тилге которолосуңуз? (же «Которбоой» тандаңыз)",
+    tg: "🌐 Ба кадом забон тарҷума кунем? (ё «Бе тарҷума»-ро интихоб кунед)",
+    uz: "🌐 Qaysi tilga tarjima qilay? (yoki «Tarjimasiz» ni tanlang)",
+    en: "🌐 Which language should I translate to? (or choose No translation)",
+    ru: "🌐 На какой язык перевести? (или выберите Без перевода)",
   },
   sendYoutubeLink: {
     ky: "🔗 YouTube шилтемесин жибериңиз:",
@@ -66,11 +87,11 @@ const TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
     ru: "🔗 Отправьте ссылку на YouTube:",
   },
   transcribing: {
-    ky: "⏳ Распознаю... Сабыр кылыңыз.",
-    tg: "⏳ Транскрипция мешавад... Илтимос, интизор шавед.",
-    uz: "⏳ Transkripsiya qilinmoqda... Iltimos, kuting.",
-    en: "⏳ Transcribing... Please wait.",
-    ru: "⏳ Распознаю... Пожалуйста, подождите.",
+    ky: "⏳ Распознаоо жатат...",
+    tg: "⏳ Транскрипция мешавад...",
+    uz: "⏳ Transkripsiya qilinmoqda...",
+    en: "⏳ Transcribing...",
+    ru: "⏳ Распознаю...",
   },
   transcriptionComplete: {
     ky: "✅ Распознаоо аяктады!",
@@ -185,11 +206,11 @@ const TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
     ru: "📖 Эталонный текст",
   },
   wantTranslate: {
-    ky: "Тандалган текстти которгүңүз келеби?",
-    tg: "Мехоҳед матни садокашонишуда тарҷума кунед?",
-    uz: "Tanilgan matnni tarjima qilmoqchimisiz?",
-    en: "Would you like to translate the recognized text?",
-    ru: "Хотите перевести распознанный текст?",
+    ky: "Текстти которгүңүз келеби? Тилди тандаңыз:",
+    tg: "Мехоҳед матнро тарҷума кунед? Забонро интихоб кунед:",
+    uz: "Matnni tarjima qilmoqchimisiz? Tilni tanlang:",
+    en: "Would you like to translate the text? Choose a language:",
+    ru: "Хотите перевести текст? Выберите язык:",
   },
   noSpeech: {
     ky: "🤷 Бул файлда сүйлөм табылган жок.",
@@ -211,13 +232,6 @@ const TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
     uz: "🛑 Jarayon to'xtatildi.",
     en: "🛑 Processing stopped.",
     ru: "🛑 Обработка остановлена.",
-  },
-  chooseTargetLanguage: {
-    ky: "🌐 Кайсы тилге которолосуңуз?",
-    tg: "🌐 Ба кадом забон тарҷума кунем?",
-    uz: "🌐 Qaysi tilga tarjima qilay?",
-    en: "🌐 Which language should I translate to?",
-    ru: "🌐 На какой язык перевести?",
   },
   chooseTestLanguage: {
     ky: "🧪 Кайсы тилде текшеребиз?",
@@ -261,14 +275,277 @@ const TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
     en: "Use the buttons below:",
     ru: "Используйте кнопки ниже:",
   },
+  confirmStart: {
+    ky: "🎙️ Тил: {source} → {target}\n\nРаспознаоо башталсынбы?",
+    tg: "🎙️ Забон: {source} → {target}\n\nОёғози транскрипция кунем?",
+    uz: "🎙️ Til: {source} → {target}\n\nTranskripsiyani boshlaysizmi?",
+    en: "🎙️ Language: {source} → {target}\n\nStart transcription?",
+    ru: "🎙️ Язык: {source} → {target}\n\nНачать распознавание?",
+  },
+  confirmStartNoTranslation: {
+    ky: "🎙️ Тил: {source} (которуу жок)\n\nРаспознаоо башталсынбы?",
+    tg: "🎙️ Забон: {source} (бе тарҷума)\n\nОёғози транскрипция кунем?",
+    uz: "🎙️ Til: {source} (tarjimasiz)\n\nTranskripsiyani boshlaysizmi?",
+    en: "🎙️ Language: {source} (no translation)\n\nStart transcription?",
+    ru: "🎙️ Язык: {source} (без перевода)\n\nНачать распознавание?",
+  },
+  youtubePreview: {
+    ky: "📺 <b>{title}</b>\n<i>YouTube видеосу</i>\n\nТилди тандаңыз жана иштей баштаңыз.",
+    tg: "📺 <b>{title}</b>\n<i>Видеои YouTube</i>\n\nЗабонро интихоб кунед ва оғоз кунед.",
+    uz: "📺 <b>{title}</b>\n<i>YouTube videosi</i>\n\nTilni tanlang va ishni boshlang.",
+    en: "📺 <b>{title}</b>\n<i>YouTube video</i>\n\nChoose language and start.",
+    ru: "📺 <b>{title}</b>\n<i>Видео YouTube</i>\n\nВыберите язык и начните.",
+  },
+  invalidYoutube: {
+    ky: "❌ Бул туура YouTube шилтемеси эмес. Кайра жибериңиз.",
+    tg: "❌ Ин пайванди дурусти YouTube нест. Дубора фиристед.",
+    uz: "❌ Bu to'g'ri YouTube havolasi emas. Qayta yuboring.",
+    en: "❌ This is not a valid YouTube link. Please send it again.",
+    ru: "❌ Это неправильная ссылка на YouTube. Отправьте ещё раз.",
+  },
+  settingsMenu: {
+    ky: "⚙️ Орнотуулар\n\nКайсы параметрди өзгөрткүңүз келет?",
+    tg: "⚙️ Танзимот\n\nКадом параметрро тағйир медиҳед?",
+    uz: "⚙️ Sozlamalar\n\nQaysi parametrni o'zgartirmoqchisiz?",
+    en: "⚙️ Settings\n\nWhich parameter would you like to change?",
+    ru: "⚙️ Настройки\n\nКакой параметр хотите изменить?",
+  },
+  sourceLanguageSet: {
+    ky: "✅ Распознаоо тили сакталды: {lang}",
+    tg: "✅ Забони транскрипция сабт шуд: {lang}",
+    uz: "✅ Transkripsiya tili saqlandi: {lang}",
+    en: "✅ Transcription language saved: {lang}",
+    ru: "✅ Язык распознавания сохранён: {lang}",
+  },
+  targetLanguageSet: {
+    ky: "✅ Которуу тили сакталды: {lang}",
+    tg: "✅ Забони тарҷума сабт шуд: {lang}",
+    uz: "✅ Tarjima tili saqlandi: {lang}",
+    en: "✅ Translation language saved: {lang}",
+    ru: "✅ Язык перевода сохранён: {lang}",
+  },
+  interfaceLanguageSet: {
+    ky: "✅ Интерфейстин тили сакталды: {lang}",
+    tg: "✅ Забони интерфейс сабт шуд: {lang}",
+    uz: "✅ Interfeys tili saqlandi: {lang}",
+    en: "✅ Interface language saved: {lang}",
+    ru: "✅ Язык интерфейса сохранён: {lang}",
+  },
+  unsupportedFileType: {
+    ky: "❌ Бул файл түрү колдойбойт. Аудио же видео жибериңиз.",
+    tg: "❌ Ин навъи файл дастгирӣ намешавад. Аудио ё видео фиристед.",
+    uz: "❌ Bu fayl turi qo'llab-quvvatlanmaydi. Audio yoki video yuboring.",
+    en: "❌ Unsupported file type. Please send audio or video.",
+    ru: "❌ Неподдерживаемый тип файла. Отправьте аудио или видео.",
+  },
+  fileTooLarge: {
+    ky: "❌ Файл өтө чоң ({size} МБ). Максимум 25 МБ.",
+    tg: "❌ Файл хеле калон аст ({size} МБ). Ҳадди аксар 25 МБ.",
+    uz: "❌ Fayl juda katta ({size} MB). Maksimum 25 MB.",
+    en: "❌ File is too large ({size} MB). Max allowed is 25 MB.",
+    ru: "❌ Файл слишком большой ({size} МБ). Максимум 25 МБ.",
+  },
+  back: {
+    ky: "🔙 Артка",
+    tg: "🔙 Бозгашт",
+    uz: "🔙 Orqaga",
+    en: "🔙 Back",
+    ru: "🔙 Назад",
+  },
+  start: {
+    ky: "▶️ Баштоо",
+    tg: "▶️ Оғоз кардан",
+    uz: "▶️ Boshlash",
+    en: "▶️ Start",
+    ru: "▶️ Начать",
+  },
+  changeLanguage: {
+    ky: "🌐 Тилди өзгөртүү",
+    tg: "🌐 Тағйири забон",
+    uz: "🌐 Tilni o'zgartirish",
+    en: "🌐 Change language",
+    ru: "🌐 Изменить язык",
+  },
+  autoDetect: {
+    ky: "🌍 Авто аныктоо",
+    tg: "🌍 Авто муайянкунӣ",
+    uz: "🌍 Avto aniqlash",
+    en: "🌍 Auto detect",
+    ru: "🌍 Автоопределение",
+  },
+  multilingual: {
+    ky: "🌍 Auto / Көп тилдүү",
+    tg: "🌍 Auto / Бисёрзабона",
+    uz: "🌍 Auto / Ko'p tilli",
+    en: "🌍 Auto / Multilingual",
+    ru: "🌍 Auto / Мультиязычный",
+  },
+  settingsSourceLanguage: {
+    ky: "🎙️ Распознаоо тили",
+    tg: "🎙️ Забони транскрипция",
+    uz: "🎙️ Transkripsiya tili",
+    en: "🎙️ Transcription language",
+    ru: "🎙️ Язык распознавания",
+  },
+  settingsTargetLanguage: {
+    ky: "🌐 Которуу тили",
+    tg: "🌐 Забони тарҷума",
+    uz: "🌐 Tarjima tili",
+    en: "🌐 Translation language",
+    ru: "🌐 Язык перевода",
+  },
+  helpButton: {
+    ky: "❓ Жардам",
+    tg: "❓ Кӯмак",
+    uz: "❓ Yordam",
+    en: "❓ Help",
+    ru: "❓ Помощь",
+  },
+  settingsInterfaceLanguage: {
+    ky: "🌍 Интерфейс тили",
+    tg: "🌍 Забони интерфейс",
+    uz: "🌍 Interfeys tili",
+    en: "🌍 Interface language",
+    ru: "🌍 Язык интерфейса",
+  },
+  noDefaultTarget: {
+    ky: "❌ Которуу жок",
+    tg: "❌ Бе тарҷума",
+    uz: "❌ Tarjimasiz",
+    en: "❌ No translation",
+    ru: "❌ Без перевода",
+  },
 };
 
-export function t(key: keyof typeof TRANSLATIONS, lang: SupportedLanguage): string {
-  return TRANSLATIONS[key][lang];
+export function t(key: keyof typeof TRANSLATIONS, lang: SupportedLanguage, vars?: Record<string, string>): string {
+  let text = TRANSLATIONS[key]?.[lang] ?? TRANSLATIONS[key]?.["en"] ?? key;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      text = text.replace(new RegExp(`\\{${k}\\}`, "g"), v);
+    }
+  }
+  return text;
 }
 
 // ---------------------------------------------------------------------------
-// Pending actions / active processes
+// User preferences
+// ---------------------------------------------------------------------------
+export interface UserPreferences {
+  interfaceLanguage: SupportedLanguage;
+  sourceLanguage: SupportedLanguage | "auto" | "multi";
+  targetLanguage: SupportedLanguage | "none";
+}
+
+function normalizeInterfaceLanguage(lang: string | null | undefined): SupportedLanguage {
+  if (lang && SUPPORTED_LANGUAGES.includes(lang as SupportedLanguage)) {
+    return lang as SupportedLanguage;
+  }
+  return "ru";
+}
+
+function normalizeSourceLanguage(lang: string | null | undefined): SupportedLanguage | "auto" | "multi" {
+  if (lang === "multi" || lang === "auto") return lang;
+  if (lang && SUPPORTED_LANGUAGES.includes(lang as SupportedLanguage)) return lang as SupportedLanguage;
+  return "auto";
+}
+
+function normalizeTargetLanguage(lang: string | null | undefined): SupportedLanguage | "none" {
+  if (lang === "none") return "none";
+  if (lang && SUPPORTED_LANGUAGES.includes(lang as SupportedLanguage)) return lang as SupportedLanguage;
+  return "none";
+}
+
+export function mapTelegramLanguageCode(code: string | undefined): SupportedLanguage {
+  if (!code) return "ru";
+  const map: Record<string, SupportedLanguage> = {
+    ky: "ky",
+    tg: "tg",
+    uz: "uz",
+    en: "en",
+    ru: "ru",
+    "ru-RU": "ru",
+    "en-US": "en",
+    "en-GB": "en",
+    "ky-KG": "ky",
+    "tg-TJ": "tg",
+    "uz-UZ": "uz",
+    "uz-Cyrl": "uz",
+  };
+  return map[code] ?? "ru";
+}
+
+export async function ensureUserProfile(
+  chatId: number,
+  telegramLanguageCode?: string
+): Promise<UserPreferences> {
+  const existing = await getUserByChatId(chatId);
+  if (existing) {
+    return {
+      interfaceLanguage: normalizeInterfaceLanguage(existing.interface_language),
+      sourceLanguage: normalizeSourceLanguage(existing.preferred_language),
+      targetLanguage: normalizeTargetLanguage(existing.target_language),
+    };
+  }
+  const detected = mapTelegramLanguageCode(telegramLanguageCode);
+  const target = detected === "ru" ? "en" : "ru";
+  await ensureUser(chatId, {
+    interface_language: detected,
+    preferred_language: "auto",
+    target_language: target,
+  });
+  logger.info("New user profile created", { chatId, detectedLang: detected });
+  return {
+    interfaceLanguage: detected,
+    sourceLanguage: "auto",
+    targetLanguage: target,
+  };
+}
+
+export async function getUserPreferences(chatId: number): Promise<UserPreferences> {
+  const user = await getUserByChatId(chatId);
+  return {
+    interfaceLanguage: normalizeInterfaceLanguage(user?.interface_language),
+    sourceLanguage: normalizeSourceLanguage(user?.preferred_language),
+    targetLanguage: normalizeTargetLanguage(user?.target_language),
+  };
+}
+
+export async function setUserInterfaceLanguage(chatId: number, lang: SupportedLanguage): Promise<void> {
+  await updateUserPreferences(chatId, { interface_language: lang });
+  logger.info("Interface language updated", { chatId, lang });
+}
+
+export async function setUserSourceLanguage(chatId: number, lang: SupportedLanguage | "auto" | "multi"): Promise<void> {
+  await updateUserPreferences(chatId, { preferred_language: lang });
+  logger.info("Source language updated", { chatId, lang });
+}
+
+export async function setUserTargetLanguage(chatId: number, lang: SupportedLanguage | "none"): Promise<void> {
+  await updateUserPreferences(chatId, { target_language: lang });
+  logger.info("Target language updated", { chatId, lang });
+}
+
+// Legacy helpers kept for compatibility
+export async function getUserLanguage(chatId: number): Promise<string | undefined> {
+  const prefs = await getUserPreferences(chatId);
+  return prefs.sourceLanguage;
+}
+
+export async function setUserLanguage(chatId: number, lang: string): Promise<void> {
+  await setUserSourceLanguage(chatId, lang as SupportedLanguage | "auto" | "multi");
+}
+
+export async function getInterfaceLanguage(chatId: number): Promise<SupportedLanguage> {
+  const prefs = await getUserPreferences(chatId);
+  return prefs.interfaceLanguage;
+}
+
+export async function setInterfaceLanguage(chatId: number, lang: SupportedLanguage): Promise<void> {
+  await setUserInterfaceLanguage(chatId, lang);
+}
+
+// ---------------------------------------------------------------------------
+// Pending actions with TTL
 // ---------------------------------------------------------------------------
 export interface PendingMedia {
   type: "media";
@@ -276,63 +553,69 @@ export interface PendingMedia {
   filename: string;
   messageId: number;
   dbMessageId: number;
-  sourceLanguage?: string;
-  targetLanguage?: string;
+  sourceLanguage?: SupportedLanguage | "auto" | "multi";
+  targetLanguage?: SupportedLanguage | "none";
+  createdAt: number;
 }
 
 export interface PendingYouTube {
   type: "youtube";
-  url?: string;
-  sourceLanguage?: string;
-  targetLanguage?: string;
+  url: string;
+  title?: string;
+  sourceLanguage?: SupportedLanguage | "auto" | "multi";
+  targetLanguage?: SupportedLanguage | "none";
+  createdAt: number;
 }
 
 export type PendingAction = PendingMedia | PendingYouTube;
+type PendingActionWithId = (PendingMedia | PendingYouTube) & { actionId: string };
 
-export const pendingActions = new Map<number, PendingAction>();
+const pendingActions = new Map<number, PendingActionWithId>();
+const PENDING_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
-export interface ActiveProcess {
-  pid: number;
-  startTime: number;
-  statusMessageId?: number;
+function cleanExpiredPendingActions(): void {
+  const now = Date.now();
+  for (const [chatId, action] of pendingActions.entries()) {
+    if (now - action.createdAt > PENDING_TTL_MS) {
+      pendingActions.delete(chatId);
+    }
+  }
 }
 
-export const activeProcesses = new Map<number, ActiveProcess>();
-
-// ---------------------------------------------------------------------------
-// User language helpers
-// ---------------------------------------------------------------------------
-export async function getUserLanguage(chatId: number): Promise<string | undefined> {
-  const lang = await getUserLanguageDb(chatId);
-  return lang ?? undefined;
-}
-
-export async function setUserLanguage(chatId: number, lang: string): Promise<void> {
-  await setUserLanguageDb(chatId, lang);
-  logger.info("User transcription language set", { chatId, lang });
-}
-
-export async function getInterfaceLanguage(chatId: number): Promise<SupportedLanguage> {
-  const lang = await getInterfaceLanguageDb(chatId);
-  return (SUPPORTED_LANGUAGES.includes(lang as SupportedLanguage) ? lang : "ru") as SupportedLanguage;
-}
-
-export async function setInterfaceLanguage(chatId: number, lang: SupportedLanguage): Promise<void> {
-  await setInterfaceLanguageDb(chatId, lang);
-  logger.info("User interface language set", { chatId, lang });
-}
-
-export function getPendingAction(chatId: number): PendingAction | undefined {
+export function getPendingAction(chatId: number): PendingActionWithId | undefined {
+  cleanExpiredPendingActions();
   return pendingActions.get(chatId);
 }
 
-export function setPendingAction(chatId: number, action: PendingAction): void {
-  pendingActions.set(chatId, action);
+export function setPendingAction(chatId: number, action: PendingAction): string {
+  cleanExpiredPendingActions();
+  const actionId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  pendingActions.set(chatId, { ...action, actionId } as PendingActionWithId);
+  return actionId;
+}
+
+export function updatePendingAction(chatId: number, updates: Partial<PendingAction>): void {
+  const existing = pendingActions.get(chatId);
+  if (existing) {
+    pendingActions.set(chatId, { ...existing, ...updates } as PendingActionWithId);
+  }
 }
 
 export function clearPendingAction(chatId: number): void {
   pendingActions.delete(chatId);
 }
+
+// ---------------------------------------------------------------------------
+// Active processes
+// ---------------------------------------------------------------------------
+export interface ActiveProcess {
+  pid: number;
+  startTime: number;
+  statusMessageId?: number;
+  type: "media" | "youtube" | "test";
+}
+
+const activeProcesses = new Map<number, ActiveProcess>();
 
 export function getActiveProcess(chatId: number): ActiveProcess | undefined {
   return activeProcesses.get(chatId);
@@ -543,128 +826,139 @@ export async function answerCallbackQuery(callbackQueryId: string, text?: string
 // ---------------------------------------------------------------------------
 // Keyboards
 // ---------------------------------------------------------------------------
-export function createInterfaceLanguageKeyboard(): { inline_keyboard: InlineKeyboardButton[][] } {
-  const languages: SupportedLanguage[] = ["ky", "tg", "uz", "en", "ru"];
-  return {
-    inline_keyboard: languages.map((lang) => [
-      { text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`, callback_data: `ui_lang:${lang}` },
-    ]),
-  };
-}
-
-export function createTranscriptionLanguageKeyboard(actionId: string): { inline_keyboard: InlineKeyboardButton[][] } {
-  const languages: SupportedLanguage[] = ["ky", "tg", "uz", "en", "ru"];
-  const buttons = languages.map((lang) => ({
-    text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
-    callback_data: `transcribe_lang:${lang}:${actionId}`,
-  }));
-
-  return {
-    inline_keyboard: [
-      buttons.slice(0, 3),
-      buttons.slice(3),
-      [{ text: "🌍 Auto / Multilingual", callback_data: `transcribe_lang:multi:${actionId}` }],
-    ],
-  };
-}
-
 export function createMainKeyboard(lang: SupportedLanguage): { inline_keyboard: InlineKeyboardButton[][] } {
-  const labels: Record<string, Record<SupportedLanguage, string>> = {
-    youtube: {
-      ky: "🔗 YouTube шилтемеси",
-      tg: "🔗 Пайванди YouTube",
-      uz: "🔗 YouTube havolasi",
-      en: "🔗 YouTube link",
-      ru: "🔗 Ссылка YouTube",
-    },
-    settings: {
-      ky: "⚙️ Тил орнотуулар",
-      tg: "⚙️ Танзимоти забон",
-      uz: "⚙️ Til sozlamalari",
-      en: "⚙️ Language settings",
-      ru: "⚙️ Настройки языка",
-    },
-    stop: {
-      ky: "🛑 Токтотуу",
-      tg: "🛑 Истодан",
-      uz: "🛑 To'xtatish",
-      en: "🛑 Stop",
-      ru: "🛑 Остановить",
-    },
-  };
-
   return {
     inline_keyboard: [
-      [{ text: labels.youtube[lang], callback_data: "action:youtube" }],
+      [{ text: "🔗 YouTube", callback_data: "action:youtube" }],
       [
-        { text: labels.settings[lang], callback_data: "action:settings" },
-        { text: labels.stop[lang], callback_data: "action:stop" },
+        { text: t("settingsInterfaceLanguage", lang), callback_data: "action:settings:interface" },
+        { text: t("settingsSourceLanguage", lang), callback_data: "action:settings:source" },
+      ],
+      [
+        { text: t("settingsTargetLanguage", lang), callback_data: "action:settings:target" },
+        { text: t("helpButton", lang), callback_data: "action:help" },
+      ],
+      [
+        { text: "🧪 Test", callback_data: "action:test" },
+        { text: "🛑 Stop", callback_data: "action:stop" },
       ],
     ],
   };
 }
 
-export function createTargetLanguageKeyboard(
-  actionId: string,
-  sourceLanguage?: SupportedLanguage | "multi"
+export function createSettingsMenuKeyboard(lang: SupportedLanguage): { inline_keyboard: InlineKeyboardButton[][] } {
+  return {
+    inline_keyboard: [
+      [{ text: t("settingsInterfaceLanguage", lang), callback_data: "action:settings:interface" }],
+      [{ text: t("settingsSourceLanguage", lang), callback_data: "action:settings:source" }],
+      [{ text: t("settingsTargetLanguage", lang), callback_data: "action:settings:target" }],
+      [{ text: t("back", lang), callback_data: "action:main" }],
+    ],
+  };
+}
+
+export function createInterfaceLanguageKeyboard(backAction = "action:main"): { inline_keyboard: InlineKeyboardButton[][] } {
+  const buttons = SUPPORTED_LANGUAGES.map((lang) => ({
+    text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
+    callback_data: `ui_lang:${lang}`,
+  }));
+  return {
+    inline_keyboard: [buttons.slice(0, 3), buttons.slice(3, 5), [{ text: "🔙 Back", callback_data: backAction }]],
+  };
+}
+
+export function createSourceLanguageKeyboard(
+  action: "default" | `confirm:${string}`,
+  backAction = "action:main"
 ): { inline_keyboard: InlineKeyboardButton[][] } {
-  const allLanguages: SupportedLanguage[] = ["ru", "en", "ky", "tg", "uz"];
-  const languages = sourceLanguage === "multi" ? allLanguages : allLanguages.filter((l) => l !== sourceLanguage);
-  const rows: InlineKeyboardButton[][] = [];
-  for (let i = 0; i < languages.length; i += 3) {
-    rows.push(
-      languages.slice(i, i + 3).map((lang) => ({
-        text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
-        callback_data: `translate_lang:${lang}:${actionId}`,
-      }))
-    );
-  }
-  rows.push([
-    {
-      text: "❌ Без перевода / No translation",
-      callback_data: `translate_lang:none:${actionId}`,
-    },
-  ]);
-  return { inline_keyboard: rows };
+  const languages: (SupportedLanguage | "auto")[] = ["auto", ...SUPPORTED_LANGUAGES];
+  const buttons = languages.map((lang) => ({
+    text: lang === "auto" ? "🌍 Auto detect" : `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
+    callback_data: lang === "auto" ? `source:auto:${action}` : `source:${lang}:${action}`,
+  }));
+  return {
+    inline_keyboard: [buttons.slice(0, 3), buttons.slice(3, 6), [{ text: "🔙 Back", callback_data: backAction }]],
+  };
+}
+
+export function createTargetLanguageKeyboard(
+  action: "default" | `confirm:${string}`,
+  backAction = "action:main"
+): { inline_keyboard: InlineKeyboardButton[][] } {
+  const buttons = SUPPORTED_LANGUAGES.map((lang) => ({
+    text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
+    callback_data: `target:${lang}:${action}`,
+  }));
+  return {
+    inline_keyboard: [
+      buttons.slice(0, 3),
+      buttons.slice(3, 5),
+      [
+        { text: "❌ No translation", callback_data: `target:none:${action}` },
+      ],
+      [{ text: "🔙 Back", callback_data: backAction }],
+    ],
+  };
+}
+
+export function createConfirmationKeyboard(actionId: string, lang: SupportedLanguage): { inline_keyboard: InlineKeyboardButton[][] } {
+  return {
+    inline_keyboard: [
+      [{ text: t("start", lang), callback_data: `confirm:start:${actionId}` }],
+      [
+        { text: t("changeLanguage", lang), callback_data: `confirm:lang:${actionId}` },
+        { text: t("back", lang), callback_data: `confirm:cancel:${actionId}` },
+      ],
+    ],
+  };
 }
 
 export function createTestLanguageKeyboard(): { inline_keyboard: InlineKeyboardButton[][] } {
-  const languages: SupportedLanguage[] = ["ky", "tg", "uz", "en", "ru"];
-  const buttons = languages.map((lang) => ({
+  const buttons = SUPPORTED_LANGUAGES.map((lang) => ({
     text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
     callback_data: `test_lang:${lang}`,
   }));
   return {
     inline_keyboard: [
       buttons.slice(0, 3),
-      buttons.slice(3),
-      [{ text: "🔁 All languages / Бардык тилдер", callback_data: "test_lang:all" }],
+      buttons.slice(3, 5),
+      [{ text: "🔁 All languages", callback_data: "test_lang:all" }],
     ],
   };
 }
 
 export function createTranslationKeyboard(transcriptionId: number): { inline_keyboard: InlineKeyboardButton[][] } {
-  const languages: SupportedLanguage[] = ["ru", "en", "ky", "tg", "uz"];
-  const buttons = languages.map((lang) => ({
+  const buttons = SUPPORTED_LANGUAGES.map((lang) => ({
     text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
     callback_data: `translate:${lang}:${transcriptionId}`,
   }));
-
   return {
-    inline_keyboard: [buttons.slice(0, 3), buttons.slice(3)],
+    inline_keyboard: [buttons.slice(0, 3), buttons.slice(3, 5)],
   };
 }
 
 export function createStopKeyboard(lang: SupportedLanguage, processId: string): { inline_keyboard: InlineKeyboardButton[][] } {
-  const labels = {
-    ky: "🛑 Токтотуу",
-    tg: "🛑 Истодан",
-    uz: "🛑 To'xtatish",
-    en: "🛑 Stop",
-    ru: "🛑 Остановить",
-  };
-
   return {
-    inline_keyboard: [[{ text: labels[lang], callback_data: `stop:${processId}` }]],
+    inline_keyboard: [[{ text: "🛑 Stop", callback_data: `stop:${processId}` }]],
   };
+}
+
+export function createQuickActionsKeyboard(lang: SupportedLanguage): { inline_keyboard: InlineKeyboardButton[][] } {
+  return {
+    inline_keyboard: [
+      [{ text: "🔗 YouTube", callback_data: "action:youtube" }],
+      [{ text: t("back", lang), callback_data: "action:main" }],
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// HTML sanitization
+// ---------------------------------------------------------------------------
+export function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

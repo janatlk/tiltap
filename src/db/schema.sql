@@ -5,12 +5,14 @@ CREATE TABLE IF NOT EXISTS users (
   telegram_chat_id BIGINT UNIQUE NOT NULL,
   preferred_language VARCHAR(10),
   interface_language VARCHAR(10) DEFAULT 'ru',
+  target_language VARCHAR(10),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Migration safety net: ensure the column exists for databases created before this schema version
 ALTER TABLE users ADD COLUMN IF NOT EXISTS interface_language VARCHAR(10) DEFAULT 'ru';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS target_language VARCHAR(10);
 
 -- Backfill existing users with default interface language
 ALTER TABLE users ALTER COLUMN interface_language SET DEFAULT 'ru';

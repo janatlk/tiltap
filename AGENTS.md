@@ -71,11 +71,13 @@ Telegram Update → routes/webhook.ts → controllers/telegramController.ts
 
 ### Telegram flow
 
-1. User sends media or a YouTube link.
-2. Bot asks for the source (transcription) language. A **🌍 Auto / Multilingual** option is available for Turkic + Russian code-switching.
-3. After the user picks it, the same message is edited to ask for the target translation language (including a **No translation** option).
-4. Processing starts; a **Stop** inline button is attached to the status message and removed once processing completes.
-5. The loading bar is updated in real time as the Python worker emits progress JSON.
+1. On first contact (`/start` or any message) the bot detects the user's Telegram `language_code` and creates a profile with a matching interface language, default source language (`auto`), and a sensible default target language.
+2. The user can send media (voice, audio, video, document) or a YouTube link directly, or use the main menu.
+3. The bot shows a confirmation card with the currently selected source → target languages and an **▶️ Start** button. Users can tap **🌐 Change language** to pick a different source/target for this request only, or **⚙️ Settings** to update their defaults.
+4. YouTube links are validated before processing (title/duration/check availability). Invalid, private, age-restricted, or sign-in-required videos return a clear localized error.
+5. Processing starts with a real-time loading bar and a **Stop** inline button. The button is removed once processing completes.
+6. After transcription, a translate keyboard lets users translate the result into any supported language. The chosen target language is saved as the user's default for future requests.
+7. `/settings` lets users change interface language, default transcription language, and default translation language independently.
 
 ## `/test` Accuracy Benchmark
 
@@ -102,14 +104,15 @@ This downloads phrasebook clips from Folkways Today for `ky/tg/uz/ru` and builds
 
 ## State Persistence
 
-- `users` — Telegram chat IDs and preferred languages
+- `users` — Telegram chat IDs, interface language, default transcription (`preferred_language`) and default translation (`target_language`)
 - `messages` — Every incoming Telegram message for audit
 - `transcriptions` — STT results with segments
 - `translations` — Cached translations to avoid re-calling the module
 
 Temporary in-memory state that is intentionally not persisted:
 
-- `pendingAudio` Map — ephemeral audio buffers while the user is choosing a language
+- `pendingActions` Map — ephemeral audio buffers / YouTube URLs while the user confirms language selection (auto-expires after 10 minutes)
+- `activeProcesses` Map — currently running Python PIDs keyed by chat ID
 
 ## Environment Variables
 
