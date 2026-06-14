@@ -1,0 +1,152 @@
+openapi: 3.0.0
+info:
+  title: TilTap API
+  description: |
+    Backend API for the TilTap speech-to-text and translation platform.
+    Supports Telegram bot webhooks, translation proxy, and health checks.
+  version: 1.0.0
+  contact:
+    name: TilTap Team
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+
+tags:
+  - name: Health
+    description: Service health checks
+  - name: Translate
+    description: Text translation endpoint
+  - name: Webhooks
+    description: External platform webhooks
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      description: Returns the current service status and timestamp.
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /api/translate:
+    post:
+      tags: [Translate]
+      summary: Translate text
+      description: Proxy to the translation module. Falls back to OpenAI if no module URL is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TranslateRequest"
+      responses:
+        "200":
+          description: Translation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TranslateResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Translation service error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /webhook/telegram:
+    post:
+      tags: [Webhooks]
+      summary: Telegram bot webhook
+      description: Receives updates from the Telegram Bot API.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Telegram Update object
+      responses:
+        "200":
+          description: Update acknowledged
+        "500":
+          description: Internal processing error
+
+  /webhook/whatsapp:
+    post:
+      tags: [Webhooks]
+      summary: WhatsApp webhook
+      description: Receives updates from the WhatsApp Business API (placeholder).
+      responses:
+        "200":
+          description: Update acknowledged
+
+components:
+  schemas:
+    TranslateRequest:
+      type: object
+      required: [text, targetLang]
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 5000
+          description: Source text to translate
+          example: "Салам, бу сөздү которуп берчи"
+        targetLang:
+          type: string
+          minLength: 2
+          maxLength: 10
+          description: Target language code
+          example: "ru"
+        sourceLang:
+          type: string
+          minLength: 2
+          maxLength: 10
+          description: Optional source language code
+          example: "ky"
+
+    TranslateResponse:
+      type: object
+      properties:
+        translatedText:
+          type: string
+          example: "Привет, переведи это слово"
+        targetLang:
+          type: string
+          example: "ru"
+        sourceLang:
+          type: string
+          example: "ky"
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Validation failed"
+        details:
+          type: object
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

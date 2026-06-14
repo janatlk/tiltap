@@ -1,0 +1,49 @@
+{
+  "fixtures": {
+    "ky": {
+      "language": "ky",
+      "title": "Кыргызча фразбук — 15 фраз",
+      "wavPath": "test_audio/ky.wav",
+      "referenceText": "Саламатсызбы! Ооба Жок Кутмандуу таңыңыз менен! Кутмандуу кечиңиз менен! Эмне жаңылык? Эмне болду? Кандайсыз? Жакшы, рахмат, өзүңүз? Кош калың!",
+      "source": "local",
+      "phraseCount": 10,
+      "durationSeconds": 81.69
+    },
+    "tg": {
+      "language": "tg",
+      "title": "Тоҷикӣ фразбук — 15 фраз",
+      "wavPath": "test_audio/tg.wav",
+      "referenceText": "Салом! Ассалому алайкум! Ҳа, бале Не Субҳ ба хайр! Рӯз ба хайр! Шом ба хайр! Ту чӣ тавр? Саломатиатон чӣ тавр? Хуб, ташаккур, аз они ту шумо тавр?",
+      "source": "local",
+      "phraseCount": 10,
+      "durationSeconds": 109.3
+    },
+    "uz": {
+      "language": "uz",
+      "title": "O'zbekcha phrasebook — 15 ta ibora",
+      "wavPath": "test_audio/uz.wav",
+      "referenceText": "Assalomu Aleykum! Ha Yo’q Hayirli tong! Hayirli kech! Salom! Yaxshimisiz? Yaxshi, rahmat, o’zingizchi? Hayr! Ko’rishguncha!",
+      "source": "local",
+      "phraseCount": 10,
+      "durationSeconds": 128.44
+    },
+    "ru": {
+      "language": "ru",
+      "title": "Русский разговорник — 15 фраз",
+      "wavPath": "test_audio/ru.wav",
+      "referenceText": "Привет! Здравствуйте! Да Нет Доброе утро! Добрый день! Добрый вечер! Как дела? Как поживаешь? Как поживаете? Как ты? Как вы?",
+      "source": "local",
+      "phraseCount": 10,
+      "durationSeconds": 80.51
+    },
+    "en": {
+      "language": "en",
+      "title": "English phrases — Русский разговорник — 15 фраз",
+      "wavPath": "test_audio/ru_en.wav",
+      "referenceText": "Hello! Hello! Yes No Good morning! Good afternoon! Good evening! What’s up? What’s up? How are you?",
+      "source": "local",
+      "phraseCount": 10,
+      "durationSeconds": 5.0
+    }
+  }
+}

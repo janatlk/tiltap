@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+.env.local
+*.log
+.vscode
+.idea
+coverage
+models
+poller_offset.txt
+tmp
