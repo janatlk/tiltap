@@ -8,6 +8,7 @@ RUN npm ci
 
 COPY tsconfig.json ./
 COPY swagger.yaml ./
+COPY scripts ./scripts
 COPY src ./src
 RUN npm run build
 
