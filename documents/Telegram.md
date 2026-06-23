@@ -1,7 +1,7 @@
 # Telegram Bot Configuration
 
 ## Bot Credentials
-- **API Token:** `8827791174:AAHMdPO7ckPdb94qRWYTYPgUzg1BNd2JoZ0`
+- **API Token:** `8817657637:AAF04VxQWUrYelv6lBmuMd6DqjUP5w_ISl8`
 - **Chat ID:** `5206327279`
 
 ## Usage
