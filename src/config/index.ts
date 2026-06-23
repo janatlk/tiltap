@@ -13,6 +13,7 @@ const envSchema = z.object({
     : z.string().min(1, "TELEGRAM_BOT_TOKEN is required"),
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
   OPENAI_API_KEY: z.string().optional().or(z.literal("")),
+  OPENAI_STT_MODEL: z.string().optional().or(z.literal("")).default("whisper-1"),
   TRANSLATION_MODULE_URL: z.string().url().optional().or(z.literal("")),
   GROQ_API_KEY: z.string().optional().or(z.literal("")),
   GEMINI_API_KEY: z.string().optional().or(z.literal("")),
