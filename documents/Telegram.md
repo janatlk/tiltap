@@ -1,13 +1,13 @@
 # Telegram Bot Configuration
 
 ## Bot Credentials
-- **API Token:** `8817657637:AAF04VxQWUrYelv6lBmuMd6DqjUP5w_ISl8`
+- **API Token:** see `.env` (`TELEGRAM_BOT_TOKEN`)
 - **Chat ID:** `5206327279`
 
 ## Usage
 These values are used by the `telegram` MCP server.
 When sending messages, use:
-- `token`: `8827791174:AAHMdPO7ckPdb94qRWYTYPgUzg1BNd2JoZ0`
+- `token`: value from `.env` (`TELEGRAM_BOT_TOKEN`)
 - `chatId`: `5206327279`
 
 ## Reporting Policy
