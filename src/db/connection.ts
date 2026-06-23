@@ -31,7 +31,7 @@ async function initBackend(): Promise<void> {
 
   // Fallback to embedded PGlite
   try {
-    pglite = new PGlite("./.pglite-data");
+    pglite = new PGlite(config.PGLITE_DATA_DIR);
     backend = "pglite";
     logger.info("Using embedded PGlite database");
   } catch (err) {

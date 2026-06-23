@@ -16,6 +16,8 @@ tags:
     description: Service health checks
   - name: Translate
     description: Text translation endpoint
+  - name: Web
+    description: Web mini-service endpoints
   - name: Webhooks
     description: External platform webhooks
 
@@ -97,6 +99,118 @@ paths:
       responses:
         "200":
           description: Update acknowledged
+
+  /api/web/transcribe:
+    post:
+      tags: [Web]
+      summary: Transcribe uploaded audio/video
+      description: Starts an asynchronous transcription job for an uploaded media file.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Audio or video file (max 25 MB)
+                sourceLang:
+                  type: string
+                  description: Source language code (auto/ky/tg/uz/en/ru)
+                targetLang:
+                  type: string
+                  description: Target translation language code or none
+      responses:
+        "202":
+          description: Job started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId:
+                    type: string
+        "400":
+          description: Validation error
+
+  /api/web/youtube:
+    post:
+      tags: [Web]
+      summary: Transcribe YouTube video
+      description: Starts an asynchronous transcription job for a YouTube URL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  description: YouTube URL
+                sourceLang:
+                  type: string
+                targetLang:
+                  type: string
+      responses:
+        "202":
+          description: Job started
+        "400":
+          description: Validation error
+
+  /api/web/translate:
+    post:
+      tags: [Web]
+      summary: Translate text
+      description: Direct text translation using the configured translation service.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TranslateRequest"
+      responses:
+        "200":
+          description: Translation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TranslateResponse"
+
+  /api/web/jobs/{jobId}:
+    get:
+      tags: [Web]
+      summary: Get job status
+      description: Returns the current status and result of a transcription job.
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job status
+        "404":
+          description: Job not found
+
+  /api/web/jobs/{jobId}/progress:
+    get:
+      tags: [Web]
+      summary: Job progress stream
+      description: Server-Sent Events stream for real-time job progress and completion.
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: SSE stream
 
 components:
   schemas:

@@ -1,15 +1,21 @@
 import { Request, Response } from "express";
 import { logger } from "../utils/logger";
+import { unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { TelegramUpdate, TelegramMessage, TranscriptionResult, InlineKeyboardButton } from "../types";
+import type { TelegramUpdate, TelegramMessage, TranscriptionResult, TranscriptionSegment, InlineKeyboardButton } from "../types";
 import { fetchTelegramFile } from "../services/fileDownloadService";
 import { transcribeAudio, formatSubtitles } from "../services/transcriptionService";
-import { translateText } from "../services/translationService";
-import { cleanupTranscription } from "../services/cleanupService";
+
+import { cleanupTranscription, detectTranscriptionIssues } from "../services/cleanupService";
 import { extractYouTubeCaptions } from "../services/youtubeCaptionService";
+import {
+  isValidYouTubeUrl,
+  validateYouTubeUrl,
+  downloadYouTubeAudio,
+} from "../services/youtubeService";
 import { renderLoadingStages } from "../utils/progressBar";
-import { createInterface } from "readline";
+
 import { combinedAccuracy } from "../utils/textSimilarity";
 import { getTestFixture, TEST_FIXTURES, type TestFixture } from "../utils/testFixtures";
 import {
@@ -24,7 +30,6 @@ import {
   createTargetLanguageKeyboard,
   createConfirmationKeyboard,
   createTestLanguageKeyboard,
-  createTranslationKeyboard,
   createStopKeyboard,
   createQuickActionsKeyboard,
   ensureUserProfile,
@@ -51,14 +56,30 @@ import {
 import {
   createMessage,
   createTranscription,
-  getLatestTranscription,
-  saveTranslation,
-  getTranslation,
+  type Transcription,
 } from "../db/repos";
 
 const FFMPEG_PATH = require("ffmpeg-static");
 const PYTHON_PATH = process.platform === "win32" ? "python" : "python3";
 const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
+
+// Simple in-memory deduplication for Telegram update_ids. Prevents duplicate
+// processing when multiple poll forwarders or retries deliver the same update.
+const UPDATE_DEDUP_TTL_MS = 5 * 60 * 1000;
+const recentUpdateIds = new Map<number, number>();
+
+function isDuplicateUpdate(updateId: number): boolean {
+  const now = Date.now();
+  // Clean old entries occasionally (simple sweep every ~100 checks)
+  if (recentUpdateIds.size % 100 === 0) {
+    for (const [id, ts] of recentUpdateIds.entries()) {
+      if (now - ts > UPDATE_DEDUP_TTL_MS) recentUpdateIds.delete(id);
+    }
+  }
+  if (recentUpdateIds.has(updateId)) return true;
+  recentUpdateIds.set(updateId, now);
+  return false;
+}
 
 export async function handleTelegramWebhook(req: Request, res: Response): Promise<void> {
   const startTime = Date.now();
@@ -66,6 +87,11 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
 
   const update = req.body as TelegramUpdate;
   logger.debug("Received Telegram update", { updateId: update.update_id });
+
+  if (isDuplicateUpdate(update.update_id)) {
+    logger.warn("Duplicate Telegram update ignored", { updateId: update.update_id });
+    return;
+  }
 
   try {
     if (update.message) {
@@ -230,25 +256,40 @@ async function handleCommand(
   }
 }
 
-async function sendMainMenu(chatId: number, prefs: UserPreferences, isStart = false): Promise<void> {
-  const lang = prefs.interfaceLanguage;
-  const text = isStart ? t("welcome", lang) : `${t("welcome", lang)}\n\n${t("mainMenuHint", lang)}`;
-  await sendTextMessage(chatId, text, { replyMarkup: createMainKeyboard(lang) });
+function buildMainMenuText(lang: SupportedLanguage, isStart = false): string {
+  return isStart ? t("welcome", lang) : `${t("welcome", lang)}\n\n${t("mainMenuHint", lang)}`;
 }
 
-async function sendSettingsMenu(chatId: number, prefs: UserPreferences): Promise<void> {
+async function sendMainMenu(chatId: number, prefs: UserPreferences, isStart = false): Promise<void> {
+  const lang = prefs.interfaceLanguage;
+  await sendTextMessage(chatId, buildMainMenuText(lang, isStart), { replyMarkup: createMainKeyboard(lang) });
+}
+
+async function editMainMenu(chatId: number, messageId: number, prefs: UserPreferences): Promise<void> {
+  const lang = prefs.interfaceLanguage;
+  await editMessageText(chatId, messageId, buildMainMenuText(lang), { replyMarkup: createMainKeyboard(lang) });
+}
+
+function buildSettingsMenuText(prefs: UserPreferences): string {
   const lang = prefs.interfaceLanguage;
   const sourceLabel = prefs.sourceLanguage === "auto" || prefs.sourceLanguage === "multi"
     ? t("autoDetect", lang)
     : `${LANGUAGE_FLAGS[prefs.sourceLanguage]} ${LANGUAGE_LABELS[prefs.sourceLanguage]}`;
   const targetLabel = prefs.targetLanguage === "none" ? t("noDefaultTarget", lang) : `${LANGUAGE_FLAGS[prefs.targetLanguage]} ${LANGUAGE_LABELS[prefs.targetLanguage]}`;
 
-  const text = `${t("settingsMenu", lang)}\n\n` +
+  return `${t("settingsMenu", lang)}\n\n` +
     `🌍 ${t("settingsInterfaceLanguage", lang)}: ${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}\n` +
     `🎙️ ${t("settingsSourceLanguage", lang)}: ${sourceLabel}\n` +
     `🌐 ${t("settingsTargetLanguage", lang)}: ${targetLabel}`;
+}
 
-  await sendTextMessage(chatId, text, { replyMarkup: createSettingsMenuKeyboard(lang) });
+async function sendSettingsMenu(chatId: number, prefs: UserPreferences): Promise<void> {
+  const lang = prefs.interfaceLanguage;
+  await sendTextMessage(chatId, buildSettingsMenuText(prefs), { replyMarkup: createSettingsMenuKeyboard(lang) });
+}
+
+async function editSettingsMenu(chatId: number, messageId: number, prefs: UserPreferences): Promise<void> {
+  await editMessageText(chatId, messageId, buildSettingsMenuText(prefs), { replyMarkup: createSettingsMenuKeyboard(prefs.interfaceLanguage) });
 }
 
 async function askYouTubeLink(chatId: number, prefs: UserPreferences): Promise<void> {
@@ -261,6 +302,18 @@ async function askYouTubeLink(chatId: number, prefs: UserPreferences): Promise<v
     createdAt: Date.now(),
   });
   await sendTextMessage(chatId, t("sendYoutubeLink", lang), { replyMarkup: createMainKeyboard(lang) });
+}
+
+async function editYouTubeLinkPrompt(chatId: number, messageId: number, prefs: UserPreferences): Promise<void> {
+  const lang = prefs.interfaceLanguage;
+  setPendingAction(chatId, {
+    type: "youtube",
+    url: "",
+    sourceLanguage: prefs.sourceLanguage,
+    targetLanguage: prefs.targetLanguage,
+    createdAt: Date.now(),
+  });
+  await editMessageText(chatId, messageId, t("sendYoutubeLink", lang), { replyMarkup: createMainKeyboard(lang) });
 }
 
 async function handleYouTubeUrl(chatId: number, url: string, prefs: UserPreferences): Promise<void> {
@@ -296,10 +349,6 @@ async function handleYouTubeUrl(chatId: number, url: string, prefs: UserPreferen
   await sendConfirmationMessage(chatId, prefs, validation.title);
 }
 
-function isValidYouTubeUrl(url: string): boolean {
-  return /^(https?:\/\/)?(www\.|m\.)?(youtube\.com|youtu\.be)\/.+/.test(url);
-}
-
 function buildConfirmationText(lang: SupportedLanguage, sourceLang: SupportedLanguage | "auto" | "multi", targetLang: SupportedLanguage | "none", title?: string): string {
   const sourceLabel = sourceLang === "auto" || sourceLang === "multi"
     ? t("autoDetect", lang)
@@ -333,12 +382,26 @@ async function editConfirmationMessage(chatId: number, messageId: number, prefs:
   await editMessageText(chatId, messageId, text, { replyMarkup: createConfirmationKeyboard(pending.actionId, lang) });
 }
 
-async function startPendingAction(chatId: number): Promise<void> {
+async function startPendingAction(chatId: number, force = false): Promise<void> {
+  const prefs = await getUserPreferences(chatId);
+  const lang = prefs.interfaceLanguage;
   const pending = getPendingAction(chatId);
   if (!pending) {
-    const prefs = await getUserPreferences(chatId);
-    await sendTextMessage(chatId, t("sessionExpired", prefs.interfaceLanguage), {
-      replyMarkup: createMainKeyboard(prefs.interfaceLanguage),
+    await sendTextMessage(chatId, t("sessionExpired", lang), {
+      replyMarkup: createMainKeyboard(lang),
+    });
+    return;
+  }
+
+  const active = getActiveProcess(chatId);
+  if (active && !force) {
+    await sendTextMessage(chatId, t("processAlreadyRunning", lang), {
+      replyMarkup: {
+        inline_keyboard: [
+          [{ text: t("startNew", lang), callback_data: `force_start:yes:${pending.actionId}` }],
+          [{ text: t("back", lang), callback_data: `force_start:no:${pending.actionId}` }],
+        ],
+      },
     });
     return;
   }
@@ -435,9 +498,19 @@ async function processAudio(
       return result;
     }
 
-    await editMessageText(chatId, statusMsgId, t("improvingText", lang), { replyMarkup: stopKeyboard });
     const cleanup = await cleanupTranscription(result.text, result.language);
     const cleanedText = cleanup.cleanedText;
+
+    // Quality check before sending to user
+    const quality = detectTranscriptionIssues(cleanedText, result.language, result.segments);
+    if (quality.isSuspicious) {
+      logger.warn("Transcription quality flags detected", {
+        chatId,
+        language: result.language,
+        flags: quality.flags,
+        meanConfidence: quality.meanConfidence,
+      });
+    }
 
     let transcriptionId: number;
     try {
@@ -454,27 +527,11 @@ async function processAudio(
       transcriptionId = 0;
     }
 
-    const keyboard = createTranslationKeyboard(transcriptionId);
     await editMessageText(chatId, statusMsgId, t("transcriptionComplete", lang), removeKeyboard);
 
-    if (cleanedText.length > TEXT_FILE_THRESHOLD) {
-      const txtBuffer = Buffer.from(cleanedText, "utf-8");
-      await sendDocument(
-        chatId,
-        txtBuffer,
-        `transcription_${Date.now()}.txt`,
-        `📝 ${LANGUAGE_LABELS[result.language as SupportedLanguage] ?? result.language}`,
-        keyboard
-      );
-    } else {
-      const subtitles = formatSubtitles(result.segments);
-      const fullText = `<b>📝 ${LANGUAGE_LABELS[result.language as SupportedLanguage] ?? result.language}</b>\n\n` + subtitles;
-      await sendTextMessage(chatId, fullText, { replyMarkup: keyboard, replyToMessageId });
-    }
-
-    if (targetLanguage && targetLanguage !== result.language) {
-      await sendTranslation(chatId, cleanedText, targetLanguage, transcriptionId);
-    }
+    const qualityWarning = quality.isSuspicious ? quality.flags.join(", ") : undefined;
+    const title = `📝 ${LANGUAGE_LABELS[result.language as SupportedLanguage] ?? result.language}`;
+    await sendTranscriptionDocument(chatId, title, cleanedText, result.segments, replyToMessageId, qualityWarning);
 
     return { ...result, text: cleanedText };
   } catch (err) {
@@ -496,7 +553,7 @@ async function downloadAndTranscribeYouTube(
 ): Promise<void> {
   const prefs = await getUserPreferences(chatId);
   const lang = prefs.interfaceLanguage;
-  const tmpWav = join(tmpdir(), `tiltab_yt_${Date.now()}.wav`);
+  let tmpWav = "";
   const statusMsgId = await sendTextMessage(
     chatId,
     renderLoadingStages(0, t("stageStarting", lang), url),
@@ -509,63 +566,14 @@ async function downloadAndTranscribeYouTube(
   try {
     const downloadProgress = createProgressUpdater(chatId, statusMsgId, lang, url);
 
-    await new Promise<void>((resolve, reject) => {
-      const { spawn } = require("child_process");
-      const proc = spawn(PYTHON_PATH, ["download_youtube.py", url, FFMPEG_PATH, tmpWav], {
-        cwd: process.cwd(),
-        env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-      });
-
-      setActiveProcess(chatId, { pid: proc.pid!, startTime: Date.now(), statusMessageId: statusMsgId, type: "youtube" });
-
-      let stderr = "";
-      const stdoutLines: string[] = [];
-
-      const rl = createInterface({ input: proc.stdout });
-      rl.on("line", (line: string) => {
-        const trimmed = line.trim();
-        if (!trimmed) return;
-        stdoutLines.push(trimmed);
-        if (trimmed.startsWith("{")) {
-          try {
-            const data = JSON.parse(trimmed) as { type?: string; percent?: number; label?: string };
-            if (data.type === "progress" && typeof data.percent === "number") {
-              downloadProgress({ percent: data.percent, label: data.label ?? t("stageDownload", lang) });
-            }
-          } catch {
-            // ignore non-JSON
-          }
-        }
-      });
-
-      proc.stderr.on("data", (d: Buffer) => { stderr += d.toString("utf-8"); });
-
-      const timeout = setTimeout(() => {
-        proc.kill("SIGTERM");
-        reject(new Error("Download timed out after 120 seconds. The video may be too long or unavailable."));
-      }, 120_000);
-
-      proc.on("close", (code: number) => {
-        clearActiveProcess(chatId);
-        clearTimeout(timeout);
-        if (code !== 0) {
-          const errMsg = stderr.trim() || stdoutLines.join("\n").trim() || `Download failed with code ${code}`;
-          reject(new Error(errMsg));
-        } else {
-          resolve();
-        }
-      });
-      proc.on("error", (err: Error) => {
-        clearActiveProcess(chatId);
-        clearTimeout(timeout);
-        reject(new Error(`Download process error: ${err.message}`));
-      });
-    });
+    const downloadResult = await downloadYouTubeAudio(url, (progress) =>
+      downloadProgress({ percent: progress.percent, label: progress.label ?? t("stageDownload", lang) })
+    );
+    const audioBuffer = downloadResult.audioBuffer;
+    tmpWav = downloadResult.tmpWav;
 
     await editMessageText(chatId, statusMsgId, renderLoadingStages(60, t("stageTranscribe", lang), url), { replyMarkup: stopKeyboard });
 
-    const fs = await import("fs/promises");
-    const audioBuffer = await fs.readFile(tmpWav);
     const transcribeProgress = createProgressUpdater(chatId, statusMsgId, lang, url);
     const result = await transcribeAudio(
       audioBuffer,
@@ -576,7 +584,7 @@ async function downloadAndTranscribeYouTube(
       },
       transcribeProgress
     );
-    await fs.unlink(tmpWav).catch(() => {});
+    await unlink(tmpWav).catch(() => {});
     clearActiveProcess(chatId);
 
     await editMessageText(chatId, statusMsgId, renderLoadingStages(100, t("stageDone", lang), url), removeKeyboard);
@@ -604,77 +612,15 @@ async function downloadAndTranscribeYouTube(
       transcriptionId = 0;
     }
 
-    const keyboard = createTranslationKeyboard(transcriptionId);
-
-    if (cleanedText.length > TEXT_FILE_THRESHOLD) {
-      const txtBuffer = Buffer.from(cleanedText, "utf-8");
-      await sendDocument(
-        chatId,
-        txtBuffer,
-        `youtube_transcription_${Date.now()}.txt`,
-        `📝 YouTube — ${LANGUAGE_LABELS[result.language as SupportedLanguage] ?? result.language}`,
-        keyboard
-      );
-    } else {
-      const subtitles = formatSubtitles(result.segments);
-      const header = `<b>📝 YouTube — ${LANGUAGE_LABELS[result.language as SupportedLanguage] ?? result.language}</b>\n\n`;
-      await sendTextMessage(chatId, header + subtitles, { replyMarkup: keyboard });
-    }
-
-    if (targetLanguage && targetLanguage !== result.language) {
-      await sendTranslation(chatId, cleanedText, targetLanguage, transcriptionId);
-    }
+    const title = `📝 YouTube — ${LANGUAGE_LABELS[result.language as SupportedLanguage] ?? result.language}`;
+    await sendTranscriptionDocument(chatId, title, cleanedText, result.segments);
   } catch (err) {
     clearActiveProcess(chatId);
-    const fs = await import("fs/promises");
-    await fs.unlink(tmpWav).catch(() => {});
+    await unlink(tmpWav).catch(() => {});
     const msg = `❌ ${err instanceof Error ? err.message : String(err)}`;
     await editMessageText(chatId, statusMsgId, msg, removeKeyboard);
     throw err;
   }
-}
-
-async function validateYouTubeUrl(url: string): Promise<{ ok: boolean; title?: string; duration?: number; reason?: string }> {
-  return new Promise((resolve) => {
-    const { spawn } = require("child_process");
-    const proc = spawn(PYTHON_PATH, ["validate_youtube.py", url], {
-      cwd: process.cwd(),
-      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-    });
-
-    let stdout = "";
-    let stderr = "";
-    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString("utf-8"); });
-    proc.stderr.on("data", (d: Buffer) => { stderr += d.toString("utf-8"); });
-
-    const timeout = setTimeout(() => {
-      proc.kill("SIGTERM");
-      resolve({ ok: false, reason: "timeout" });
-    }, 30_000);
-
-    proc.on("close", (code: number) => {
-      clearTimeout(timeout);
-      if (code !== 0) {
-        resolve({ ok: false, reason: "unknown" });
-        return;
-      }
-      try {
-        const data = JSON.parse(stdout.trim().split("\n").pop() || "{}") as {
-          ok: boolean;
-          title?: string;
-          duration?: number;
-          reason?: string;
-        };
-        resolve(data);
-      } catch {
-        resolve({ ok: false, reason: "unknown" });
-      }
-    });
-    proc.on("error", () => {
-      clearTimeout(timeout);
-      resolve({ ok: false, reason: "unknown" });
-    });
-  });
 }
 
 function getYouTubeErrorMessage(reason: string | undefined, lang: SupportedLanguage): string {
@@ -756,66 +702,40 @@ async function stopActiveProcess(chatId: number): Promise<void> {
   await sendTextMessage(chatId, t("processingStopped", lang), { replyMarkup: createMainKeyboard(lang) });
 }
 
-function buildTranslatedText(targetLang: string, translatedText: string): string {
-  const labels: Record<string, string> = {
-    ru: "🇷🇺 Русский",
-    en: "🇬🇧 English",
-    ky: "🇰🇬 Кыргызча",
-    tg: "🇹🇯 Тоҷикӣ",
-    uz: "🇺🇿 O'zbekcha",
-  };
-  return `<b>${labels[targetLang] ?? targetLang}:</b>\n\n${translatedText}`;
-}
-
-async function sendTranslatedResult(chatId: number, targetLang: string, translatedText: string): Promise<void> {
-  await sendTextMessage(chatId, buildTranslatedText(targetLang, translatedText));
-}
-
-async function sendTranslation(
+async function sendTranscriptionDocument(
   chatId: number,
-  sourceText: string,
-  targetLang: string,
-  transcriptionId?: number
+  title: string,
+  fullText: string,
+  segments: TranscriptionSegment[],
+  replyToMessageId?: number,
+  qualityWarning?: string
 ): Promise<void> {
-  const prefs = await getUserPreferences(chatId);
-  const lang = prefs.interfaceLanguage;
-
-  if (transcriptionId && transcriptionId > 0) {
-    const cached = await getTranslation(transcriptionId, targetLang);
-    if (cached) {
-      await sendTranslatedResult(chatId, targetLang, cached.translated_text);
-      return;
-    }
-  }
-
-  const statusMsgId = await sendTextMessage(chatId, t("translating", lang));
-
-  const translation = await translateText({ text: sourceText, targetLang });
-  const translatedText = translation.translatedText;
-
-  if (transcriptionId && transcriptionId > 0) {
-    try {
-      await saveTranslation({
-        telegramChatId: chatId,
-        transcriptionId,
-        sourceText,
-        targetLang,
-        translatedText,
-      });
-    } catch (err) {
-      logger.error("Failed to persist translation", { error: err, chatId, transcriptionId, targetLang });
-    }
-  }
-
-  await editMessageText(chatId, statusMsgId, buildTranslatedText(targetLang, translatedText));
+  const subtitles = formatSubtitles(segments);
+  const fileContent = `${title}\n\n${fullText}\n\n---\n\n${subtitles}`;
+  const caption = qualityWarning ? `⚠️ ${qualityWarning}` : title;
+  await sendDocument(
+    chatId,
+    Buffer.from(fileContent, "utf-8"),
+    `transcription_${Date.now()}.txt`,
+    caption
+  );
 }
 
 async function prepareTestAudio(fixture: TestFixture, tmpWav: string): Promise<{ source: string; captionPromise: Promise<string | null> }> {
   const fs = await import("fs/promises");
-  if (fixture.source === "local") {
+
+  // Local fixtures (or cached hard fixtures with no URL) should be copied
+  // directly instead of re-downloading from YouTube.
+  const useLocalFile = fixture.source === "local" || (fixture.source === "youtube" && !fixture.url);
+  if (useLocalFile && fixture.wavPath) {
     const wavPath = join(process.cwd(), fixture.wavPath);
-    await fs.copyFile(wavPath, tmpWav);
-    return { source: fixture.wavPath, captionPromise: Promise.resolve(null) };
+    try {
+      await fs.access(wavPath);
+      await fs.copyFile(wavPath, tmpWav);
+      return { source: fixture.wavPath, captionPromise: Promise.resolve(null) };
+    } catch {
+      // Cached/local file missing; fall through to download path for YouTube fixtures.
+    }
   }
 
   const captionPromise = extractYouTubeCaptions(fixture.url!, fixture.language).catch((err) => {
@@ -931,12 +851,7 @@ async function runAccuracyTest(chatId: number, language: string): Promise<void> 
     const referenceSection = `\n<b>${t("referenceText", lang)}:</b>\n<code>${truncate(referenceText, 900)}</code>`;
     const summary = `${header}\n${accuracyLine}${transcriptionSection}${referenceSection}`;
 
-    const keyboard = transcriptionId > 0 ? createTranslationKeyboard(transcriptionId) : undefined;
-
     await editMessageText(chatId, statusMsgId, summary, removeKeyboard);
-    if (keyboard) {
-      await sendTextMessage(chatId, t("wantTranslate", lang), { replyMarkup: keyboard });
-    }
   } catch (err) {
     const fs = await import("fs/promises");
     await fs.unlink(tmpWav).catch(() => {});
@@ -996,7 +911,11 @@ async function handleCallbackQuery(callbackQuery: {
   message?: TelegramMessage;
   data: string;
 }): Promise<void> {
-  await answerCallbackQuery(callbackQuery.id);
+  try {
+    await answerCallbackQuery(callbackQuery.id);
+  } catch (err) {
+    logger.debug("answerCallbackQuery failed, continuing", { error: err instanceof Error ? err.message : String(err) });
+  }
 
   const data = callbackQuery.data;
   const chatId = callbackQuery.message?.chat.id;
@@ -1011,7 +930,7 @@ async function handleCallbackQuery(callbackQuery: {
   if (data.startsWith("ui_lang:")) {
     const langCode = data.split(":")[1] as SupportedLanguage;
     await setUserInterfaceLanguage(chatId, langCode);
-    await sendMainMenu(chatId, { ...prefs, interfaceLanguage: langCode });
+    await editMainMenu(chatId, messageId, { ...prefs, interfaceLanguage: langCode });
     return;
   }
 
@@ -1022,11 +941,8 @@ async function handleCallbackQuery(callbackQuery: {
 
     if (action === "default") {
       await setUserSourceLanguage(chatId, normalized);
-      await sendTextMessage(
-        chatId,
-        t("sourceLanguageSet", lang, { lang: normalized === "auto" ? t("autoDetect", lang) : LANGUAGE_LABELS[normalized as SupportedLanguage] }),
-        { replyMarkup: createSettingsMenuKeyboard(lang) }
-      );
+      const updatedPrefs = await getUserPreferences(chatId);
+      await editSettingsMenu(chatId, messageId, updatedPrefs);
     } else if (action === "confirm" && actionId) {
       updatePendingAction(chatId, { sourceLanguage: normalized });
       await editConfirmationMessage(chatId, messageId, prefs);
@@ -1041,11 +957,8 @@ async function handleCallbackQuery(callbackQuery: {
 
     if (action === "default") {
       await setUserTargetLanguage(chatId, normalized);
-      await sendTextMessage(
-        chatId,
-        t("targetLanguageSet", lang, { lang: normalized === "none" ? t("noDefaultTarget", lang) : LANGUAGE_LABELS[normalized] }),
-        { replyMarkup: createSettingsMenuKeyboard(lang) }
-      );
+      const updatedPrefs = await getUserPreferences(chatId);
+      await editSettingsMenu(chatId, messageId, updatedPrefs);
     } else if (action === "confirm" && actionId) {
       updatePendingAction(chatId, { targetLanguage: normalized });
       await editConfirmationMessage(chatId, messageId, prefs);
@@ -1059,7 +972,7 @@ async function handleCallbackQuery(callbackQuery: {
     const pending = getPendingAction(chatId);
 
     if (!pending || pending.actionId !== actionId) {
-      await sendTextMessage(chatId, t("sessionExpired", lang), { replyMarkup: createMainKeyboard(lang) });
+      await editMessageText(chatId, messageId, t("sessionExpired", lang), { replyMarkup: createMainKeyboard(lang) });
       return;
     }
 
@@ -1076,7 +989,7 @@ async function handleCallbackQuery(callbackQuery: {
       await editConfirmationMessage(chatId, messageId, prefs);
     } else if (action === "cancel") {
       clearPendingAction(chatId);
-      await sendMainMenu(chatId, prefs);
+      await editMainMenu(chatId, messageId, prefs);
     }
     return;
   }
@@ -1092,50 +1005,81 @@ async function handleCallbackQuery(callbackQuery: {
     return;
   }
 
+  // Force-start an action while another process is running
+  if (data.startsWith("force_start:")) {
+    const [, decision, actionId] = data.split(":");
+    const pending = getPendingAction(chatId);
+    if (!pending || pending.actionId !== actionId) {
+      await editMessageText(chatId, messageId, t("sessionExpired", lang), { replyMarkup: createMainKeyboard(lang) });
+      return;
+    }
+    if (decision === "yes") {
+      const active = getActiveProcess(chatId);
+      if (active) {
+        try {
+          process.kill(active.pid, "SIGTERM");
+        } catch (err) {
+          logger.warn("Failed to kill active process", { error: err, pid: active.pid, chatId });
+        }
+        clearActiveProcess(chatId);
+      }
+      await startPendingAction(chatId, true);
+    } else {
+      clearPendingAction(chatId);
+      await editMainMenu(chatId, messageId, prefs);
+    }
+    return;
+  }
+
   // Main menu actions
   if (data === "action:youtube") {
-    await askYouTubeLink(chatId, prefs);
+    await editYouTubeLinkPrompt(chatId, messageId, prefs);
     return;
   }
 
   if (data === "action:settings") {
-    await sendSettingsMenu(chatId, prefs);
+    await editSettingsMenu(chatId, messageId, prefs);
+    return;
+  }
+
+  if (data === "action:languages") {
+    await editSettingsMenu(chatId, messageId, prefs);
     return;
   }
 
   if (data === "action:settings:interface") {
-    await sendTextMessage(chatId, t("chooseInterfaceLanguage", lang), {
+    await editMessageText(chatId, messageId, t("chooseInterfaceLanguage", lang), {
       replyMarkup: createInterfaceLanguageKeyboard("action:settings"),
     });
     return;
   }
 
   if (data === "action:settings:source") {
-    await sendTextMessage(chatId, t("chooseSourceLanguage", lang), {
+    await editMessageText(chatId, messageId, t("chooseSourceLanguage", lang), {
       replyMarkup: createSourceLanguageKeyboard("default", "action:settings"),
     });
     return;
   }
 
   if (data === "action:settings:target") {
-    await sendTextMessage(chatId, t("chooseTargetLanguage", lang), {
+    await editMessageText(chatId, messageId, t("chooseTargetLanguage", lang), {
       replyMarkup: createTargetLanguageKeyboard("default", "action:settings"),
     });
     return;
   }
 
   if (data === "action:main") {
-    await sendMainMenu(chatId, prefs);
+    await editMainMenu(chatId, messageId, prefs);
     return;
   }
 
   if (data === "action:help") {
-    await sendTextMessage(chatId, t("help", lang), { replyMarkup: createMainKeyboard(lang) });
+    await editMessageText(chatId, messageId, t("help", lang), { replyMarkup: createMainKeyboard(lang) });
     return;
   }
 
   if (data === "action:test") {
-    await sendTextMessage(chatId, t("chooseTestLanguage", lang), { replyMarkup: createTestLanguageKeyboard() });
+    await editMessageText(chatId, messageId, t("chooseTestLanguage", lang), { replyMarkup: createTestLanguageKeyboard() });
     return;
   }
 
@@ -1144,24 +1088,4 @@ async function handleCallbackQuery(callbackQuery: {
     return;
   }
 
-  // Translate existing transcription
-  if (!data.startsWith("translate:")) return;
-
-  const parts = data.split(":");
-  if (parts.length !== 3) return;
-
-  const targetLang = parts[1];
-  const transcriptionId = parseInt(parts[2], 10);
-  if (!Number.isFinite(transcriptionId) || transcriptionId <= 0) {
-    await sendTextMessage(chatId, t("sessionExpired", lang));
-    return;
-  }
-
-  const transcription = await getLatestTranscription(chatId);
-  if (!transcription || transcription.id !== transcriptionId) {
-    await sendTextMessage(chatId, t("sessionExpired", lang));
-    return;
-  }
-
-  await sendTranslation(chatId, transcription.full_text, targetLang, transcriptionId);
 }

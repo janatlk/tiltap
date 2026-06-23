@@ -97,6 +97,7 @@ export interface TranscriptionSegment {
   start: number;
   end: number;
   text: string;
+  confidence?: number;
 }
 
 export interface TranscriptionResult {

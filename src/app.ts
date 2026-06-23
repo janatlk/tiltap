@@ -6,7 +6,9 @@ import { logger } from "./utils/logger";
 import { requestLogger } from "./middleware/requestLogger";
 import webhookRoutes from "./routes/webhook";
 import translateRoutes from "./routes/translate";
+import webRoutes from "./routes/web";
 import { isDbHealthy } from "./db";
+import { config } from "./config";
 
 const app = express();
 
@@ -24,12 +26,18 @@ app.get("/health", async (_req, res) => {
     status: dbHealthy ? "ok" : "degraded",
     timestamp: new Date().toISOString(),
     database: dbHealthy ? "connected" : "disconnected",
+    elevenlabsConfigured: Boolean(config.ELEVENLABS_API_KEY),
   });
 });
+
+// Static web UI
+app.use("/web", express.static(path.join(process.cwd(), "public/web")));
+app.use(express.static(path.join(process.cwd(), "public")));
 
 // Routes
 app.use("/webhook", webhookRoutes);
 app.use("/api/translate", translateRoutes);
+app.use("/api/web", webRoutes);
 
 // 404
 app.use((_req: Request, res: Response) => {

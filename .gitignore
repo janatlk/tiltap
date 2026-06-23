@@ -41,3 +41,23 @@ cloudflared.exe
 # Runtime state
 *.pid
 poller_offset.txt
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.torch_cache/
+
+# Temporary files
+tmp/
+tmp_*.wav
+tmp_*.json
+tmp_*.txt
+*.bak
+
+# Screenshots / local assets
+*.png
+
+# Large downloaded test fixtures
+test_audio/youtube/
+test_audio/cache/

@@ -268,6 +268,20 @@ const TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
     en: "ℹ️ No active process to stop.",
     ru: "ℹ️ Нет активного процесса для остановки.",
   },
+  processAlreadyRunning: {
+    ky: "⏳ Сизде активдүү процесс бар. Анын ордуна жаңыны баштайбызбы?",
+    tg: "⏳ Шумо раванди фаъол доред. Оё онро қатъ карда, навро оғоз мекунем?",
+    uz: "⏳ Sizda faol jarayon bor. Uning o'rniga yangisini boshlaymizmi?",
+    en: "⏳ You already have an active process. Stop it and start a new one?",
+    ru: "⏳ У вас уже идёт обработка. Остановить текущую и начать новую?",
+  },
+  startNew: {
+    ky: "▶️ Жаңыны баштоо",
+    tg: "▶️ Оғози нав",
+    uz: "▶️ Yangisini boshlash",
+    en: "▶️ Start new",
+    ru: "▶️ Начать новую",
+  },
   mainMenuHint: {
     ky: "Төмөнкү баскычтарды колдонуңуз:",
     tg: "Аз тугмаҳои зерин истифода баред:",
@@ -330,6 +344,13 @@ const TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
     uz: "✅ Interfeys tili saqlandi: {lang}",
     en: "✅ Interface language saved: {lang}",
     ru: "✅ Язык интерфейса сохранён: {lang}",
+  },
+  qualityWarning: {
+    ky: "Транскрипция текшерилгенде эскертүүлөр бар",
+    tg: "Дар транскрипция огоҳкунињо мављуданд",
+    uz: "Transkripsiyada ogohlantirishlar mavjud",
+    en: "Quality warnings detected in transcription",
+    ru: "В транскрипции обнаружены предупреждения",
   },
   unsupportedFileType: {
     ky: "❌ Бул файл түрү колдойбойт. Аудио же видео жибериңиз.",
@@ -831,16 +852,11 @@ export function createMainKeyboard(lang: SupportedLanguage): { inline_keyboard: 
     inline_keyboard: [
       [{ text: "🔗 YouTube", callback_data: "action:youtube" }],
       [
-        { text: t("settingsInterfaceLanguage", lang), callback_data: "action:settings:interface" },
-        { text: t("settingsSourceLanguage", lang), callback_data: "action:settings:source" },
-      ],
-      [
-        { text: t("settingsTargetLanguage", lang), callback_data: "action:settings:target" },
+        { text: t("settingsMenu", lang).split("\n")[0], callback_data: "action:settings" },
         { text: t("helpButton", lang), callback_data: "action:help" },
       ],
       [
         { text: "🧪 Test", callback_data: "action:test" },
-        { text: "🛑 Stop", callback_data: "action:stop" },
       ],
     ],
   };
@@ -857,7 +873,7 @@ export function createSettingsMenuKeyboard(lang: SupportedLanguage): { inline_ke
   };
 }
 
-export function createInterfaceLanguageKeyboard(backAction = "action:main"): { inline_keyboard: InlineKeyboardButton[][] } {
+export function createInterfaceLanguageKeyboard(backAction = "action:settings"): { inline_keyboard: InlineKeyboardButton[][] } {
   const buttons = SUPPORTED_LANGUAGES.map((lang) => ({
     text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
     callback_data: `ui_lang:${lang}`,
@@ -869,7 +885,7 @@ export function createInterfaceLanguageKeyboard(backAction = "action:main"): { i
 
 export function createSourceLanguageKeyboard(
   action: "default" | `confirm:${string}`,
-  backAction = "action:main"
+  backAction = "action:settings"
 ): { inline_keyboard: InlineKeyboardButton[][] } {
   const languages: (SupportedLanguage | "auto")[] = ["auto", ...SUPPORTED_LANGUAGES];
   const buttons = languages.map((lang) => ({
@@ -883,7 +899,7 @@ export function createSourceLanguageKeyboard(
 
 export function createTargetLanguageKeyboard(
   action: "default" | `confirm:${string}`,
-  backAction = "action:main"
+  backAction = "action:settings"
 ): { inline_keyboard: InlineKeyboardButton[][] } {
   const buttons = SUPPORTED_LANGUAGES.map((lang) => ({
     text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,

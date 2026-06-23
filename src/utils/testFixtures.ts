@@ -43,12 +43,39 @@ function loadManifest(): Record<string, TestFixture> {
   }
 }
 
+function loadHardManifest(): Record<string, TestFixture> {
+  const manifestPath = join(process.cwd(), "test_audio", "hard_manifest.json");
+  if (!existsSync(manifestPath)) {
+    return {};
+  }
+  try {
+    const raw = readFileSync(manifestPath, "utf-8");
+    const parsed = JSON.parse(raw) as { fixtures: Record<string, TestFixture> };
+    return parsed.fixtures ?? {};
+  } catch (err) {
+    console.warn("Failed to load hard test audio manifest", err);
+    return {};
+  }
+}
+
 const manifestFixtures = loadManifest();
+const hardFixtures = loadHardManifest();
+
+// For the priority languages we prefer real-world YouTube fixtures over the
+// synthetic phrasebook clips, because Vosk-based engines struggle with the
+// phrasebook's short repeated phrases.
+const PRIORITY_LANGUAGES = new Set(["ky", "tg", "uz"]);
+const mergedFixtures: Record<string, TestFixture> = { ...manifestFixtures };
+for (const lang of PRIORITY_LANGUAGES) {
+  if (hardFixtures[lang]) {
+    mergedFixtures[lang] = hardFixtures[lang];
+  }
+}
 
 export const TEST_FIXTURES: Record<string, TestFixture> = {
-  ...manifestFixtures,
-  // Fallback Kyrgyz YouTube fixture if local fixtures are missing.
-  ky: manifestFixtures.ky ?? DEFAULT_TEST_FIXTURE,
+  ...mergedFixtures,
+  // Fallback Kyrgyz YouTube fixture if no fixtures are present.
+  ky: mergedFixtures.ky ?? DEFAULT_TEST_FIXTURE,
 };
 
 export function getTestFixture(language: string): TestFixture | undefined {

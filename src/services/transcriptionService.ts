@@ -101,6 +101,10 @@ export async function transcribeAudio(
       logger.info("Transcription complete", {
         language: finalResult.language,
         segmentCount: finalResult.segments.length,
+        charCount: finalResult.text.length,
+        wordCount: finalResult.text.split(/\s+/).filter(Boolean).length,
+        filename,
+        requestedLanguage: language,
       });
 
       resolve(finalResult);

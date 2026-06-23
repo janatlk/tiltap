@@ -15,29 +15,10 @@ export interface CleanupResult {
  */
 export async function cleanupTranscription(
   text: string,
-  language: string
+  _language: string
 ): Promise<CleanupResult> {
-  const providers: Array<() => Promise<CleanupResult | null>> = [
-    () => cleanupWithGroq(text, language),
-    () => cleanupWithGemini(text, language),
-  ];
-
-  for (const provider of providers) {
-    try {
-      const result = await provider();
-      if (result) {
-        logger.info("Transcription cleaned up", { provider: result.provider, language });
-        return result;
-      }
-    } catch (err) {
-      logger.warn("LLM cleanup provider failed", { error: err, provider: provider.name });
-    }
-  }
-
-  // Fallback to rule-based cleanup
-  const cleaned = ruleBasedCleanup(text, language);
-  logger.info("Transcription cleaned up (rule-based fallback)", { language });
-  return { cleanedText: cleaned, provider: "rule-based" };
+  // Temporarily disabled: skip LLM/rule-based cleanup and return raw transcription.
+  return { cleanedText: text, provider: "disabled" };
 }
 
 // ---------------------------------------------------------------------------
@@ -170,10 +151,83 @@ ${text}`;
 }
 
 // ---------------------------------------------------------------------------
+// Hallucination / artifact detection
+// ---------------------------------------------------------------------------
+export interface QualityReport {
+  isSuspicious: boolean;
+  flags: string[];
+  meanConfidence?: number;
+}
+
+export function detectTranscriptionIssues(text: string, language: string, segments?: Array<{ confidence?: number }>): QualityReport {
+  const flags: string[] = [];
+  const trimmed = text.trim();
+
+  if (!trimmed) {
+    flags.push("empty");
+  }
+
+  // Repeated words/phrases (common Whisper hallucination pattern)
+  const words = trimmed.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length > 0) {
+    const counts = new Map<string, number>();
+    for (const w of words) {
+      counts.set(w, (counts.get(w) || 0) + 1);
+    }
+    const [topWord, topCount] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (topCount >= 5 && topCount / words.length > 0.35) {
+      flags.push(`repetition:${topWord}`);
+    }
+  }
+
+  // English intrusion for non-English targets
+  if (["ky", "tg", "uz", "ru"].includes(language)) {
+    const englishTokens = (trimmed.match(/\b(have|has|had|you|your|was|were|this|that|with|from|they|them|their|there|then|than|also|been|having|said|only|god|real|kind|missed|thank|people|some|know|going|get|got|and|but|or|not|no)\b/gi) || []).length;
+    if (englishTokens > 3) {
+      flags.push("english_intrusion");
+    }
+  }
+
+  // Latin characters in Cyrillic languages
+  if (["ky", "tg", "ru"].includes(language)) {
+    const latinCount = (trimmed.match(/[a-zA-Z]/g) || []).length;
+    if (latinCount / Math.max(trimmed.length, 1) > 0.1) {
+      flags.push("latin_in_cyrillic");
+    }
+  }
+
+  // Confidence-based warning
+  let meanConfidence: number | undefined;
+  if (segments && segments.length > 0) {
+    const confidences = segments.map((s) => s.confidence ?? 0).filter((c) => typeof c === "number");
+    if (confidences.length > 0) {
+      meanConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length;
+      if (meanConfidence < 0.3) {
+        flags.push("low_confidence");
+      }
+    }
+  }
+
+  return {
+    isSuspicious: flags.length > 0,
+    flags,
+    meanConfidence,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Rule-based fallback
 // ---------------------------------------------------------------------------
 function ruleBasedCleanup(text: string, language: string): string {
   let cleaned = text;
+
+  // Remove obvious Whisper artifacts (isolated punctuation dots, repeated "i'm" etc.)
+  cleaned = cleaned
+    .replace(/\bi['’]?m\b/gi, "")
+    .replace(/\.{2,}/g, ".")
+    .replace(/\b_,?\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
   // Capitalize first letter of each sentence
   cleaned = cleaned.replace(/(^|[.!?]\s+)([a-zа-яёқӯҳҷғӣүөъ])/g, (_, prefix, letter) => {
@@ -189,19 +243,37 @@ function ruleBasedCleanup(text: string, language: string): string {
   const dictionaries: Record<string, Record<string, string>> = {
     ky: {
       кыргызстан: "Кыргызстан",
+      кыргызстанда: "Кыргызстанда",
+      кыргызстандык: "Кыргызстандык",
       бишкек: "Бишкек",
+      бишкекте: "Бишкекте",
       ош: "Ош",
+      ошто: "Ошто",
       жасал: "Жасал",
       садыр: "Садыр",
       жапаров: "Жапаров",
+      "садыр жапаров": "Садыр Жапаров",
+      алмаз: "Алмаз",
+      шаадаев: "Шаадаев",
+      самат: "Самат",
+      атабеков: "Атабеков",
+      нурлан: "Нурлан",
+      насип: "Насип",
+      пирматов: "Пирматов",
     },
     tg: {
       таджикистан: "Таджикистан",
+      таджикистон: "Тоҷикистон",
       душанбе: "Душанбе",
       хуҷанд: "Хуҷанд",
       тоҷикистон: "Тоҷикистон",
       эмомали: "Эмомали",
       раҳмон: "Раҳмон",
+      "эмомали раҳмон": "Эмомали Раҳмон",
+      ҳаҷ: "Ҳаҷ",
+      худо: "Худо",
+      худованд: "Худованд",
+      ташаккур: "Ташаккур",
     },
     uz: {
       "o'zbekiston": "O'zbekiston",
@@ -210,6 +282,16 @@ function ruleBasedCleanup(text: string, language: string): string {
       samarqand: "Samarqand",
       buxorо: "Buxoro",
       "shavkat mirziyoyev": "Shavkat Mirziyoyev",
+      "shavkat": "Shavkat",
+      "mirziyoyev": "Mirziyoyev",
+      "qarshi": "Qarshi",
+      "farg'ona": "Farg'ona",
+      "namangan": "Namangan",
+      "andijon": "Andijon",
+      "xorazm": "Xorazm",
+      "navoiy": "Navoiy",
+      "sirdaryo": "Sirdaryo",
+      "jizzax": "Jizzax",
     },
     ru: {
       кыргызстан: "Кыргызстан",

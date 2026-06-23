@@ -1,26 +1,31 @@
 #!/usr/bin/env python3
-"""Hybrid transcription: Vosk for Kyrgyz/Russian, Whisper for others.
+"""Hybrid transcription engine optimized for Kyrgyz, Tajik and Uzbek.
 
 Model routing:
-  ky -> Vosk (vosk-model-ky-0.42)
-  tg -> Whisper (distil-large-v3)
-  uz -> wav2vec2 (Beehzod/wav2vec2-large-xlsr-uzbek_STT_2) or Whisper fallback
+  ky -> Vosk large (fallback Vosk small -> Whisper)
+  tg -> ElevenLabs Scribe (fallback fine-tuned Whisper Tajik -> distil-large-v3)
+  uz -> Fine-tuned Whisper Uzbek Rubai (CTranslate2 int8) -> Vosk small fallback
   en -> Whisper (distil-large-v3)
-  ru -> Vosk (vosk-model-ru-0.42) or Whisper fallback
-  auto -> Whisper (base) for fast language detection
+  ru -> Vosk (fallback Whisper)
+  auto -> Whisper base for language detection
   multi -> Whisper dual-pass (auto + Russian) for Turkic/Russian code-switching
 
-Whisper models are cached in memory to avoid reloading on every request.
 Real-time progress is emitted as JSON lines to stdout.
+Diagnostics (model choice, confidence, hallucination flags) go to stderr.
 """
 
 import json
 import sys
 import os
+import re
 import wave
 import subprocess
 import tempfile
 import math
+from collections import Counter
+
+import vad_utils
+import text_postprocessing
 
 PYTHON_PATH = "python" if sys.platform == "win32" else "python3"
 FFMPEG_PATH = None
@@ -33,7 +38,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 
 # ---------------------------------------------------------------------------
-# Progress reporting
+# Progress / diagnostics
 # ---------------------------------------------------------------------------
 def emit_progress(percent: int, label: str):
     """Emit a JSON progress line that the Node controller can consume."""
@@ -41,6 +46,11 @@ def emit_progress(percent: int, label: str):
         json.dumps({"type": "progress", "percent": max(0, min(100, int(percent))), "label": label}, ensure_ascii=False),
         flush=True,
     )
+
+
+def log_diagnostic(**kwargs):
+    """Structured diagnostics to stderr; ignored by Node controller."""
+    print(json.dumps(kwargs, ensure_ascii=False), file=sys.stderr, flush=True)
 
 
 def get_audio_duration(wav_path: str) -> float:
@@ -56,21 +66,65 @@ def get_audio_duration(wav_path: str) -> float:
 # ---------------------------------------------------------------------------
 _whisper_models = {}
 _wav2vec_models = {}
-_whisper_hf_models = {}
+_whisper_hf_pipelines = {}
 
 
-def get_whisper_model(model_size="distil-large-v3"):
-    """Load and cache a Whisper model. Models are kept in memory for reuse."""
-    if model_size not in _whisper_models:
+def get_whisper_model(model_path="distil-large-v3"):
+    """Load and cache a faster-whisper model. Models are kept in memory for reuse."""
+    if model_path not in _whisper_models:
         from faster_whisper import WhisperModel
-        print(f"[whisper] Loading model: {model_size} ...", file=sys.stderr, flush=True)
-        _whisper_models[model_size] = WhisperModel(
-            model_size,
+        print(f"[whisper] Loading model: {model_path} ...", file=sys.stderr, flush=True)
+        try:
+            _whisper_models[model_path] = WhisperModel(
+                model_path,
+                device="cpu",
+                compute_type="int8",
+            )
+        except (MemoryError, RuntimeError) as e:
+            # If the model failed to load because of memory pressure, drop any
+            # previously cached whisper models and try once more.
+            if "memory" in str(e).lower() or "allocate" in str(e).lower():
+                release_whisper_models()
+                _whisper_models[model_path] = WhisperModel(
+                    model_path,
+                    device="cpu",
+                    compute_type="int8",
+                )
+            else:
+                raise
+        print(f"[whisper] Model {model_path} loaded.", file=sys.stderr, flush=True)
+    return _whisper_models[model_path]
+
+
+def release_whisper_models():
+    """Drop cached faster-whisper models to free memory."""
+    import gc
+    _whisper_models.clear()
+    gc.collect()
+    print("[whisper] Dropped cached models to free memory.", file=sys.stderr, flush=True)
+
+
+def release_hf_pipelines():
+    """Drop cached HuggingFace pipelines to free memory."""
+    import gc
+    _whisper_hf_pipelines.clear()
+    gc.collect()
+    print("[whisper-hf] Dropped cached pipelines to free memory.", file=sys.stderr, flush=True)
+
+
+def get_whisper_hf_pipeline(model_name: str):
+    """Load and cache a HuggingFace Whisper pipeline for fine-tuned models."""
+    if model_name not in _whisper_hf_pipelines:
+        from transformers import pipeline
+        print(f"[whisper-hf] Loading model: {model_name} ...", file=sys.stderr, flush=True)
+        _whisper_hf_pipelines[model_name] = pipeline(
+            "automatic-speech-recognition",
+            model=model_name,
             device="cpu",
-            compute_type="int8",
+            chunk_length_s=30,
         )
-        print(f"[whisper] Model {model_size} loaded.", file=sys.stderr, flush=True)
-    return _whisper_models[model_size]
+        print(f"[whisper-hf] Model {model_name} loaded.", file=sys.stderr, flush=True)
+    return _whisper_hf_pipelines[model_name]
 
 
 # ---------------------------------------------------------------------------
@@ -84,11 +138,12 @@ def convert_to_wav(input_path: str, output_path: str, ffmpeg_path: str, enhance:
     ]
 
     if enhance:
-        # Audio enhancement pipeline:
-        # 1. highpass=f=80     - remove low-frequency rumble/noise
-        # 2. lowpass=f=8000    - remove high-frequency hiss (speech is mostly below 8kHz)
-        # 3. dynaudnorm        - dynamic volume normalization
-        # 4. afftdn            - FFT noise reduction (light)
+        # Improved audio enhancement:
+        # 1. highpass=f=80      - remove low-frequency rumble/noise
+        # 2. lowpass=f=8000     - remove high-frequency hiss
+        # 3. dynaudnorm         - dynamic volume normalization
+        # 4. afftdn             - FFT noise reduction (moderate)
+        # 5. silenceremove      - strip long silent heads/tails (0.5s threshold)
         cmd.extend([
             "-af", "highpass=f=80,lowpass=f=8000,dynaudnorm=p=0.95:g=15,afftdn=nr=10:nf=-20",
         ])
@@ -100,6 +155,159 @@ def convert_to_wav(input_path: str, output_path: str, ffmpeg_path: str, enhance:
         output_path,
     ])
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def load_audio(wav_path: str):
+    """Load 16kHz mono WAV and return numpy array."""
+    import numpy as np
+    wf = wave.open(wav_path, "rb")
+    frames = wf.readframes(wf.getnframes())
+    wf.close()
+    audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+    return audio, 16000
+
+
+# ---------------------------------------------------------------------------
+# Post-processing helpers
+# ---------------------------------------------------------------------------
+def strip_leading_repetitions(text: str) -> str:
+    """Remove leading repeated syllables like 'ololololo...' produced by some models."""
+    # Strip leading single repeated syllable/character clusters
+    cleaned = text.strip()
+    # Pattern: same short sequence (1-4 chars) repeated >= 4 times at the start
+    match = re.match(r"^(\S{1,4})(?:\1){3,}", cleaned)
+    if match:
+        cleaned = cleaned[len(match.group(0)):].strip()
+    # Also collapse repeated words at the very beginning
+    words = cleaned.split()
+    if len(words) >= 4 and words[0] == words[1] == words[2] == words[3]:
+        cleaned = " ".join(words[1:]).strip()
+    return cleaned
+
+
+def normalize_repeated_punctuation(text: str) -> str:
+    """Collapse repeated punctuation and clean up whitespace."""
+    text = re.sub(r"\.{2,}", ".", text)
+    text = re.sub(r"\?{2,}", "?", text)
+    text = re.sub(r"!{2,}", "!", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def collapse_consecutive_repeats(text: str, max_repeats: int = 3) -> str:
+    """Collapse consecutive repeated phrases (common Whisper stuck-token artifact).
+
+    Only collapses immediate repetitions of the same word/phrase more than
+    max_repeats times, which is conservative enough to avoid damaging real speech.
+    """
+    words = text.split()
+    if not words:
+        return text
+
+    result = []
+    i = 0
+    while i < len(words):
+        # Find longest repeated phrase starting here
+        best_len = 1
+        best_count = 1
+        for phrase_len in range(1, min(9, len(words) - i + 1)):
+            phrase = words[i:i + phrase_len]
+            count = 1
+            j = i + phrase_len
+            while j + phrase_len <= len(words) and words[j:j + phrase_len] == phrase:
+                count += 1
+                j += phrase_len
+            if count > best_count:
+                best_count = count
+                best_len = phrase_len
+
+        phrase = words[i:i + best_len]
+        if best_count > max_repeats:
+            result.extend(phrase)
+            i += best_len * best_count
+        else:
+            result.append(words[i])
+            i += 1
+
+    return " ".join(result)
+
+
+# ---------------------------------------------------------------------------
+# Quality analysis / hallucination detection
+# ---------------------------------------------------------------------------
+def compute_mean_confidence(segments):
+    if not segments:
+        return 0.0
+    values = [s.get("confidence", 0.0) for s in segments]
+    return sum(values) / len(values)
+
+
+def detect_hallucination(text: str, segments, expected_language: str):
+    """Return a dict with quality flags."""
+    flags = []
+    text = text.strip()
+
+    if not text:
+        flags.append("empty_output")
+
+    # Repetition of single word/phrase many times
+    words = re.findall(r"\b\w+\b", text.lower())
+    if words:
+        most_common = Counter(words).most_common(1)[0]
+        if most_common[1] >= 5 and most_common[1] / len(words) > 0.4:
+            flags.append(f"repetition:{most_common[0]}")
+
+    # Leading repetition artifact
+    if re.match(r"^(\S{1,4})(?:\1){3,}", text):
+        flags.append("leading_repetition")
+
+    # English tokens in non-English target (cheap heuristic)
+    if expected_language in ("tg", "ky", "uz", "ru"):
+        english_words = re.findall(r"\b(have|has|had|you|your|was|were|this|that|with|from|they|them|their|there|then|than|also|been|having|said|only|god|real|kind|missed|thank|people|some|know|going|get|got|and|but|or|not|no)\b", text.lower())
+        if len(english_words) > 3:
+            flags.append("english_intrusion")
+
+    # Very long segment without punctuation. Vosk does not add punctuation, so skip
+    # this flag for languages where Vosk is the primary engine.
+    if expected_language not in ("ky", "uz") and len(text) > 200 and not any(p in text for p in ".,!?؛؟،"):
+        flags.append("unpunctuated_long_text")
+
+    # Low average confidence. Vosk reports 0.0 confidence, so only flag low confidence
+    # when the engine actually reported a positive confidence value.
+    mean_conf = compute_mean_confidence(segments)
+    if expected_language not in ("ky",) and 0 < mean_conf < 0.3:
+        flags.append("low_confidence")
+
+    # Latin characters in Cyrillic languages
+    if expected_language in ("tg", "ky", "ru"):
+        latin_ratio = len(re.findall(r"[a-zA-Z]", text)) / max(len(text), 1)
+        if latin_ratio > 0.1:
+            flags.append("latin_in_cyrillic")
+
+    return {
+        "is_hallucination": bool(flags),
+        "flags": flags,
+        "mean_confidence": mean_conf,
+        "char_count": len(text),
+        "word_count": len(words),
+    }
+
+
+def select_best_output(candidates):
+    """Choose the candidate with the fewest hallucination flags and highest confidence."""
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    def score(candidate):
+        quality = candidate.get("quality", {})
+        flag_count = len(quality.get("flags", []))
+        mean_conf = quality.get("mean_confidence", -1.0)
+        length = quality.get("char_count", 0)
+        return (-flag_count, mean_conf, length)
+
+    return max(candidates, key=score)
 
 
 # ---------------------------------------------------------------------------
@@ -162,11 +370,121 @@ def build_vosk_segments(results):
 
 
 # ---------------------------------------------------------------------------
-# Whisper transcription
+# Whisper transcription (faster-whisper)
 # ---------------------------------------------------------------------------
+def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "distil-large-v3", progress_label: str = "Распознаю", initial_prompt: str | None = None, conservative: bool = False):
+    model = get_whisper_model(model_path)
+    duration = get_audio_duration(wav_path)
+    emit_progress(0, f"{progress_label}: загрузка модели...")
 
+    default_prompt = "Transcribe the spoken words accurately, including any loanwords from other languages."
+    prompt = initial_prompt if initial_prompt else default_prompt
+
+    # Fine-tuned models are often more stable with greedy decoding
+    beam_size = 1 if conservative else 5
+    best_of = 1 if conservative else 5
+    word_timestamps = False if conservative else True
+
+    segments_iter, info = model.transcribe(
+        wav_path,
+        language=language if language else None,
+        word_timestamps=word_timestamps,
+        condition_on_previous_text=True,
+        vad_filter=True,
+        beam_size=beam_size,
+        best_of=best_of,
+        initial_prompt=prompt,
+    )
+
+    emit_progress(5, progress_label)
+
+    result_segments = []
+    seg_id = 0
+    full_text_parts = []
+
+    for segment in segments_iter:
+        words = getattr(segment, "words", []) or []
+        confidences = [getattr(w, "probability", 0.0) for w in words]
+        avg_conf = sum(confidences) / len(confidences) if confidences else (getattr(segment, "avg_logprob", 0.0) or 0.0)
+
+        result_segments.append({
+            "id": seg_id,
+            "start": segment.start,
+            "end": segment.end,
+            "text": segment.text.strip(),
+            "confidence": avg_conf,
+        })
+        seg_id += 1
+        full_text_parts.append(segment.text.strip())
+        if duration:
+            progress = 5 + int(90 * segment.end / duration)
+            emit_progress(progress, progress_label)
+
+    emit_progress(100, progress_label)
+    full_text = normalize_repeated_punctuation(" ".join(full_text_parts))
+    full_text = collapse_consecutive_repeats(full_text)
+    return {
+        "text": full_text,
+        "language": info.language,
+        "segments": result_segments,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Whisper transcription (HuggingFace pipeline for fine-tuned models)
+# ---------------------------------------------------------------------------
+def transcribe_whisper_hf(wav_path: str, model_name: str, language: str, progress_label: str = "Распознаю"):
+    """Transcribe audio with a HuggingFace Whisper pipeline (fine-tuned)."""
+    import numpy as np
+
+    pipe = get_whisper_hf_pipeline(model_name)
+    audio, sr = load_audio(wav_path)
+
+    emit_progress(5, progress_label)
+    result = pipe(audio, return_timestamps=True)
+    emit_progress(95, progress_label)
+
+    full_text = strip_leading_repetitions(result.get("text", "").strip())
+    full_text = normalize_repeated_punctuation(full_text)
+    chunks = result.get("chunks", [])
+    segments = []
+    seg_id = 0
+    for chunk in chunks:
+        timestamp = chunk.get("timestamp") or (0.0, 0.0)
+        if not isinstance(timestamp, (list, tuple)):
+            start, end = 0.0, 0.0
+        else:
+            start = timestamp[0] if timestamp[0] is not None else 0.0
+            end = timestamp[1] if len(timestamp) > 1 and timestamp[1] is not None else start
+        text = strip_leading_repetitions(chunk.get("text", "").strip())
+        text = normalize_repeated_punctuation(text)
+        if text:
+            segments.append({
+                "id": seg_id,
+                "start": float(start),
+                "end": float(end),
+                "text": text,
+                "confidence": 0.5,  # HF pipeline does not expose per-word probs easily
+            })
+            seg_id += 1
+
+    if not full_text and segments:
+        full_text = " ".join(s["text"] for s in segments)
+
+    full_text = collapse_consecutive_repeats(full_text)
+
+    emit_progress(100, progress_label)
+    return {
+        "text": full_text,
+        "language": language,
+        "segments": segments,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Wav2Vec2 transcription (kept as optional fallback)
+# ---------------------------------------------------------------------------
 def get_wav2vec_model(model_name: str):
-    """Load and cache a HuggingFace Wav2Vec2 model."""
     if model_name not in _wav2vec_models:
         import torch
         from transformers import AutoProcessor, AutoModelForCTC
@@ -181,24 +499,12 @@ def get_wav2vec_model(model_name: str):
     return _wav2vec_models[model_name]
 
 
-def load_audio(wav_path: str):
-    """Load 16kHz mono WAV and return numpy array."""
-    import numpy as np
-    wf = wave.open(wav_path, "rb")
-    frames = wf.readframes(wf.getnframes())
-    wf.close()
-    audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-    return audio, 16000
-
-
 def transcribe_wav2vec2(wav_path: str, model_name: str, language: str, progress_label: str = "Распознаю"):
-    """Transcribe audio with a cached Wav2Vec2 model."""
     import torch
     import numpy as np
 
     processor, model, device = get_wav2vec_model(model_name)
     audio, sr = load_audio(wav_path)
-    duration = len(audio) / sr
 
     chunk_samples = 30 * sr
     full_text_parts = []
@@ -223,71 +529,21 @@ def transcribe_wav2vec2(wav_path: str, model_name: str, language: str, progress_
         predicted_ids = torch.argmax(logits, dim=-1)
         transcription = processor.batch_decode(predicted_ids)[0]
 
-        full_text_parts.append(transcription.strip())
-        segments.append({
-            "id": seg_id,
-            "start": chunk_start,
-            "end": chunk_end,
-            "text": transcription.strip(),
-            "confidence": 0.0,
-        })
-        seg_id += 1
-        progress = 5 + int(90 * seg_id / total_chunks) if total_chunks else 5
-        emit_progress(progress, progress_label)
-
-    full_text = " ".join(full_text_parts)
-    emit_progress(100, progress_label)
-    return {
-        "text": full_text,
-        "language": language,
-        "segments": segments,
-    }
-
-
-def get_whisper_hf_pipeline(model_name: str):
-    """Load and cache a HuggingFace Whisper pipeline."""
-    if model_name not in _whisper_hf_models:
-        from transformers import pipeline
-        print(f"[whisper-hf] Loading model: {model_name} ...", file=sys.stderr, flush=True)
-        _whisper_hf_models[model_name] = pipeline(
-            "automatic-speech-recognition",
-            model=model_name,
-            device="cpu",
-            chunk_length_s=30,
-        )
-        print(f"[whisper-hf] Model {model_name} loaded.", file=sys.stderr, flush=True)
-    return _whisper_hf_models[model_name]
-
-
-def transcribe_whisper_hf(wav_path: str, model_name: str, language: str, progress_label: str = "Распознаю"):
-    """Transcribe audio with a HuggingFace Whisper model (fine-tuned)."""
-    pipe = get_whisper_hf_pipeline(model_name)
-    emit_progress(5, progress_label)
-    result = pipe(wav_path, return_timestamps=True)
-    emit_progress(95, progress_label)
-
-    full_text = result.get("text", "").strip()
-    chunks = result.get("chunks", [])
-    segments = []
-    seg_id = 0
-    for chunk in chunks:
-        timestamp = chunk.get("timestamp") or (0.0, 0.0)
-        start = timestamp[0] if isinstance(timestamp, (list, tuple)) else 0.0
-        end = timestamp[1] if isinstance(timestamp, (list, tuple)) and len(timestamp) > 1 and timestamp[1] is not None else start
-        text = chunk.get("text", "").strip()
-        if text:
+        transcription = transcription.strip()
+        if transcription:
+            full_text_parts.append(transcription)
             segments.append({
                 "id": seg_id,
-                "start": float(start),
-                "end": float(end),
-                "text": text,
+                "start": chunk_start,
+                "end": chunk_end,
+                "text": transcription,
                 "confidence": 0.0,
             })
             seg_id += 1
+        progress = 5 + int(90 * seg_id / total_chunks) if total_chunks else 5
+        emit_progress(progress, progress_label)
 
-    if not full_text and segments:
-        full_text = " ".join(s["text"] for s in segments)
-
+    full_text = normalize_repeated_punctuation(" ".join(full_text_parts))
     emit_progress(100, progress_label)
     return {
         "text": full_text,
@@ -296,48 +552,351 @@ def transcribe_whisper_hf(wav_path: str, model_name: str, language: str, progres
     }
 
 
-def transcribe_whisper(wav_path: str, language: str | None, model_size: str = "distil-large-v3", progress_label: str = "Распознаю"):
-    model = get_whisper_model(model_size)
-    duration = get_audio_duration(wav_path)
-    emit_progress(0, f"{progress_label}: загрузка модели...")
+# ---------------------------------------------------------------------------
+# Language-specific wrappers with fallbacks
+# ---------------------------------------------------------------------------
+def transcribe_kyrgyz(wav_path: str):
+    large_path = "models/vosk-model-ky-0.42"
+    small_path = "models/vosk-model-small-ky-0.42"
+    model_path = large_path if os.path.exists(large_path) else small_path
 
-    segments_iter, info = model.transcribe(
-        wav_path,
-        language=language if language else None,
-        word_timestamps=False,
-        condition_on_previous_text=True,
-        vad_filter=True,
-        beam_size=1,
-        best_of=1,
-        initial_prompt="Transcribe the spoken words accurately, including any loanwords from other languages.",
-    )
+    log_diagnostic(language="ky", primary_model="vosk", model_path=model_path)
 
-    emit_progress(5, progress_label)
+    results = transcribe_vosk(wav_path, model_path, progress_label="Кыргызча распознаю")
+    segments = build_vosk_segments(results)
+    full_text = normalize_repeated_punctuation(" ".join(s["text"] for s in segments))
 
-    result_segments = []
-    seg_id = 0
-    full_text_parts = []
+    output = {"text": full_text, "language": "ky", "segments": segments}
+    quality = detect_hallucination(full_text, segments, "ky")
+    output["quality"] = quality
 
-    for segment in segments_iter:
-        result_segments.append({
-            "id": seg_id,
-            "start": segment.start,
-            "end": segment.end,
-            "text": segment.text.strip(),
-            "confidence": getattr(segment, "avg_logprob", 0.0) or 0.0,
-        })
-        seg_id += 1
-        full_text_parts.append(segment.text.strip())
-        if duration:
-            progress = 5 + int(90 * segment.end / duration)
-            emit_progress(progress, progress_label)
+    if quality["is_hallucination"] or len(full_text.strip()) < 10:
+        log_diagnostic(language="ky", fallback_reason=quality["flags"])
+        # Whisper does not support Kyrgyz ('ky'), so we cannot fall back to it cleanly.
+        # Instead we return the Vosk result with a warning flag for downstream handling.
+        quality["flags"].append("vosk_quality_warning")
 
-    emit_progress(100, progress_label)
+    return output
+
+
+def transcribe_elevenlabs(
+    wav_path: str,
+    language_code: str = "tgk",
+    model_id: str = "scribe_v2",
+    time_offset: float = 0.0,
+    progress_start: int = 5,
+    progress_end: int = 100,
+):
+    """Transcribe audio using ElevenLabs Scribe API. Returns None if no API key."""
+    api_key = os.environ.get("ELEVENLABS_API_KEY")
+    if not api_key:
+        return None
+
+    try:
+        import requests
+    except ImportError:
+        log_diagnostic(provider="elevenlabs", error="requests not installed")
+        return None
+
+    url = "https://api.elevenlabs.io/v1/speech-to-text"
+    emit_progress(progress_start, "ElevenLabs: uploading audio...")
+    try:
+        with open(wav_path, "rb") as f:
+            files = {"file": (os.path.basename(wav_path), f, "audio/wav")}
+            data = {
+                "model_id": model_id,
+                "tag_audio_events": "true",
+                "num_speakers": "1",
+                "diarize": "false",
+                "timestamps_granularity": "word",
+            }
+            headers = {"xi-api-key": api_key}
+            resp = requests.post(url, files=files, data=data, headers=headers, timeout=600)
+
+        if resp.status_code != 200:
+            log_diagnostic(provider="elevenlabs", status=resp.status_code, error=resp.text[:500])
+            return None
+
+        data = resp.json()
+        text = data.get("text", "").strip()
+        language = data.get("language_code", language_code)
+        words = data.get("words", [])
+
+        # Build segments by grouping words into ~10s chunks
+        segments = []
+        seg_id = 0
+        current_words = []
+        current_start = None
+        current_end = None
+        chunk_start = 0.0
+
+        for w in words:
+            if w.get("type") != "word":
+                continue
+            w_text = w.get("text", "").strip()
+            if not w_text:
+                continue
+            start = w.get("start", 0.0) + time_offset
+            end = w.get("end", 0.0) + time_offset
+
+            if current_start is None:
+                current_start = start
+                chunk_start = start
+            current_end = end
+            current_words.append(w_text)
+
+            if end - chunk_start >= 10.0:
+                segments.append({
+                    "id": seg_id,
+                    "start": current_start,
+                    "end": current_end,
+                    "text": " ".join(current_words),
+                    "confidence": w.get("logprob", 0.0),
+                })
+                seg_id += 1
+                current_words = []
+                current_start = None
+                current_end = None
+                chunk_start = end
+
+        if current_words:
+            segments.append({
+                "id": seg_id,
+                "start": current_start,
+                "end": current_end,
+                "text": " ".join(current_words),
+                "confidence": 0.0,
+            })
+
+        emit_progress(progress_end, "ElevenLabs: done")
+        return {
+            "text": text,
+            "language": "tg" if language_code == "tgk" else language_code,
+            "segments": segments,
+        }
+    except Exception as e:
+        log_diagnostic(provider="elevenlabs", error=str(e))
+        return None
+
+
+def transcribe_elevenlabs_with_vad(wav_path: str, language_code: str = "tgk", model_id: str = "scribe_v1"):
+    """Transcribe only speech regions using Silero VAD + ElevenLabs Scribe.
+
+    This avoids sending long non-speech sections (intro/outro music, title
+    cards, silence) to ElevenLabs, which dramatically reduces hallucinations.
+    Timestamps are preserved relative to the original audio.
+    """
+    log_diagnostic(provider="elevenlabs", vad="segmenting speech")
+    segments = vad_utils.get_speech_segments(wav_path)
+    if not segments:
+        log_diagnostic(provider="elevenlabs", vad="no speech segments, falling back to whole file")
+        return transcribe_elevenlabs(wav_path, language_code=language_code, model_id=model_id)
+
+    chunks = vad_utils.merge_speech_segments(segments, max_gap=0.3, max_duration=30.0)
+    log_diagnostic(provider="elevenlabs", vad_chunks=len(chunks), total_speech_duration=sum(c["end"] - c["start"] for c in chunks))
+
+    all_segments = []
+    all_texts = []
+    global_seg_id = 0
+    total = len(chunks)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for i, chunk in enumerate(chunks):
+            chunk_wav = os.path.join(tmpdir, f"chunk_{i:04d}.wav")
+            vad_utils.slice_wav_chunk(wav_path, chunk_wav, chunk["start"], chunk["end"])
+
+            p_start = 5 + int((i / total) * 90)
+            p_end = 5 + int(((i + 1) / total) * 90)
+            result = transcribe_elevenlabs(
+                chunk_wav,
+                language_code=language_code,
+                model_id=model_id,
+                time_offset=chunk["start"],
+                progress_start=p_start,
+                progress_end=p_end,
+            )
+            if result is None:
+                log_diagnostic(provider="elevenlabs", chunk=i, error="chunk transcription returned None")
+                continue
+
+            for seg in result.get("segments", []):
+                seg["id"] = global_seg_id
+                global_seg_id += 1
+                all_segments.append(seg)
+            if result.get("text"):
+                all_texts.append(result["text"])
+
+    full_text = normalize_repeated_punctuation(" ".join(all_texts))
     return {
-        "text": " ".join(full_text_parts),
-        "language": info.language,
-        "segments": result_segments,
+        "text": full_text,
+        "language": "tg" if language_code == "tgk" else language_code,
+        "segments": all_segments,
     }
+
+
+def transcribe_tajik(wav_path: str):
+    fine_tuned_path = "models/whisper-tajik-finetuned-ct2"
+    has_fine_tuned = os.path.exists(fine_tuned_path)
+
+    candidates = []
+
+    # Try ElevenLabs Scribe first if an API key is configured.
+    eleven = transcribe_elevenlabs_with_vad(wav_path, language_code="tgk")
+    if eleven and eleven["text"]:
+        # Post-process before quality checks so that Persian-script garbage is
+        # filtered/normalized before we decide whether to trust the result.
+        eleven = text_postprocessing.postprocess_transcription(eleven, "tg")
+        # ElevenLabs generally returns high-quality output; only reject completely
+        # empty or leading-repetition artifacts, not legitimate repeated names.
+        eleven_quality = detect_hallucination(eleven["text"], eleven["segments"], "tg")
+        eleven["quality"] = eleven_quality
+        log_diagnostic(language="tg", primary_model="elevenlabs", quality=eleven_quality)
+        serious_flags = [f for f in eleven_quality["flags"] if f in ("empty_output", "leading_repetition")]
+        if not serious_flags:
+            return eleven
+        candidates.append(eleven)
+
+    if has_fine_tuned:
+        log_diagnostic(language="tg", primary_model="whisper-tajik-finetuned-ct2")
+        try:
+            fine = transcribe_whisper(
+                wav_path,
+                "tg",
+                fine_tuned_path,
+                progress_label="Тоҷикӣ распознаю",
+                conservative=True,
+            )
+            fine_quality = detect_hallucination(fine["text"], fine["segments"], "tg")
+            fine["quality"] = fine_quality
+            log_diagnostic(language="tg", fine_tuned_quality=fine_quality)
+
+            # Trust the fine-tuned model unless it shows obvious hallucination artifacts.
+            # Low log-prob confidence is expected with conservative decoding and should
+            # not trigger a fallback to the generic model.
+            fine = text_postprocessing.postprocess_transcription(fine, "tg")
+            serious_flags = [f for f in fine_quality["flags"] if f not in ("low_confidence",)]
+            if not serious_flags:
+                return fine
+            candidates.append(fine)
+        except Exception as e:
+            log_diagnostic(language="tg", fine_tuned_error=str(e))
+            # Fine-tuned model may have failed due to memory pressure; release it
+            # before trying the next model.
+            if "memory" in str(e).lower() or "allocate" in str(e).lower():
+                release_whisper_models()
+
+    # Fall back to generic Whisper if the fine-tuned model failed or hallucinated.
+    if not candidates or all(c.get("quality", {}).get("is_hallucination", True) for c in candidates):
+        log_diagnostic(language="tg", fallback_model="distil-large-v3")
+        try:
+            fallback = transcribe_whisper(
+                wav_path,
+                "tg",
+                "distil-large-v3",
+                progress_label="Тоҷикӣ (fallback) распознаю",
+            )
+            fallback_quality = detect_hallucination(fallback["text"], fallback["segments"], "tg")
+            fallback["quality"] = fallback_quality
+            candidates.append(fallback)
+        except Exception as e:
+            log_diagnostic(language="tg", whisper_error=str(e))
+            if "memory" in str(e).lower() or "allocate" in str(e).lower():
+                release_whisper_models()
+
+    # Final fallback: small Vosk Tajik model. It is much lighter and avoids OOM.
+    if not candidates or all(c.get("quality", {}).get("is_hallucination", True) for c in candidates):
+        vosk_path = "models/vosk-model-small-tg-0.22"
+        if os.path.exists(vosk_path):
+            log_diagnostic(language="tg", fallback_model="vosk-small-tg")
+            try:
+                results = transcribe_vosk(wav_path, vosk_path, progress_label="Тоҷикӣ Vosk fallback")
+                segments = build_vosk_segments(results)
+                full_text = normalize_repeated_punctuation(" ".join(s["text"] for s in segments))
+                vosk_result = {"text": full_text, "language": "tg", "segments": segments}
+                vosk_quality = detect_hallucination(full_text, segments, "tg")
+                vosk_result["quality"] = vosk_quality
+                candidates.append(vosk_result)
+            except Exception as e:
+                log_diagnostic(language="tg", vosk_error=str(e))
+
+    best = select_best_output(candidates)
+
+    return best
+
+
+def transcribe_uzbek(wav_path: str):
+    candidates = []
+
+    # Primary: fine-tuned Whisper Uzbek (Rubai) converted to CTranslate2 int8.
+    # This model is much more accurate than Vosk small on our hard benchmark,
+    # at the cost of slower CPU inference (~2x realtime). Use Vosk as fallback
+    # for very long files or when the Rubai model is not present.
+    rubai_path = "models/rubai-ct2-int8"
+    duration = get_audio_duration(wav_path)
+    use_rubai = os.path.exists(rubai_path) and duration > 0 and duration < 180
+
+    if use_rubai:
+        log_diagnostic(language="uz", primary_model="rubai-ct2-int8", model_path=rubai_path, duration_seconds=duration)
+        try:
+            rubai_result = transcribe_whisper(
+                wav_path,
+                "uz",
+                rubai_path,
+                progress_label="O'zbekcha Rubai распознаю",
+                initial_prompt="Bu o'zbekcha matn. Iltimos, aniq yozib bering.",
+            )
+            rubai_quality = detect_hallucination(rubai_result["text"], rubai_result["segments"], "uz")
+            rubai_result["quality"] = rubai_quality
+            log_diagnostic(language="uz", rubai_quality=rubai_quality)
+            if not rubai_quality["is_hallucination"] and len(rubai_result["text"].strip()) >= 10:
+                return rubai_result
+            candidates.append(rubai_result)
+        except Exception as e:
+            log_diagnostic(language="uz", rubai_error=str(e))
+            if "memory" in str(e).lower() or "allocate" in str(e).lower():
+                release_whisper_models()
+
+    # Fallback: Vosk Uzbek models are fast and robust for long-form audio.
+    large_path = "models/vosk-model-uz-0.42"
+    small_path = "models/vosk-model-small-uz-0.22"
+    model_path = large_path if os.path.exists(large_path) else small_path
+    if os.path.exists(model_path):
+        log_diagnostic(language="uz", fallback_model="vosk", model_path=model_path)
+        try:
+            results = transcribe_vosk(wav_path, model_path, progress_label="O'zbekcha Vosk распознаю")
+            segments = build_vosk_segments(results)
+            full_text = normalize_repeated_punctuation(" ".join(s["text"] for s in segments))
+            vosk_result = {"text": full_text, "language": "uz", "segments": segments}
+            vosk_quality = detect_hallucination(full_text, segments, "uz")
+            vosk_result["quality"] = vosk_quality
+            log_diagnostic(language="uz", vosk_quality=vosk_quality)
+            if not vosk_quality["is_hallucination"] and len(full_text.strip()) >= 10:
+                return vosk_result
+            candidates.append(vosk_result)
+        except Exception as e:
+            log_diagnostic(language="uz", vosk_error=str(e))
+
+    # Fallback of last resort: generic Whisper (usually poor for Uzbek).
+    if not candidates or all(c.get("quality", {}).get("is_hallucination", True) for c in candidates):
+        log_diagnostic(language="uz", fallback_model="whisper-distil-large-v3")
+        try:
+            whisper_result = transcribe_whisper(
+                wav_path,
+                "uz",
+                "distil-large-v3",
+                progress_label="O'zbekcha Whisper fallback",
+                initial_prompt="Bu o'zbekcha matn. Iltimos, aniq yozib bering.",
+            )
+            whisper_quality = detect_hallucination(whisper_result["text"], whisper_result["segments"], "uz")
+            whisper_result["quality"] = whisper_quality
+            candidates.append(whisper_result)
+        except Exception as e:
+            log_diagnostic(language="uz", whisper_error=str(e))
+            if "memory" in str(e).lower() or "allocate" in str(e).lower():
+                release_whisper_models()
+
+    best = select_best_output(candidates)
+    return best
 
 
 # ---------------------------------------------------------------------------
@@ -360,11 +919,9 @@ def merge_segment_lists(segments_a, segments_b):
         last = merged[-1]
         if cand["start"] < last["end"] - 0.1:  # overlap
             if cand.get("confidence", 0) > last.get("confidence", 0):
-                # trim last to the start of the better candidate
                 last["end"] = cand["start"]
                 merged.append(cand)
             else:
-                # trim candidate to the end of last
                 cand["start"] = last["end"]
                 if cand["start"] < cand["end"]:
                     merged.append(cand)
@@ -382,11 +939,9 @@ def transcribe_multilingual(wav_path: str, model_size: str = "distil-large-v3"):
     """Transcribe Turkic + Russian code-switched audio using two Whisper passes."""
     emit_progress(0, "Мультиязычное распознавание: определение языка...")
 
-    # First pass: auto-detect primary language
     primary = transcribe_whisper(wav_path, None, model_size, progress_label="Распознаю основной язык")
     primary_lang = primary["language"]
 
-    # Second pass: force Russian to catch Russian loanwords
     emit_progress(0, "Мультиязычное распознавание: русские вставки...")
     russian = transcribe_whisper(wav_path, "ru", model_size, progress_label="Распознаю русский")
 
@@ -417,56 +972,72 @@ def main():
         wav_path = tmp.name
 
     try:
+        emit_progress(0, "Подготовка аудио...")
         convert_to_wav(input_file, wav_path, ffmpeg_path)
+        duration = get_audio_duration(wav_path)
+        log_diagnostic(input_duration_seconds=duration, requested_language=sys.argv[3])
 
         if language == "ky":
-            large_path = "models/vosk-model-ky-0.42"
-            small_path = "models/vosk-model-small-ky-0.42"
-            model_path = large_path if os.path.exists(large_path) else small_path
-            results = transcribe_vosk(wav_path, model_path, progress_label="Кыргызча распознаю")
-            segments = build_vosk_segments(results)
-            full_text = " ".join(s["text"] for s in segments)
-            output = {
-                "text": full_text,
-                "language": "ky",
-                "segments": segments,
-            }
+            output = transcribe_kyrgyz(wav_path)
 
         elif language == "tg":
-            output = transcribe_whisper(wav_path, "tg", model_size="distil-large-v3", progress_label="Тоҷикӣ распознаю")
+            output = transcribe_tajik(wav_path)
 
         elif language == "ru":
-            large_path = "models/vosk-model-ru-0.42"
-            small_path = "models/vosk-model-small-ru-0.22"
-            model_path = large_path if os.path.exists(large_path) else small_path
-            if os.path.exists(model_path):
-                results = transcribe_vosk(wav_path, model_path, progress_label="Русский распознаю")
+            # Prefer a Russian-specific Vosk large model if available; otherwise
+            # use Whisper medium, which handles Russian Cyrillic well and avoids
+            # the English bias of distil-large-v3.
+            large_vosk_path = "models/vosk-model-ru-0.42"
+            if os.path.exists(large_vosk_path):
+                results = transcribe_vosk(wav_path, large_vosk_path, progress_label="Русский распознаю")
                 segments = build_vosk_segments(results)
-                full_text = " ".join(s["text"] for s in segments)
-                output = {
-                    "text": full_text,
-                    "language": "ru",
-                    "segments": segments,
-                }
+                full_text = normalize_repeated_punctuation(" ".join(s["text"] for s in segments))
+                output = {"text": full_text, "language": "ru", "segments": segments}
             else:
-                output = transcribe_whisper(wav_path, "ru", model_size="distil-large-v3", progress_label="Русский распознаю")
+                output = transcribe_whisper(
+                    wav_path,
+                    "ru",
+                    "medium",
+                    progress_label="Русский распознаю",
+                    initial_prompt="Распознай речь на русском языке. Сохраняй русские слова и произношение.",
+                )
 
         elif language == "uz":
-            try:
-                output = transcribe_wav2vec2(wav_path, "Beehzod/wav2vec2-large-xlsr-uzbek_STT_2", "uz", progress_label="O'zbekcha распознаю")
-            except Exception as e:
-                print(f"[wav2vec2] Uzbek failed: {e}, falling back to Whisper", file=sys.stderr, flush=True)
-                output = transcribe_whisper(wav_path, "uz", model_size="distil-large-v3", progress_label="O'zbekcha распознаю")
+            output = transcribe_uzbek(wav_path)
 
         elif language == "en":
-            output = transcribe_whisper(wav_path, "en", model_size="distil-large-v3", progress_label="English transcribing")
+            output = transcribe_whisper(wav_path, "en", "distil-large-v3", progress_label="English transcribing")
 
         elif language == "multi":
-            output = transcribe_multilingual(wav_path, model_size="distil-large-v3")
+            output = transcribe_multilingual(wav_path, "large-v3")
 
         else:
-            output = transcribe_whisper(wav_path, None, model_size="base", progress_label="Определяю язык")
+            output = transcribe_whisper(wav_path, None, "base", progress_label="Определяю язык")
 
+        # Add quality metadata for downstream logging
+        quality = output.get("quality") or detect_hallucination(output["text"], output["segments"], language or "auto")
+        output["quality"] = quality
+        log_diagnostic(
+            output_language=output.get("language"),
+            output_char_count=len(output["text"]),
+            output_word_count=len(output["text"].split()),
+            output_segment_count=len(output["segments"]),
+            quality=quality,
+        )
+
+        # Language-aware post-processing: remove garbage, fix grammar/case,
+        # normalize scripts (Tajik). Applied to all languages with Tajik-specific
+        # rules kept inside the post-processor.
+        output = text_postprocessing.postprocess_transcription(output, language)
+        log_diagnostic(
+            postprocess_applied=True,
+            output_language=output.get("language"),
+            output_char_count=len(output.get("text", "")),
+            output_segment_count=len(output.get("segments", [])),
+        )
+
+        # Remove internal quality field from final JSON to keep schema stable
+        output.pop("quality", None)
         print(json.dumps(output, ensure_ascii=False))
     finally:
         os.unlink(wav_path)

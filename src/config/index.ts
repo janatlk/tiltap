@@ -16,10 +16,15 @@ const envSchema = z.object({
   TRANSLATION_MODULE_URL: z.string().url().optional().or(z.literal("")),
   GROQ_API_KEY: z.string().optional().or(z.literal("")),
   GEMINI_API_KEY: z.string().optional().or(z.literal("")),
+  ELEVENLABS_API_KEY: z.string().optional().or(z.literal("")),
+  ELEVENLABS_MODEL_ID: z.string().optional().or(z.literal("")).default("scribe_v2"),
+  TILTAB_CLEANUP_PROVIDER: z.enum(["gemini", "openai", "groq", "none"]).optional(),
+  TILTAB_CLEANUP_MODEL: z.string().optional().or(z.literal("")),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
   DATABASE_URL: isTest
     ? z.string().default("")
     : z.string().min(1, "DATABASE_URL is required"),
+  PGLITE_DATA_DIR: z.string().default("./.pglite-data"),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -1,0 +1,31 @@
+{
+  "fixtures": {
+    "tg": {
+      "language": "tg",
+      "title": "Тоҷикӣ YouTube интервью — 60 с",
+      "wavPath": "test_audio/youtube/tg_yt.wav",
+      "referenceText": "и муқаддаси Аллоҳи меҳрубона бубинм ва рафта будам ҳаҷвомра ва бисёр орзу доштм. Ман меша орзу мекардм, ки дар 33 солагӣ ман бояд ки бурум онҷора бубинм. Ва Худованд марая қадар дӯстм дошт, ки боз ман рафтам дидам, боз пас омадам. Худоро шукр. Ташукр. Боз ҳам мунтақидини шумо болои шумо интиқот мекунанд, вай тамом мебанданд, ки шумо вақте ки ҳаҷ кардед, бо вуҷуд аз бо ҳам бисёр либосҳои зебо мепӯшед.",
+      "source": "youtube",
+      "phraseCount": 1,
+      "durationSeconds": 60
+    },
+    "uz": {
+      "language": "uz",
+      "title": "O'zbekcha YouTube — 67 s",
+      "wavPath": "test_audio/youtube/uz_yt.wav",
+      "referenceText": "Meni hozir sizlarga maʼlumot beradigan kitoblarimni hayotingiz davomida mutlaqo o'qiy ko'rmang. Men chunki jiddiy gapiryapman. Ayrim marketologlarning turli xil chiroyli reklamalari asosida siz ushbu kitoblarni nomiga uchib olib qoʻyasiz. Jumladan meni ranjita olmaysiz. Mutxich psixologiya deb nomlangan ushbu kitobni mutlaqo o'qishni tavsiya qilmayman. Nimaga? Xuddi bu ushbu kitob ichidagi maʼlumotlar Google tarjimonidan toʻg'ridan-toʻgʻri tarjima qilinib, bosmahonadan chiqarilayotganga o'xshadi va sizni olayotgan pulingizga ham, oʻqiyotganda ketkazadigan vaqtingizga ham mutlaqo arzimaydi. Uning oʻrniga qanday kitoblarni o'qish kerak? Hozirgi kunda Meni ranjita olmaysiz, kechirishni oʻrgandim. Baʼzilar olisdan sevarlari kabi turli xil psixologik o'yinlar orqali chiqarilayotgan kitoblar insonlarni birdan diqqat markaziga tushib, shu kabi kitoblar sizning eʼtiboringizni jalb qilib, sizni vaqtingizni o'g'irlashga yordam beradi. Aslida esa agarda siz o'zingizning qadringizni bilsangiz yoki o'zingizni shaxsiyatingizni rivojlantirishni xohlasangiz, Mutxich psixologiya men kechirishni o'rgandim kabi kitoblarga mutlaqo murojaat qilishni maslahat bermayman.",
+      "source": "youtube",
+      "phraseCount": 1,
+      "durationSeconds": 67
+    },
+    "ky": {
+      "language": "ky",
+      "title": "Кыргызча YouTube подкаст — 1 мин",
+      "wavPath": "test_audio/youtube/ky_yt_1min.wav",
+      "referenceText": "бакыт каалап койгон ордуна бузулган адамдар дагы бул ойго кеткен мен ошондо абдан таң калдым мен элдин баарын өзүндөй ойлой беришкен нерсе болуп бизге биз жөнүндө сөз болуп турганы бул биздин чыгармачылыктагы орду үйдөгүнүн кабар берет чындыгында эркек өзүнүн стилин такыр отурбай бербей соң сиз айткан нак кыргызстанда жалгыз пирматов кээде таңгаласың да кудайга шүгүр кийин усулдук миллион-миллион алып бардык жеке тайгак жолунда хоп алууга үй-бүлө деп калдыңыз үй-бүлөңүз эки жолго түшкөнүн бир баарыбыз анын мына ушул эки жолго түшүүдөн сиз кандай сабак алдыңыз сиздин үй-бүлө деп калдыңыз мына ушул эки жолго түшкөнүн баарыбыз барбыз глистов анын мына ушул эки жолго түшүүдөн сиз кандай сабак алдым муну адам негизги сүйлөшүлүп",
+      "source": "youtube",
+      "phraseCount": 1,
+      "durationSeconds": 60
+    }
+  }
+}

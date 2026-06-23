@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TilTap Web</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px;
+    }
+    .container {
+      width: 100%;
+      max-width: 720px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    header h1 { margin: 0 0 8px; font-size: 2rem; }
+    header p { margin: 0; color: var(--muted); }
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .row:last-child { margin-bottom: 0; }
+    label { font-size: 0.875rem; color: var(--muted); display: block; margin-bottom: 6px; }
+    select, input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+    }
+    select:focus, input:focus { border-color: var(--primary); }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .tab {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .tab.active { background: var(--primary); border-color: var(--primary); }
+    .dropzone {
+      border: 2px dashed #334155;
+      border-radius: var(--radius);
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .dropzone:hover, .dropzone.dragover { border-color: var(--primary); background: rgba(59,130,246,0.08); }
+    .dropzone input { display: none; }
+    .file-name { margin-top: 12px; color: var(--text); word-break: break-all; }
+    button.primary {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      background: var(--primary);
+      color: white;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.primary:hover { background: var(--primary-hover); }
+    button.primary:disabled { background: #475569; cursor: not-allowed; }
+    .progress-wrap {
+      display: none;
+      margin-top: 16px;
+    }
+    .progress-wrap.active { display: block; }
+    .progress-bar {
+      height: 10px;
+      background: #334155;
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--primary);
+      transition: width 0.3s ease;
+    }
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 6px;
+      font-size: 0.875rem;
+      color: var(--muted);
+    }
+    .result {
+      display: none;
+      margin-top: 16px;
+    }
+    .result.active { display: block; }
+    .result h3 { margin: 0 0 12px; }
+    .result-meta { color: var(--muted); font-size: 0.875rem; margin-bottom: 12px; }
+    .text-box {
+      background: #0f172a;
+      border-radius: 8px;
+      padding: 16px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.5;
+      max-height: 320px;
+      overflow: auto;
+    }
+    .segments { margin-top: 16px; }
+    .segment {
+      padding: 10px 0;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      gap: 12px;
+    }
+    .segment time { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
+    .lang-buttons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .lang-btn {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .lang-btn:hover { border-color: var(--primary); }
+    .translation {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #334155;
+    }
+    .translation h4 { margin: 0 0 8px; color: var(--success); }
+    .error {
+      color: var(--danger);
+      margin-top: 12px;
+      display: none;
+    }
+    .error.active { display: block; }
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.75rem;
+      margin-top: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎙️ TilTap Web</h1>
+      <p>Transcribe audio, video, and YouTube links. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.</p>
+    </header>
+
+    <div class="card">
+      <div class="row">
+        <div style="flex:1; min-width:140px;">
+          <label for="sourceLang">Transcription language</label>
+          <select id="sourceLang">
+            <option value="auto">🌍 Auto detect</option>
+            <option value="ky">🇰🇬 Кыргызча</option>
+            <option value="tg">🇹🇯 Тоҷикӣ</option>
+            <option value="uz">🇺🇿 O'zbekcha</option>
+            <option value="ru">🇷🇺 Русский</option>
+            <option value="en">🇬🇧 English</option>
+          </select>
+        </div>
+        <div style="flex:1; min-width:140px;">
+          <label for="targetLang">Translate to</label>
+          <select id="targetLang">
+            <option value="none">❌ No translation</option>
+            <option value="ky">🇰🇬 Кыргызча</option>
+            <option value="tg">🇹🇯 Тоҷикӣ</option>
+            <option value="uz">🇺🇿 O'zbekcha</option>
+            <option value="ru">🇷🇺 Русский</option>
+            <option value="en">🇬🇧 English</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tabs">
+        <button class="tab active" data-tab="file">📁 Upload file</button>
+        <button class="tab" data-tab="youtube">🔗 YouTube link</button>
+      </div>
+
+      <div id="panel-file">
+        <div class="dropzone" id="dropzone">
+          <div>Drag & drop audio/video here or click to browse</div>
+          <input type="file" id="fileInput" accept="audio/*,video/*">
+          <div class="file-name" id="fileName"></div>
+        </div>
+      </div>
+
+      <div id="panel-youtube" style="display:none;">
+        <label for="youtubeUrl">YouTube URL</label>
+        <input type="text" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=...">
+      </div>
+
+      <button class="primary" id="startBtn" style="margin-top:16px;">▶️ Start</button>
+
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-label"><span id="progressLabel">Starting...</span><span id="progressPercent">0%</span></div>
+      </div>
+
+      <div class="error" id="errorBox"></div>
+
+      <div class="result" id="resultBox">
+        <h3>📝 Transcription</h3>
+        <div class="result-meta" id="resultMeta"></div>
+        <div class="text-box" id="resultText"></div>
+
+        <div class="lang-buttons" id="translateButtons">
+          <span style="color:var(--muted); font-size:0.875rem;">Translate result:</span>
+        </div>
+
+        <div class="segments" id="segmentsBox"></div>
+
+        <div id="translationBox"></div>
+      </div>
+    </div>
+
+    <footer>TilTap — local speech-to-text & translation</footer>
+  </div>
+
+  <script>
+    const API = "";
+    const SUPPORTED_LANGS = {
+      ky: "🇰🇬 Кыргызча",
+      tg: "🇹🇯 Тоҷикӣ",
+      uz: "🇺🇿 O'zbekcha",
+      ru: "🇷🇺 Русский",
+      en: "🇬🇧 English",
+    };
+
+    const dropzone = document.getElementById("dropzone");
+    const fileInput = document.getElementById("fileInput");
+    const fileName = document.getElementById("fileName");
+    const youtubeUrl = document.getElementById("youtubeUrl");
+    const tabs = document.querySelectorAll(".tab");
+    const panels = { file: document.getElementById("panel-file"), youtube: document.getElementById("panel-youtube") };
+    const startBtn = document.getElementById("startBtn");
+    const progressWrap = document.getElementById("progressWrap");
+    const progressFill = document.getElementById("progressFill");
+    const progressLabel = document.getElementById("progressLabel");
+    const progressPercent = document.getElementById("progressPercent");
+    const errorBox = document.getElementById("errorBox");
+    const resultBox = document.getElementById("resultBox");
+    const resultMeta = document.getElementById("resultMeta");
+    const resultText = document.getElementById("resultText");
+    const segmentsBox = document.getElementById("segmentsBox");
+    const translateButtons = document.getElementById("translateButtons");
+    const translationBox = document.getElementById("translationBox");
+
+    let currentFile = null;
+    let currentJobId = null;
+    let currentCleanText = "";
+    let currentDetectedLang = "";
+
+    function ensureSessionId() {
+      let sid = localStorage.getItem("tiltap_session_id");
+      if (!sid) {
+        sid = "web_" + Math.random().toString(36).slice(2, 12);
+        localStorage.setItem("tiltap_session_id", sid);
+      }
+      return sid;
+    }
+    ensureSessionId();
+
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        tabs.forEach((t) => t.classList.remove("active"));
+        tab.classList.add("active");
+        const key = tab.dataset.tab;
+        Object.entries(panels).forEach(([k, el]) => {
+          el.style.display = k === key ? "block" : "none";
+        });
+      });
+    });
+
+    dropzone.addEventListener("click", () => fileInput.click());
+    dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
+    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+    dropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+      if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files.length) setFile(fileInput.files[0]);
+    });
+
+    function setFile(file) {
+      currentFile = file;
+      fileName.textContent = file.name + " (" + (file.size / 1024 / 1024).toFixed(2) + " MB)";
+    }
+
+    function resetUI() {
+      errorBox.classList.remove("active");
+      errorBox.textContent = "";
+      resultBox.classList.remove("active");
+      resultText.textContent = "";
+      segmentsBox.innerHTML = "";
+      translationBox.innerHTML = "";
+      progressWrap.classList.add("active");
+      progressFill.style.width = "0%";
+      progressLabel.textContent = "Starting...";
+      progressPercent.textContent = "0%";
+      startBtn.disabled = true;
+    }
+
+    function showError(msg) {
+      errorBox.textContent = msg;
+      errorBox.classList.add("active");
+      progressWrap.classList.remove("active");
+      startBtn.disabled = false;
+    }
+
+    function updateProgress(progress) {
+      const pct = Math.max(0, Math.min(100, progress.percent));
+      progressFill.style.width = pct + "%";
+      progressLabel.textContent = progress.label || "Working...";
+      progressPercent.textContent = pct + "%";
+    }
+
+    function renderTranslateButtons() {
+      translateButtons.innerHTML = '<span style="color:var(--muted); font-size:0.875rem;">Translate result:</span>';
+      Object.entries(SUPPORTED_LANGS).forEach(([code, label]) => {
+        if (code === currentDetectedLang) return;
+        const btn = document.createElement("button");
+        btn.className = "lang-btn";
+        btn.textContent = label;
+        btn.addEventListener("click", () => translateResult(code));
+        translateButtons.appendChild(btn);
+      });
+    }
+
+    function renderResult(job) {
+      const result = job.result;
+      currentCleanText = job.cleanedText || result.text;
+      currentDetectedLang = result.language;
+
+      resultMeta.textContent = "Detected: " + (SUPPORTED_LANGS[result.language] || result.language) +
+        " · Segments: " + result.segments.length;
+      resultText.textContent = currentCleanText;
+
+      segmentsBox.innerHTML = "";
+      if (result.segments.length > 1) {
+        const title = document.createElement("h4");
+        title.textContent = "Timed segments";
+        title.style.margin = "0 0 8px";
+        title.style.color = "var(--muted)";
+        segmentsBox.appendChild(title);
+        result.segments.forEach((seg) => {
+          const div = document.createElement("div");
+          div.className = "segment";
+          div.innerHTML = `<time>${formatTime(seg.start)} → ${formatTime(seg.end)}</time><span>${escapeHtml(seg.text)}</span>`;
+          segmentsBox.appendChild(div);
+        });
+      }
+
+      renderTranslateButtons();
+
+      if (result.translatedText) {
+        const target = document.getElementById("targetLang").value;
+        showTranslation(target, result.translatedText);
+      }
+
+      resultBox.classList.add("active");
+      progressWrap.classList.remove("active");
+      startBtn.disabled = false;
+    }
+
+    function showTranslation(lang, text) {
+      const div = document.createElement("div");
+      div.className = "translation";
+      div.innerHTML = `<h4>${SUPPORTED_LANGS[lang] || lang}</h4><div class="text-box">${escapeHtml(text)}</div>`;
+      translationBox.appendChild(div);
+    }
+
+    async function translateResult(targetLang) {
+      if (!currentCleanText) return;
+      const btn = event.target;
+      btn.disabled = true;
+      try {
+        const res = await fetch(API + "/api/web/translate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: currentCleanText, targetLang }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Translation failed");
+        showTranslation(targetLang, data.translatedText);
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function startJob() {
+      resetUI();
+      try {
+        const sourceLang = document.getElementById("sourceLang").value;
+        const targetLang = document.getElementById("targetLang").value;
+        const activeTab = document.querySelector(".tab.active").dataset.tab;
+
+        let res;
+        if (activeTab === "file") {
+          if (!currentFile) throw new Error("Please select a file first");
+          const form = new FormData();
+          form.append("file", currentFile);
+          form.append("sourceLang", sourceLang);
+          form.append("targetLang", targetLang);
+          res = await fetch(API + "/api/web/transcribe", { method: "POST", body: form });
+        } else {
+          if (!youtubeUrl.value.trim()) throw new Error("Please enter a YouTube URL");
+          res = await fetch(API + "/api/web/youtube", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: youtubeUrl.value.trim(), sourceLang, targetLang }),
+          });
+        }
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Request failed");
+        currentJobId = data.jobId;
+        listenProgress(currentJobId);
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+
+    function listenProgress(jobId) {
+      const es = new EventSource(API + "/api/web/jobs/" + jobId + "/progress");
+      es.onmessage = (e) => {
+        const job = JSON.parse(e.data);
+        if (job.progress) updateProgress(job.progress);
+        if (job.status === "completed") {
+          es.close();
+          renderResult(job);
+        } else if (job.status === "failed") {
+          es.close();
+          showError(job.error || "Job failed");
+        }
+      };
+      es.onerror = () => {
+        es.close();
+        // Fallback to polling if SSE fails
+        pollJob(jobId);
+      };
+    }
+
+    async function pollJob(jobId) {
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch(API + "/api/web/jobs/" + jobId);
+          const job = await res.json();
+          if (!res.ok) throw new Error(job.error);
+          if (job.progress) updateProgress(job.progress);
+          if (job.status === "completed") {
+            clearInterval(interval);
+            renderResult(job);
+          } else if (job.status === "failed") {
+            clearInterval(interval);
+            showError(job.error || "Job failed");
+          }
+        } catch (err) {
+          clearInterval(interval);
+          showError(err.message);
+        }
+      }, 1000);
+    }
+
+    startBtn.addEventListener("click", startJob);
+
+    function formatTime(seconds) {
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      const ms = Math.floor((seconds % 1) * 1000);
+      return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0") + "." + String(ms).padStart(3, "0");
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>
