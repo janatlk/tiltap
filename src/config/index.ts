@@ -18,6 +18,7 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().optional().or(z.literal("")),
   ELEVENLABS_API_KEY: z.string().optional().or(z.literal("")),
   ELEVENLABS_MODEL_ID: z.string().optional().or(z.literal("")).default("scribe_v2"),
+  TILTAB_STT_PROVIDER: z.enum(["openai", "local", "auto"]).default("auto"),
   TILTAB_CLEANUP_PROVIDER: z.enum(["gemini", "openai", "groq", "none"]).optional(),
   TILTAB_CLEANUP_MODEL: z.string().optional().or(z.literal("")),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),

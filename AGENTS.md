@@ -204,6 +204,36 @@ The `🌍 Auto / Multilingual` mode runs Whisper twice:
 
 This is especially useful for Turkic languages (Kyrgyz, Uzbek, Tajik) that frequently mix in Russian words.
 
+## Deployment (Render.com free tier)
+
+Free-tier containers do not have enough disk/memory for local Vosk/Whisper models, so production uses **OpenAI Whisper API** for STT.
+
+### STT provider selection
+
+The provider is controlled by `TILTAB_STT_PROVIDER`:
+- `openai` — always use OpenAI Whisper API.
+- `local` — always use the local Python hybrid engine (`transcribe_hybrid.py`). Requires models.
+- `auto` *(default)* — use OpenAI Whisper API in `production` when `OPENAI_API_KEY` is set; otherwise fall back to the local engine.
+
+### Deploy to Render
+
+1. Push to `main`.
+2. In Render dashboard, create a **Blueprint** from `render.yaml` or create a Docker web service from the GitHub repo.
+3. Set required secrets in Render:
+   - `TELEGRAM_BOT_TOKEN`
+   - `OPENAI_API_KEY`
+   - `DATABASE_URL` (Render Postgres or external such as Supabase)
+4. Set the Telegram webhook:
+   ```bash
+   curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
+     -H "Content-Type: application/json" \
+     -d '{"url":"https://<render-service-name>.onrender.com/webhook/telegram"}'
+   ```
+
+### CI/CD
+
+`.github/workflows/ci.yml` builds, tests, and deploys to Render on every push to `main`. Add the Render deploy hook URL as a GitHub secret named `RENDER_DEPLOY_HOOK_URL`.
+
 ## Notes
 
 - The demo bot works on Windows using local Python scripts (`transcribe_hybrid.py`, etc.).

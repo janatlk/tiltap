@@ -4,6 +4,8 @@ import { writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createInterface } from "readline";
+import { config } from "../config";
+import { transcribeWithOpenAI } from "./openaiSttService";
 import type { TranscriptionResult, TranscriptionSegment } from "../types";
 
 const FFMPEG_PATH = require("ffmpeg-static");
@@ -21,6 +23,16 @@ export async function transcribeAudio(
   onProcessStart?: (pid: number) => void,
   onProgress?: (progress: TranscriptionProgress) => void
 ): Promise<TranscriptionResult> {
+  const useOpenAI =
+    config.TILTAB_STT_PROVIDER === "openai" ||
+    (config.TILTAB_STT_PROVIDER === "auto" &&
+      config.NODE_ENV === "production" &&
+      Boolean(config.OPENAI_API_KEY));
+
+  if (useOpenAI) {
+    return transcribeWithOpenAI(audioBuffer, filename, language, onProgress);
+  }
+
   logger.info("Running hybrid transcription", { filename, sizeBytes: audioBuffer.length, language });
 
   const tmpInput = join(tmpdir(), `tiltab_${Date.now()}_${filename}`);

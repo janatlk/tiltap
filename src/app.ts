@@ -26,6 +26,8 @@ app.get("/health", async (_req, res) => {
     status: dbHealthy ? "ok" : "degraded",
     timestamp: new Date().toISOString(),
     database: dbHealthy ? "connected" : "disconnected",
+    sttProvider: config.TILTAB_STT_PROVIDER,
+    openaiConfigured: Boolean(config.OPENAI_API_KEY),
     elevenlabsConfigured: Boolean(config.ELEVENLABS_API_KEY),
   });
 });
