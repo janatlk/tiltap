@@ -28,6 +28,7 @@ app.get("/health", async (_req, res) => {
     database: dbHealthy ? "connected" : "disconnected",
     sttProvider: config.TILTAB_STT_PROVIDER,
     openaiConfigured: Boolean(config.OPENAI_API_KEY),
+    groqConfigured: Boolean(config.GROQ_API_KEY),
     elevenlabsConfigured: Boolean(config.ELEVENLABS_API_KEY),
   });
 });
