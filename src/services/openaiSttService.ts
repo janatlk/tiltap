@@ -178,6 +178,15 @@ export async function transcribeWithOpenAI(
     throw new Error("OpenAI STT failed and no GROQ_API_KEY is configured for fallback");
   }
 
+  const allowedGroqLanguages = new Set(config.TILTAB_GROQ_WHISPER_LANGUAGES);
+  const requestedLang = language?.toLowerCase() ?? "auto";
+  if (!allowedGroqLanguages.has(requestedLang)) {
+    throw new Error(
+      `OpenAI STT failed and Groq Whisper is disabled for language '${language}'. ` +
+        `Allowed languages: ${config.TILTAB_GROQ_WHISPER_LANGUAGES.join(", ")}`
+    );
+  }
+
   return await callSttProvider(
     GROQ_TRANSCRIPTION_URL,
     groqKey,

@@ -20,6 +20,19 @@ const envSchema = z.object({
   ELEVENLABS_API_KEY: z.string().optional().or(z.literal("")),
   ELEVENLABS_MODEL_ID: z.string().optional().or(z.literal("")).default("scribe_v2"),
   TILTAB_STT_PROVIDER: z.enum(["openai", "local", "auto"]).default("auto"),
+  // Comma-separated list of language codes for which Groq Whisper may be used as a fallback.
+  // Default is "en" because Groq Whisper quality drops significantly for non-English languages.
+  TILTAB_GROQ_WHISPER_LANGUAGES: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .default("en")
+    .transform((val) =>
+      val
+        ?.split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean) ?? ["en"]
+    ),
   TILTAB_CLEANUP_PROVIDER: z.enum(["gemini", "openai", "groq", "none"]).optional(),
   TILTAB_CLEANUP_MODEL: z.string().optional().or(z.literal("")),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
