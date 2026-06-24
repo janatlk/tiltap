@@ -121,6 +121,13 @@ const TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
     en: "⚠️ Session expired. Please send the media again.",
     ru: "⚠️ Сессия истекла. Пожалуйста, отправьте файл заново.",
   },
+  fixtureNotFound: {
+    ky: "⚠️ Тест үчүн аудио табылган жок. Администраторго кайрылыңыз.",
+    tg: "⚠️ Барои тест аудио ёфт нашуд. Лутфан бо администратор тамос гиред.",
+    uz: "⚠️ Test uchun audio topilmadi. Iltimos, administratorga murojaat qiling.",
+    en: "⚠️ Test audio not found. Please contact the administrator.",
+    ru: "⚠️ Тестовое аудио не найдено. Обратитесь к администратору.",
+  },
   stageStarting: {
     ky: "Баштап жатам...",
     tg: "Оғоз карда истодаем...",
@@ -592,7 +599,7 @@ export type PendingAction = PendingMedia | PendingYouTube;
 type PendingActionWithId = (PendingMedia | PendingYouTube) & { actionId: string };
 
 const pendingActions = new Map<number, PendingActionWithId>();
-const PENDING_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const PENDING_TTL_MS = 60 * 60 * 1000; // 60 minutes
 
 function cleanExpiredPendingActions(): void {
   const now = Date.now();

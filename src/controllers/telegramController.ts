@@ -770,7 +770,7 @@ async function runAccuracyTest(chatId: number, language: string): Promise<void> 
   const lang = prefs.interfaceLanguage;
   const fixture = getTestFixture(language);
   if (!fixture) {
-    await sendTextMessage(chatId, t("sessionExpired", lang), { replyMarkup: createMainKeyboard(lang) });
+    await sendTextMessage(chatId, t("fixtureNotFound", lang), { replyMarkup: createMainKeyboard(lang) });
     return;
   }
 

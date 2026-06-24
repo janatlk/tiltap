@@ -9,3 +9,5 @@ coverage
 models
 poller_offset.txt
 tmp
+test_audio/cache
+test_audio/youtube/ky_yt_full.wav

@@ -23,6 +23,7 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/swagger.yaml ./swagger.yaml
 COPY public ./public
+COPY test_audio ./test_audio
 
 ENV NODE_ENV=production
 
