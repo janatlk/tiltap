@@ -6,28 +6,121 @@ export interface CleanupResult {
   provider: string;
 }
 
+export interface CleanupOptions {
+  language?: string;
+  enableCleanup?: boolean;
+}
+
 /**
- * Clean up a transcription by adding punctuation, fixing proper nouns,
- * and correcting abbreviations.
+ * Post-process an STT transcript via an LLM chain.
  *
- * Tries LLM providers in order (Groq → Gemini) and falls back to
- * rule-based cleanup if no API keys are configured.
+ * Provider priority (unless overridden by TILTAB_CLEANUP_PROVIDER):
+ *   1. Gemini
+ *   2. Groq
+ *   3. OpenAI
+ *
+ * Set TILTAB_CLEANUP_PROVIDER=none to disable.
  */
 export async function cleanupTranscription(
   text: string,
-  _language: string
+  language: string,
+  options: CleanupOptions = {}
 ): Promise<CleanupResult> {
-  // Temporarily disabled: skip LLM/rule-based cleanup and return raw transcription.
-  return { cleanedText: text, provider: "disabled" };
+  const enabled = options.enableCleanup ?? true;
+  if (!enabled || config.TILTAB_CLEANUP_PROVIDER === "none") {
+    return { cleanedText: text, provider: "disabled" };
+  }
+
+  if (!text.trim()) {
+    return { cleanedText: text, provider: "none" };
+  }
+
+  const systemPrompt = buildSystemPrompt(language);
+  const userPrompt = text;
+
+  const providers = buildProviderChain();
+  if (providers.length === 0) {
+    logger.warn("No LLM cleanup providers configured; returning raw transcript");
+    return { cleanedText: text, provider: "none" };
+  }
+
+  for (const provider of providers) {
+    try {
+      const result = await callProvider(provider, systemPrompt, userPrompt);
+      if (result && isCleanupSane(text, result.cleanedText)) {
+        logger.info("STT cleanup complete", { provider: result.provider, language });
+        return result;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`${provider.name} cleanup failed`, { error: msg });
+    }
+  }
+
+  logger.warn("All LLM cleanup providers failed; returning raw transcript");
+  return { cleanedText: text, provider: "fallback" };
 }
 
 // ---------------------------------------------------------------------------
-// Groq provider (free tier: 20 req/min, 600K tokens/day)
+// Provider chain
 // ---------------------------------------------------------------------------
-async function cleanupWithGroq(text: string, language: string): Promise<CleanupResult | null> {
-  if (!config.GROQ_API_KEY) return null;
 
-  const prompt = buildCleanupPrompt(text, language);
+interface ProviderSpec {
+  name: "gemini" | "groq" | "openai";
+}
+
+function buildProviderChain(): ProviderSpec[] {
+  const forced = config.TILTAB_CLEANUP_PROVIDER;
+  if (forced && forced !== "none") {
+    if (hasProviderKey(forced)) {
+      return [{ name: forced }];
+    }
+    logger.warn(`Forced cleanup provider ${forced} has no API key configured`);
+  }
+
+  const chain: ProviderSpec[] = [];
+  if (config.GEMINI_API_KEY) chain.push({ name: "gemini" });
+  if (config.GROQ_API_KEY) chain.push({ name: "groq" });
+  if (config.OPENAI_API_KEY) chain.push({ name: "openai" });
+  return chain;
+}
+
+function hasProviderKey(name: string): boolean {
+  switch (name) {
+    case "gemini":
+      return Boolean(config.GEMINI_API_KEY);
+    case "groq":
+      return Boolean(config.GROQ_API_KEY);
+    case "openai":
+      return Boolean(config.OPENAI_API_KEY);
+    default:
+      return false;
+  }
+}
+
+async function callProvider(
+  provider: ProviderSpec,
+  systemPrompt: string,
+  userPrompt: string
+): Promise<CleanupResult | null> {
+  switch (provider.name) {
+    case "gemini":
+      return callGemini(systemPrompt, userPrompt);
+    case "groq":
+      return callGroq(systemPrompt, userPrompt);
+    case "openai":
+      return callOpenAI(systemPrompt, userPrompt);
+    default:
+      return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Groq
+// ---------------------------------------------------------------------------
+
+async function callGroq(systemPrompt: string, userPrompt: string): Promise<CleanupResult | null> {
+  if (!config.GROQ_API_KEY) return null;
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -36,16 +129,12 @@ async function cleanupWithGroq(text: string, language: string): Promise<CleanupR
       Authorization: `Bearer ${config.GROQ_API_KEY}`,
     },
     body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
+      model: config.TILTAB_CLEANUP_MODEL || "llama-3.3-70b-versatile",
       messages: [
-        {
-          role: "system",
-          content:
-            "You are a conservative text cleanup assistant. Your ONLY job is to add proper punctuation (periods, commas, question marks, exclamation marks), fix capitalization of proper nouns, and correct common abbreviations. Do NOT translate the text. Do NOT change any words, do NOT add explanations, do NOT add markdown, do NOT transliterate. Preserve all loanwords and code-switching exactly as they appear. Return ONLY the cleaned text in the ORIGINAL language(s).",
-        },
-        { role: "user", content: prompt },
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
       ],
-      temperature: 0,
+      temperature: 0.1,
       max_tokens: 4096,
     }),
   });
@@ -58,26 +147,20 @@ async function cleanupWithGroq(text: string, language: string): Promise<CleanupR
   const data = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
   };
-  let cleaned = data.choices?.[0]?.message?.content?.trim() ?? text;
-  cleaned = stripMarkdownCodeBlock(cleaned);
-
-  if (!isCleanupSane(text, cleaned)) {
-    throw new Error("Groq cleanup produced an implausible result; falling back");
-  }
-
-  return { cleanedText: cleaned, provider: "groq" };
+  const cleaned = data.choices?.[0]?.message?.content?.trim() ?? userPrompt;
+  return { cleanedText: stripMarkdownCodeBlock(cleaned), provider: "groq" };
 }
 
 // ---------------------------------------------------------------------------
-// Gemini provider (free tier: 15 req/min, 1M tokens/day)
+// Gemini
 // ---------------------------------------------------------------------------
-async function cleanupWithGemini(text: string, language: string): Promise<CleanupResult | null> {
+
+async function callGemini(systemPrompt: string, userPrompt: string): Promise<CleanupResult | null> {
   if (!config.GEMINI_API_KEY) return null;
 
-  const prompt = buildCleanupPrompt(text, language);
-
+  const model = config.TILTAB_CLEANUP_MODEL || "gemini-2.5-flash";
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${config.GEMINI_API_KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.GEMINI_API_KEY}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -85,7 +168,7 @@ async function cleanupWithGemini(text: string, language: string): Promise<Cleanu
         contents: [
           {
             role: "user",
-            parts: [{ text: prompt }],
+            parts: [{ text: `${systemPrompt}\n\nText:\n${userPrompt}` }],
           },
         ],
         generationConfig: {
@@ -104,62 +187,161 @@ async function cleanupWithGemini(text: string, language: string): Promise<Cleanu
   const data = (await res.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
   };
-  let cleaned = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? text;
-  cleaned = stripMarkdownCodeBlock(cleaned);
+  const cleaned = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? userPrompt;
+  return { cleanedText: stripMarkdownCodeBlock(cleaned), provider: "gemini" };
+}
 
-  if (!isCleanupSane(text, cleaned)) {
-    throw new Error("Gemini cleanup produced an implausible result; falling back");
+// ---------------------------------------------------------------------------
+// OpenAI
+// ---------------------------------------------------------------------------
+
+async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<CleanupResult | null> {
+  if (!config.OPENAI_API_KEY) return null;
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: config.TILTAB_CLEANUP_MODEL || "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.1,
+      max_tokens: 4096,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`OpenAI API error: ${res.status} ${errText}`);
   }
 
-  return { cleanedText: cleaned, provider: "gemini" };
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const cleaned = data.choices?.[0]?.message?.content?.trim() ?? userPrompt;
+  return { cleanedText: stripMarkdownCodeBlock(cleaned), provider: "openai" };
 }
 
 // ---------------------------------------------------------------------------
-// Prompt builder
+// Prompts
 // ---------------------------------------------------------------------------
-function cleanupLanguageName(language: string): string {
-  const primary = language.split("+")[0];
-  const langName: Record<string, string> = {
-    ky: "Kyrgyz",
-    tg: "Tajik",
-    uz: "Uzbek",
-    ru: "Russian",
-    en: "English",
-  };
-  return langName[primary] ?? primary;
-}
 
 function stripMarkdownCodeBlock(text: string): string {
   return text.replace(/^```(?:\w+)?\n?/, "").replace(/\n?```$/, "").trim();
 }
 
 function isCleanupSane(original: string, cleaned: string): boolean {
-  if (!cleaned || cleaned.length < original.length * 0.5) return false;
-  if (cleaned.length > original.length * 2.5) return false;
-  // Reject if the model returned explanations or lists
-  if (/\n\n|^(Here is|Below is|Note:|Translation:)/i.test(cleaned)) return false;
+  if (!cleaned || cleaned.length < original.length * 0.4) return false;
+  if (cleaned.length > original.length * 3) return false;
+  if (/\n\n|^(Here is|Below is|Note:|Translation:|Output:)/i.test(cleaned)) return false;
   return true;
 }
 
-function buildCleanupPrompt(text: string, language: string): string {
-  const langName = cleanupLanguageName(language);
+function languageName(code: string): string {
+  const names: Record<string, string> = {
+    en: "English",
+    ru: "Russian",
+    uz: "Uzbek (Latin script)",
+    ky: "Kyrgyz (Cyrillic script)",
+    tg: "Tajik (Cyrillic script)",
+  };
+  return names[code.split("+")[0]] ?? code;
+}
 
-  return `Add proper punctuation (periods, commas, question marks, exclamation marks) to the following ${langName} transcript. Fix capitalization of proper nouns (country names, cities, organizations, people's names). Fix abbreviations (e.g., "би би си" → "BBC", "кыргызстан" → "Кыргызстан", "tadjikistan" → "Tajikistan"). IMPORTANT: Do NOT translate the text to any other language. Keep the text in ${langName}. Preserve any Russian loanwords or code-switched segments exactly as they appear. Do NOT change any words or their order. Do NOT add explanations. Do NOT use markdown. Return ONLY the cleaned text.
+function buildSystemPrompt(language: string): string {
+  const base =
+    "You are a conservative STT transcript editor. " +
+    "Your ONLY job is to clean up the raw transcript. " +
+    "Do NOT translate. Do NOT change the meaning. Do NOT rephrase. Do NOT add explanations. " +
+    "Do NOT add markdown. Return ONLY the cleaned text.";
 
-Text:
-${text}`;
+  const lang = language.split("+")[0];
+
+  if (lang === "tg") {
+    return (
+      `${base}\n\n` +
+      "Language: Tajik (Cyrillic script).\n\n" +
+      "Rules:\n" +
+      "1. Output must be clean Tajik Cyrillic.\n" +
+      "2. Convert any Arabic/Persian script leaks to Tajik Cyrillic.\n" +
+      "3. Fix dates: use ordinal suffixes -ум/-юm. Examples: '1-ум', '2-юм', '3-юм', '12-ум', '13-ум', '22-юм', '23-юм'. '23 май' → '23-юми май'; '23.05.2024' → '23-юми майи соли 2024'.\n" +
+      "4. Attach the object clitic 'ро' to the preceding word: 'мо ро' → 'моро', 'Аллоҳи меҳрабон ро' → 'Аллоҳи меҳрабонро'.\n" +
+      "5. Normalize common names/places to standard Tajik spellings: Конибодом, Душанбе, Хуҷанд, Маҳбуба Ахмедова, Нозанин Ахмедова, Абдуфаттоҳ Иброҳимов, Қурбонгул Иброҳимова, Радиои Озоди, Хонаи муқаддас.\n" +
+      "6. Preserve Russian, Uzbek, or English code-switching insertions exactly as they appear. Do not translate them.\n" +
+      "7. If a segment is crying, laughter, applause, music, or unintelligible, replace it with [плач], [кулол], [аплодисменты], [музыка], or [неразборчиво] respectively.\n" +
+      "8. Do NOT change verb tenses, names, or word order."
+    );
+  }
+
+  if (lang === "ky") {
+    return (
+      `${base}\n\n` +
+      "Language: Kyrgyz (Cyrillic script).\n\n" +
+      "Rules:\n" +
+      "1. Fix grammar, case, and punctuation only.\n" +
+      "2. Capitalize proper nouns (country names, cities, people, organizations).\n" +
+      "3. Preserve Russian/English code-switching exactly as it appears.\n" +
+      "4. Mark obvious noise/garbage as [неразборчиво].\n" +
+      "5. Do NOT change names, word order, or meaning."
+    );
+  }
+
+  if (lang === "uz") {
+    return (
+      `${base}\n\n` +
+      "Language: Uzbek (Latin script).\n\n" +
+      "Rules:\n" +
+      "1. Fix grammar, spelling, and punctuation only.\n" +
+      "2. Capitalize proper nouns.\n" +
+      "3. Preserve Russian/English code-switching exactly as it appears.\n" +
+      "4. Mark obvious noise/garbage as [неразборчиво].\n" +
+      "5. Do NOT change names, word order, or meaning."
+    );
+  }
+
+  if (lang === "ru") {
+    return (
+      `${base}\n\n` +
+      "Language: Russian.\n\n" +
+      "Rules:\n" +
+      "1. Fix grammar, punctuation, and capitalization only.\n" +
+      "2. Preserve any Kyrgyz/Uzbek/English code-switching exactly as it appears.\n" +
+      "3. Mark obvious noise/garbage as [неразборчиво].\n" +
+      "4. Do NOT change names, word order, or meaning."
+    );
+  }
+
+  return (
+    `${base}\n\n` +
+    `Language: ${languageName(language)}.\n\n` +
+    "Rules:\n" +
+    "1. Add proper punctuation and fix capitalization.\n" +
+    "2. Preserve any code-switching or loanwords exactly as they appear.\n" +
+    "3. Mark obvious noise/garbage as [unintelligible].\n" +
+    "4. Do NOT translate, do NOT change names, do NOT change meaning."
+  );
 }
 
 // ---------------------------------------------------------------------------
-// Hallucination / artifact detection
+// Quality / hallucination detection
 // ---------------------------------------------------------------------------
+
 export interface QualityReport {
   isSuspicious: boolean;
   flags: string[];
   meanConfidence?: number;
 }
 
-export function detectTranscriptionIssues(text: string, language: string, segments?: Array<{ confidence?: number }>): QualityReport {
+export function detectTranscriptionIssues(
+  text: string,
+  language: string,
+  _segments?: Array<{ id: number; start: number; end: number; text: string; confidence?: number }>
+): QualityReport {
   const flags: string[] = [];
   const trimmed = text.trim();
 
@@ -167,7 +349,6 @@ export function detectTranscriptionIssues(text: string, language: string, segmen
     flags.push("empty");
   }
 
-  // Repeated words/phrases (common Whisper hallucination pattern)
   const words = trimmed.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length > 0) {
     const counts = new Map<string, number>();
@@ -180,146 +361,8 @@ export function detectTranscriptionIssues(text: string, language: string, segmen
     }
   }
 
-  // English intrusion for non-English targets
-  if (["ky", "tg", "uz", "ru"].includes(language)) {
-    const englishTokens = (trimmed.match(/\b(have|has|had|you|your|was|were|this|that|with|from|they|them|their|there|then|than|also|been|having|said|only|god|real|kind|missed|thank|people|some|know|going|get|got|and|but|or|not|no)\b/gi) || []).length;
-    if (englishTokens > 3) {
-      flags.push("english_intrusion");
-    }
-  }
-
-  // Latin characters in Cyrillic languages
-  if (["ky", "tg", "ru"].includes(language)) {
-    const latinCount = (trimmed.match(/[a-zA-Z]/g) || []).length;
-    if (latinCount / Math.max(trimmed.length, 1) > 0.1) {
-      flags.push("latin_in_cyrillic");
-    }
-  }
-
-  // Confidence-based warning
-  let meanConfidence: number | undefined;
-  if (segments && segments.length > 0) {
-    const confidences = segments.map((s) => s.confidence ?? 0).filter((c) => typeof c === "number");
-    if (confidences.length > 0) {
-      meanConfidence = confidences.reduce((a, b) => a + b, 0) / confidences.length;
-      if (meanConfidence < 0.3) {
-        flags.push("low_confidence");
-      }
-    }
-  }
-
   return {
     isSuspicious: flags.length > 0,
     flags,
-    meanConfidence,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Rule-based fallback
-// ---------------------------------------------------------------------------
-function ruleBasedCleanup(text: string, language: string): string {
-  let cleaned = text;
-
-  // Remove obvious Whisper artifacts (isolated punctuation dots, repeated "i'm" etc.)
-  cleaned = cleaned
-    .replace(/\bi['’]?m\b/gi, "")
-    .replace(/\.{2,}/g, ".")
-    .replace(/\b_,?\b/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  // Capitalize first letter of each sentence
-  cleaned = cleaned.replace(/(^|[.!?]\s+)([a-zа-яёқӯҳҷғӣүөъ])/g, (_, prefix, letter) => {
-    return prefix + letter.toUpperCase();
-  });
-
-  // Ensure text ends with punctuation
-  if (cleaned.length > 0 && !/[.!?]$/.test(cleaned)) {
-    cleaned += ".";
-  }
-
-  // Language-specific proper noun fixes
-  const dictionaries: Record<string, Record<string, string>> = {
-    ky: {
-      кыргызстан: "Кыргызстан",
-      кыргызстанда: "Кыргызстанда",
-      кыргызстандык: "Кыргызстандык",
-      бишкек: "Бишкек",
-      бишкекте: "Бишкекте",
-      ош: "Ош",
-      ошто: "Ошто",
-      жасал: "Жасал",
-      садыр: "Садыр",
-      жапаров: "Жапаров",
-      "садыр жапаров": "Садыр Жапаров",
-      алмаз: "Алмаз",
-      шаадаев: "Шаадаев",
-      самат: "Самат",
-      атабеков: "Атабеков",
-      нурлан: "Нурлан",
-      насип: "Насип",
-      пирматов: "Пирматов",
-    },
-    tg: {
-      таджикистан: "Таджикистан",
-      таджикистон: "Тоҷикистон",
-      душанбе: "Душанбе",
-      хуҷанд: "Хуҷанд",
-      тоҷикистон: "Тоҷикистон",
-      эмомали: "Эмомали",
-      раҳмон: "Раҳмон",
-      "эмомали раҳмон": "Эмомали Раҳмон",
-      ҳаҷ: "Ҳаҷ",
-      худо: "Худо",
-      худованд: "Худованд",
-      ташаккур: "Ташаккур",
-    },
-    uz: {
-      "o'zbekiston": "O'zbekiston",
-      "oʻzbekiston": "Oʻzbekiston",
-      toshkent: "Toshkent",
-      samarqand: "Samarqand",
-      buxorо: "Buxoro",
-      "shavkat mirziyoyev": "Shavkat Mirziyoyev",
-      "shavkat": "Shavkat",
-      "mirziyoyev": "Mirziyoyev",
-      "qarshi": "Qarshi",
-      "farg'ona": "Farg'ona",
-      "namangan": "Namangan",
-      "andijon": "Andijon",
-      "xorazm": "Xorazm",
-      "navoiy": "Navoiy",
-      "sirdaryo": "Sirdaryo",
-      "jizzax": "Jizzax",
-    },
-    ru: {
-      кыргызстан: "Кыргызстан",
-      таджикистан: "Таджикистан",
-      узбекистан: "Узбекистан",
-      россия: "Россия",
-      москва: "Москва",
-      "би би си": "BBC",
-      сиэнэн: "CNN",
-      "нато ": "НАТО ",
-      оон: "ООН",
-    },
-    en: {
-      kyrgyzstan: "Kyrgyzstan",
-      tajikistan: "Tajikistan",
-      uzbekistan: "Uzbekistan",
-      bishkek: "Bishkek",
-      dushanbe: "Dushanbe",
-      tashkent: "Tashkent",
-    },
-  };
-
-  const dict = dictionaries[language] ?? {};
-  for (const [lower, proper] of Object.entries(dict)) {
-    const regex = new RegExp(`\\b${lower}\\b`, "gi");
-    cleaned = cleaned.replace(regex, proper);
-  }
-
-  return cleaned;
-}
-

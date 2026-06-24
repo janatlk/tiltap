@@ -5,6 +5,22 @@ import type { TranscriptionResult, TranscriptionSegment } from "../types";
 const OPENAI_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions";
 const GROQ_TRANSCRIPTION_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 
+const MIME_TYPES: Record<string, string> = {
+  ".wav": "audio/wav",
+  ".mp3": "audio/mpeg",
+  ".ogg": "audio/ogg",
+  ".oga": "audio/ogg",
+  ".m4a": "audio/mp4",
+  ".mp4": "audio/mp4",
+  ".webm": "audio/webm",
+  ".flac": "audio/flac",
+};
+
+function getMimeType(filename: string): string {
+  const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
+  return MIME_TYPES[ext] ?? "audio/mpeg";
+}
+
 // OpenAI Whisper supports: flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav, webm.
 // Map our language codes to the closest supported ISO-639-1 code. For languages
 // Whisper does not support natively we omit the language hint and let it auto-detect.
@@ -35,7 +51,7 @@ function buildFormData(
   const formData = new FormData();
   const bytes = new Uint8Array(audioBuffer);
   const blob = new Blob([bytes]);
-  formData.append("file", new File([blob], filename, { type: "audio/wav" }));
+  formData.append("file", new File([blob], filename, { type: getMimeType(filename) }));
   formData.append("model", model);
   formData.append("response_format", "verbose_json");
   if (mappedLang) {

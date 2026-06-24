@@ -7,8 +7,8 @@
 Важные договорённости:
 - Текущий фокус: довести транскрипцию ky/tg/uz до максимального качества.
 - Озвучку и перевод пока НЕ трогаем.
-- Подход: локальные модели + инженерия.
-- Перед запуском бота проверять `.env` и наличие моделей.
+- **Подход: облачный STT + LLM-постобработка.** Локальные STT-модели больше не используются в production.
+- Перед запуском бота проверять `.env` и наличие API-ключей (ElevenLabs, Groq, Gemini, OpenAI).
 
 
 ## Sprint 1 Deliverables Checklist
@@ -30,7 +30,7 @@
 
 ```bash
 cp .env.example .env
-# Edit .env and fill in TELEGRAM_BOT_TOKEN and DATABASE_URL
+# Edit .env and fill in TELEGRAM_BOT_TOKEN, DATABASE_URL, and cloud STT keys
 ```
 
 ### 2. PostgreSQL
@@ -66,7 +66,7 @@ The server will auto-run migrations on startup.
 - Health: `curl http://localhost:3000/health` — includes `elevenlabsConfigured` so you can confirm the key is loaded.
 - Swagger: `http://localhost:3000/api-docs`
 - Translate: `curl -X POST http://localhost:3000/api/translate -H "Content-Type: application/json" -d '{"text":"hello","targetLang":"ru"}'`
-- Telegram bot: Send `/test` to run the built-in Kyrgyz accuracy benchmark
+- Telegram bot: Send `/test` to run the built-in accuracy benchmark
 
 ## Architecture
 
@@ -75,6 +75,9 @@ Telegram Update → routes/webhook.ts → controllers/telegramController.ts
                                                 ↓
                                     services/fileDownloadService.ts
                                     services/transcriptionService.ts
+                                      → elevenlabsSttService.ts (primary)
+                                      → openaiSttService.ts (fallback)
+                                    services/cleanupService.ts (LLM post-processing)
                                     services/translationService.ts
                                                 ↓
                                     src/db/repos/*  ←  PostgreSQL
@@ -98,49 +101,56 @@ The bot includes a self-test that works for all five supported languages:
 2. For the selected language the bot temporarily switches the user's transcription language, then restores it after the test.
 3. Shows a visual loading bar: 30% → 60% → 100% with the correct test header.
 4. Transcribes the audio with the configured STT engine.
-5. Compares the recognized text with a hand-curated reference transcript.
-6. Computes character + word similarity (Levenshtein + Jaccard) and reports a percentage with color-coded emoji:
+5. Runs LLM cleanup on the recognized text.
+6. Compares the cleaned text with a hand-curated reference transcript.
+7. Computes character + word similarity (Levenshtein + Jaccard) and reports a percentage with color-coded emoji:
    - 🟢 ≥ 90%
    - 🟡 ≥ 70%
    - 🟠 ≥ 50%
    - 🔴 < 50%
 
-Local audio fixtures live in `test_audio/` and are described by `test_audio/manifest.json`. To rebuild them run:
+Local audio fixtures live in `test_audio/` and are described by `test_audio/manifest.json` and `test_audio/hard_manifest.json`.
 
-```bash
-python scripts/prepare_test_audio.py
-```
+## Cloud STT Routing
 
-This downloads phrasebook clips from Folkways Today for `ky/tg/uz/ru` and builds an English fixture from the English prompts of the Russian phrasebook.
+The primary STT provider is **ElevenLabs Scribe v2**. Fallbacks are used only when ElevenLabs fails or is not configured.
 
-## Hard Benchmark (priority languages)
+| Provider | When used | Notes |
+|----------|-----------|-------|
+| **ElevenLabs Scribe v2** | Primary in `auto` when `ELEVENLABS_API_KEY` is set; always when `TILTAB_STT_PROVIDER=elevenlabs` | Best quality for `en/ru/tg/uz/ky`. No local models required. |
+| **OpenAI Whisper API** | Fallback when ElevenLabs fails and `OPENAI_API_KEY` is set | Used when `TILTAB_STT_PROVIDER=openai`. |
+| **Groq Whisper** | Fallback inside `openaiSttService` for English only | Controlled by `TILTAB_GROQ_WHISPER_LANGUAGES` (default `en`). |
+| **Local hybrid (`transcribe_hybrid.py`)** | When `TILTAB_STT_PROVIDER=local` or no cloud keys are configured | Deprecated for production; kept for offline development. |
 
-A separate long-form benchmark uses real YouTube clips for the three priority languages and is driven by `test_audio/hard_manifest.json`:
+Language codes sent to ElevenLabs:
+- `en` → `en`
+- `ru` → `ru`
+- `uz` → `uz`
+- `ky` → `ky`
+- `tg` → `tgk` (ISO 639-3)
+- `auto` / `multi` → no language hint; Scribe auto-detects.
 
-| Language | Fixture | Primary model | Latest char similarity | Latest word accuracy |
-|----------|---------|---------------|------------------------|----------------------|
-| `ky` | `test_audio/youtube/ky_yt_1min.wav` (1 min podcast) | Vosk `vosk-model-ky-0.42` | 100.0% | 100.0% |
-| `tg` | `test_audio/youtube/tg_yt.wav` (60 s interview) | Fine-tuned Whisper `models/whisper-tajik-finetuned-ct2` | 93.8% | 92.7% |
-| `uz` | `test_audio/youtube/uz_yt.wav` (67 s video) | Fine-tuned Whisper Rubai `islomov/rubaistt_v2_medium` (CTranslate2 int8) | 91.5% | 91.5% |
+## LLM Post-processing
 
-Run the hard benchmark with:
+Every successful transcription is passed through `cleanupService.ts`:
 
-```bash
-python benchmark.py test_audio/hard_manifest.json
-```
+1. Provider chain (unless `TILTAB_CLEANUP_PROVIDER` overrides):
+   - **Gemini** (default)
+   - **Groq**
+   - **OpenAI**
+2. Set `TILTAB_CLEANUP_PROVIDER=none` to skip cleanup entirely.
+3. Provider-specific model can be set via `TILTAB_CLEANUP_MODEL`.
 
-The report is written to `logs/benchmark_report.json`.
+For Tajik, the prompt includes guardrails for:
+- Cyrillic output and Arabic/Persian script normalization.
+- Date ordinals (`1-ум`, `2-юм`, `3-юм`, `12-ум`, `13-ум`, `22-юм`, `23-юм`).
+- Direct-object clitic `ро` attachment (`мо ро` → `моро`).
+- Common Tajik names/places normalization.
+- Preserving Russian/Uzbek/English code-switching.
+- Noise markers (`[плач]`, `[кулол]`, `[аплодисменты]`, `[музыка]`, `[неразборчиво]`).
+- No changes to verb tenses, names, or word order.
 
-The Telegram `/test` command now also uses the hard YouTube fixtures for the priority languages (`ky`, `tg`, `uz`) instead of the synthetic phrasebook clips, because Vosk-based engines struggle with the phrasebook's short repeated phrases. The hard fixtures are keyed by language code in `test_audio/hard_manifest.json` and are played from the cached local WAV files, so `/test` works even when YouTube downloads are blocked.
-
-### Model routing in `transcribe_hybrid.py`
-
-- `ky` → Vosk large (fallback Vosk small). Whisper `distil-large-v3` does **not** support `ky`, so Kyrgyz never falls back to it.
-- `tg` → **ElevenLabs Scribe v2** when `ELEVENLABS_API_KEY` is set (no `language_code`, letting the model auto-detect). Audio is first segmented with local Silero VAD so only speech regions are sent to the API; timestamps are preserved. Fallback chain: fine-tuned Whisper Tajik → `distil-large-v3` → Vosk.
-- `uz` → Fine-tuned Whisper Rubai `islomov/rubaistt_v2_medium` converted to CTranslate2 int8 (saved in `models/rubai-ct2-int8`). Vosk `vosk-model-small-uz-0.22` is used as a fast fallback for files longer than 3 minutes or when the Rubai model is missing.
-- `ru` → Vosk if present, else Whisper.
-- `en` → Whisper.
-- `auto` / `multi` → Whisper dual-pass.
+Other languages get a conservative punctuation/capitalization cleanup prompt.
 
 ## Web Mini-Service
 
@@ -184,46 +194,40 @@ Temporary in-memory state that is intentionally not persisted:
 |----------|----------|-------------|
 | `DATABASE_URL` | yes | PostgreSQL connection string |
 | `TELEGRAM_BOT_TOKEN` | yes | From @BotFather |
-| `OPENAI_API_KEY` | no | Fallback translator |
+| `ELEVENLABS_API_KEY` | yes (production) | Primary STT provider |
+| `ELEVENLABS_MODEL_ID` | no | Defaults to `scribe_v2` |
+| `OPENAI_API_KEY` | no | Fallback STT and translator |
+| `GROQ_API_KEY` | no | Fallback STT (English only) and LLM cleanup |
+| `GEMINI_API_KEY` | no | Primary LLM cleanup provider |
+| `TILTAB_STT_PROVIDER` | no | `elevenlabs` (default primary in auto), `openai`, `local`, `auto` |
+| `TILTAB_GROQ_WHISPER_LANGUAGES` | no | Comma-separated list of languages allowed for Groq Whisper fallback (default `en`) |
+| `TILTAB_CLEANUP_PROVIDER` | no | Override cleanup provider: `gemini`, `openai`, `groq`, or `none` |
+| `TILTAB_CLEANUP_MODEL` | no | Override the default model for the chosen cleanup provider |
 | `TRANSLATION_MODULE_URL` | no | Daniel's translation module endpoint |
 | `TELEGRAM_WEBHOOK_SECRET` | no | Future webhook validation |
-| `ELEVENLABS_API_KEY` | no | Enables ElevenLabs Scribe v2 for Tajik (`tg`) transcription |
-| `ELEVENLABS_MODEL_ID` | no | Defaults to `scribe_v2` |
-| `GEMINI_API_KEY` | no | Primary LLM cleanup provider for Tajik script normalization |
-| `GROQ_API_KEY` | no | Fallback LLM cleanup provider |
-| `TILTAB_CLEANUP_PROVIDER` | no | Override provider: `gemini`, `openai`, `groq`, or `none` |
-| `TILTAB_CLEANUP_MODEL` | no | Override the default model for the chosen provider |
-| `TILTAB_ENTITIES_PATH` | no | Path to a custom `tajik_entities.json` dictionary |
-
-## Multilingual / code-switching STT
-
-The `🌍 Auto / Multilingual` mode runs Whisper twice:
-
-1. Auto-detect the primary language.
-2. Force Russian recognition to catch Russian loanwords.
-3. Merge segment lists by keeping the higher-confidence segment in overlapping regions.
-
-This is especially useful for Turkic languages (Kyrgyz, Uzbek, Tajik) that frequently mix in Russian words.
+| `LOG_LEVEL` | no | `error`, `warn`, `info`, `debug` |
 
 ## Deployment (Render.com free tier)
 
-Free-tier containers do not have enough disk/memory for local Vosk/Whisper models, so production uses **OpenAI Whisper API** for STT.
+Free-tier containers do not have enough disk/memory for local Vosk/Whisper models, so production uses **cloud STT providers**.
 
-### STT provider selection
+### Required Render secrets
 
-The provider is controlled by `TILTAB_STT_PROVIDER`:
-- `openai` — always use OpenAI Whisper API.
-- `local` — always use the local Python hybrid engine (`transcribe_hybrid.py`). Requires models.
-- `auto` *(default)* — use OpenAI Whisper API in `production` when `OPENAI_API_KEY` is set; otherwise fall back to the local engine.
+- `TELEGRAM_BOT_TOKEN`
+- `DATABASE_URL`
+- `ELEVENLABS_API_KEY` (primary STT)
+- `GROQ_API_KEY` (fallback + LLM cleanup)
+- `GEMINI_API_KEY` (primary LLM cleanup)
+
+Optional:
+- `OPENAI_API_KEY` (fallback STT/translation)
+- `TILTAB_CLEANUP_PROVIDER` / `TILTAB_CLEANUP_MODEL`
 
 ### Deploy to Render
 
 1. Push to `main`.
 2. In Render dashboard, create a **Blueprint** from `render.yaml` or create a Docker web service from the GitHub repo.
-3. Set required secrets in Render:
-   - `TELEGRAM_BOT_TOKEN`
-   - `OPENAI_API_KEY`
-   - `DATABASE_URL` (Render Postgres or external such as Supabase)
+3. Set required secrets in Render dashboard.
 4. Set the Telegram webhook:
    ```bash
    curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
@@ -237,26 +241,8 @@ The provider is controlled by `TILTAB_STT_PROVIDER`:
 
 ## Notes
 
-- The demo bot works on Windows using local Python scripts (`transcribe_hybrid.py`, etc.).
-- Python environment must have `vosk`, `faster-whisper`, `yt-dlp`, and `ffmpeg-static` is provided by npm.
+- The bot runs on Windows locally and in Docker on Render.
+- Python is still required for YouTube download (`yt-dlp`) and validation scripts.
 - Cyrillic output safety: `PYTHONIOENCODING=utf-8` + `sys.stdout.reconfigure(encoding="utf-8")`.
-
-- ElevenLabs Scribe v2 produces very clean Tajik speech recognition, but it can hallucinate on long non-speech sections (intro/outro music, title cards). For full YouTube downloads this may produce trailing garbage segments.
-
-- **VAD pre-segmentation** (`vad_utils.py`) now runs locally before ElevenLabs Scribe. It uses Silero VAD via `torch.hub` to detect speech regions, merges short gaps (≤ 0.3 s), splits chunks at 30 s, and transcribes only the speech chunks. Returned segment timestamps are offset back to the original audio timeline, so subtitle placement is not affected. This eliminated the trailing hallucinations on the Konibodom test video.
-
-- **STT post-processing layer** (`text_postprocessing.py`) runs after the Tajik STT step and does not touch the STT model, ffmpeg, or VAD:
-  - `score_segment()` — scores a segment by Latin/English ratio, repetition, entropy, and dictionary presence.
-  - `is_garbage()` — marks obvious noise (Latin spam, repetitive nonsense, patterns like `Straßen...`, `Н?р...`).
-  - `LLMTextCleaner` — normalizes Persian/Arabic-script output to Tajik Cyrillic and fixes STT errors. Provider priority: **Gemini → OpenAI → Groq**, with automatic fallback if the primary fails. Retries with backoff on 429/503. Set `TILTAB_CLEANUP_PROVIDER=gemini|openai|groq|none` and `TILTAB_CLEANUP_MODEL` to override the default model. `TILTAB_CLEANUP_PROVIDER=none` disables the LLM step for a fast/cheap mode.
-  - The cleaner is invoked for every Tajik segment (priority quality) and conditionally for other languages only on low-scoring or dirty segments.
-  - Prompt guardrails forbid changing verb tenses, names, or word order; the cleaner must only convert script and fix obvious STT noise. The prompt explicitly preserves Russian/Uzbek/English code-switching, attaches the `ро` enclitic, uses correct date ordinals (`1-ум`, `2-юм`, `3-юм`, `12-ум`, `13-ум`, `22-юм`, `23-юм`), and maps non-speech to markers.
-  - Rule-based Arabic/Persian transliterator — converts isolated Arabic-script loanwords to Tajik Cyrillic before any LLM call (`عқل` → `ақл`).
-  - `NamedEntityFixer` — fuzzy-matches names/places against a dictionary (`DEFAULT_ENTITIES` or `data/tajik_entities.json`). Dictionary entries map a canonical form to known STT variants, so variants are normalized to the canonical spelling. Multi-word variants (e.g. `Радио Озоди` → `Радиои Озоди`, `Ховар муқаддас` → `Хонаи муқаддас`) are replaced first. A stoplist protects common function words and verb forms from being replaced. The default fuzzy threshold is 0.80 to avoid false positives.
-  - Mixed-script typo fixer — replaces Latin look-alike chars inside Cyrillic words (`муfассал` → `муфассал`).
-  - `normalize_tajik_dates()` — normalizes day/month ranges, numeric dates (`23.05.2024`), and izofa forms (`23 майи соли 2024`) with correct ordinal suffixes.
-  - `normalize_tajik_clitics()` — attaches detached direct-object enclitic `ро` (`мо ро` → `моро`).
-  - Noise markers — segments detected as crying, laughter, applause, or music are replaced with `[плач]`, `[кулол]`, `[аплодисменты]`, or `[музыка]` before the garbage detector runs.
-  - Rule-based cleanup runs **before** scoring/garbage detection so that misrecognized names/dates can be rescued instead of dropped.
-
-- Real-time progress is emitted as JSON lines (`{"type":"progress","percent":..,"label":".."}`) from `transcribe_hybrid.py` and `download_youtube.py`; the Node controller streams stdout and updates the Telegram loading bar.
+- Real-time progress for cloud STT is simulated from the Node service because the APIs do not stream per-word progress.
+- Local STT models (`models/`, `transcribe_hybrid.py`, Vosk, CTranslate2 Whisper) are deprecated and will be removed from the Docker image in a future cleanup pass.

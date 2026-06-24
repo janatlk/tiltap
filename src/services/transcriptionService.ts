@@ -6,6 +6,7 @@ import { join } from "path";
 import { createInterface } from "readline";
 import { config } from "../config";
 import { transcribeWithOpenAI } from "./openaiSttService";
+import { transcribeWithElevenLabs } from "./elevenlabsSttService";
 import type { TranscriptionResult, TranscriptionSegment } from "../types";
 
 const FFMPEG_PATH = require("ffmpeg-static");
@@ -23,22 +24,105 @@ export async function transcribeAudio(
   onProcessStart?: (pid: number) => void,
   onProgress?: (progress: TranscriptionProgress) => void
 ): Promise<TranscriptionResult> {
-  // Priority Turkic languages need local models/Vosk/ElevenLabs for quality.
-  // OpenAI/Groq Whisper mislabels Kyrgyz as Kazakh and returns Persian-script Tajik.
-  const priorityLanguages = new Set(["ky", "tg", "uz"]);
-  const isPriorityLanguage = language !== undefined && priorityLanguages.has(language);
+  const provider = config.TILTAB_STT_PROVIDER;
+  const useCloud = provider === "openai" || provider === "elevenlabs" || (provider === "auto" && (config.ELEVENLABS_API_KEY || config.OPENAI_API_KEY || config.GROQ_API_KEY));
 
-  const useOpenAI =
-    config.TILTAB_STT_PROVIDER === "openai" ||
-    (config.TILTAB_STT_PROVIDER === "auto" &&
-      config.NODE_ENV === "production" &&
-      Boolean(config.OPENAI_API_KEY) &&
-      !isPriorityLanguage);
+  // Cloud STT providers accept compressed audio, but we normalize to a small mono MP3
+  // so that video files have their audio extracted and all providers see a consistent format.
+  const cloudBuffer = useCloud
+    ? await convertToAudio(audioBuffer, filename).catch((err) => {
+        logger.warn("Failed to normalize audio, using original buffer", { error: err.message, filename });
+        return audioBuffer;
+      })
+    : audioBuffer;
+  const cloudFilename = filename.replace(/\.[^.]+$/, ".mp3") || "audio.mp3";
 
-  if (useOpenAI) {
-    return transcribeWithOpenAI(audioBuffer, filename, language, onProgress);
+  if (provider === "openai") {
+    return transcribeWithOpenAI(cloudBuffer, cloudFilename, language, onProgress);
   }
 
+  if (provider === "elevenlabs") {
+    return transcribeWithElevenLabs(cloudBuffer, cloudFilename, language, onProgress);
+  }
+
+  if (provider === "local") {
+    return runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress);
+  }
+
+  // Auto mode: cloud-first. ElevenLabs → OpenAI/Groq → local fallback.
+  if (config.ELEVENLABS_API_KEY) {
+    try {
+      return await transcribeWithElevenLabs(cloudBuffer, cloudFilename, language, onProgress);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn("ElevenLabs transcription failed, falling back", { error: msg });
+    }
+  }
+
+  if (config.OPENAI_API_KEY || config.GROQ_API_KEY) {
+    try {
+      return await transcribeWithOpenAI(cloudBuffer, cloudFilename, language, onProgress);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn("OpenAI/Groq transcription failed, falling back to local", { error: msg });
+    }
+  }
+
+  return runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress);
+}
+
+async function convertToAudio(inputBuffer: Buffer, _filename: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(FFMPEG_PATH, [
+      "-hide_banner",
+      "-loglevel", "error",
+      "-i", "pipe:0",
+      "-ar", "16000",
+      "-ac", "1",
+      "-c:a", "libmp3lame",
+      "-b:a", "64k",
+      "-f", "mp3",
+      "pipe:1",
+    ], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const chunks: Buffer[] = [];
+    let stderr = "";
+
+    proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    proc.stderr.on("data", (data: Buffer) => { stderr += data.toString("utf-8"); });
+
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        return reject(new Error(`ffmpeg normalization failed (code ${code}): ${stderr}`));
+      }
+      resolve(Buffer.concat(chunks));
+    });
+
+    proc.on("error", (err) => reject(err));
+
+    proc.stdin.write(inputBuffer, (err) => {
+      if (err) {
+        reject(err);
+      } else {
+        proc.stdin.end();
+      }
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Legacy hybrid local transcription
+// ---------------------------------------------------------------------------
+
+async function runHybridTranscription(
+  audioBuffer: Buffer,
+  filename: string,
+  language?: string,
+  onProcessStart?: (pid: number) => void,
+  onProgress?: (progress: TranscriptionProgress) => void
+): Promise<TranscriptionResult> {
   logger.info("Running hybrid transcription", { filename, sizeBytes: audioBuffer.length, language });
 
   const tmpInput = join(tmpdir(), `tiltab_${Date.now()}_${filename}`);

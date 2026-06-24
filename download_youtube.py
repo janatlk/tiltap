@@ -6,6 +6,7 @@ import sys
 import os
 import tempfile
 import subprocess
+import shutil
 import yt_dlp
 
 
@@ -42,8 +43,6 @@ def download_audio(url: str, output_path: str, ffmpeg_path: str):
         "quiet": True,
         "no_warnings": True,
         "progress_hooks": [progress_hook],
-        # Use Node.js as JS runtime to bypass YouTube's bot checks
-        "js_runtime": "C:\\Program Files\\nodejs\\node.exe",
         # Try multiple player clients to avoid 403 Forbidden
         "extractor_args": {
             "youtube": {
@@ -57,6 +56,13 @@ def download_audio(url: str, output_path: str, ffmpeg_path: str):
             "Accept-Language": "en-US,en;q=0.9",
         },
     }
+
+    # Use Node.js as JS runtime to bypass YouTube's bot checks when available.
+    node_path = shutil.which("node") or (
+        r"C:\Program Files\nodejs\node.exe" if sys.platform == "win32" else None
+    )
+    if node_path and os.path.exists(node_path):
+        ydl_opts["js_runtime"] = node_path
     emit_progress(5, "Начинаю загрузку...")
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
