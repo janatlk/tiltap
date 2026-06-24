@@ -1,5 +1,6 @@
 import { logger } from "../utils/logger";
 import { spawn } from "child_process";
+import { randomBytes } from "crypto";
 import { writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -134,7 +135,10 @@ async function runHybridTranscription(
 ): Promise<TranscriptionResult> {
   logger.info("Running hybrid transcription", { filename, sizeBytes: audioBuffer.length, language });
 
-  const tmpInput = join(tmpdir(), `tiltab_${Date.now()}_${filename}`);
+  // Use a short, safe temp filename. Original filenames (especially from
+  // Telegram/web uploads or YouTube titles) can be very long and contain
+  // non-ASCII characters that exceed the filesystem's byte limit.
+  const tmpInput = join(tmpdir(), `tiltab_${Date.now()}_${randomBytes(6).toString("hex")}.tmp`);
   await writeFile(tmpInput, audioBuffer);
 
   return new Promise((resolve, reject) => {
