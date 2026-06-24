@@ -254,7 +254,10 @@
       <div class="error" id="errorBox"></div>
 
       <div class="result" id="resultBox">
-        <h3>📝 Transcription</h3>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+          <h3 id="resultTitle" style="margin:0;">📝 Transcription</h3>
+          <button class="lang-btn" id="downloadBtn">⬇️ Download .txt</button>
+        </div>
         <div class="result-meta" id="resultMeta"></div>
         <div class="text-box" id="resultText"></div>
 
@@ -262,9 +265,13 @@
           <span style="color:var(--muted); font-size:0.875rem;">Translate result:</span>
         </div>
 
-        <div class="segments" id="segmentsBox"></div>
+        <details id="originalDetails" style="margin-top:16px; display:none;">
+          <summary style="color:var(--muted); cursor:pointer;">Original transcription</summary>
+          <div class="text-box" id="originalText" style="margin-top:8px;"></div>
+          <div class="segments" id="originalSegmentsBox"></div>
+        </details>
 
-        <div id="translationBox"></div>
+        <div id="translationResults"></div>
       </div>
     </div>
 
@@ -298,12 +305,19 @@
     const resultText = document.getElementById("resultText");
     const segmentsBox = document.getElementById("segmentsBox");
     const translateButtons = document.getElementById("translateButtons");
-    const translationBox = document.getElementById("translationBox");
+    const resultTitle = document.getElementById("resultTitle");
+    const downloadBtn = document.getElementById("downloadBtn");
+    const originalDetails = document.getElementById("originalDetails");
+    const originalText = document.getElementById("originalText");
+    const originalSegmentsBox = document.getElementById("originalSegmentsBox");
+    const translationResults = document.getElementById("translationResults");
 
     let currentFile = null;
     let currentJobId = null;
     let currentCleanText = "";
     let currentDetectedLang = "";
+    let currentDownloadText = "";
+    let currentDownloadFilename = "result.txt";
 
     function ensureSessionId() {
       let sid = localStorage.getItem("tiltap_session_id");
@@ -349,7 +363,12 @@
       resultBox.classList.remove("active");
       resultText.textContent = "";
       segmentsBox.innerHTML = "";
-      translationBox.innerHTML = "";
+      originalDetails.style.display = "none";
+      originalText.textContent = "";
+      originalSegmentsBox.innerHTML = "";
+      translationResults.innerHTML = "";
+      translateButtons.style.display = "flex";
+      segmentsBox.style.display = "block";
       progressWrap.classList.add("active");
       progressFill.style.width = "0%";
       progressLabel.textContent = "Starting...";
@@ -396,35 +415,60 @@
       });
     }
 
-    function renderResult(job) {
-      const result = job.result;
-      currentCleanText = job.cleanedText || result.text;
-      currentDetectedLang = result.language;
-
-      resultMeta.textContent = "Detected: " + (SUPPORTED_LANGS[result.language] || result.language) +
-        " · Segments: " + result.segments.length;
-      resultText.textContent = currentCleanText;
-
-      segmentsBox.innerHTML = "";
-      if (result.segments.length > 1) {
+    function renderSegments(container, segments) {
+      container.innerHTML = "";
+      if (segments.length > 1) {
         const title = document.createElement("h4");
         title.textContent = "Timed segments";
         title.style.margin = "0 0 8px";
         title.style.color = "var(--muted)";
-        segmentsBox.appendChild(title);
-        result.segments.forEach((seg) => {
+        container.appendChild(title);
+        segments.forEach((seg) => {
           const div = document.createElement("div");
           div.className = "segment";
           div.innerHTML = `<time>${formatTime(seg.start)} → ${formatTime(seg.end)}</time><span>${escapeHtml(seg.text)}</span>`;
-          segmentsBox.appendChild(div);
+          container.appendChild(div);
         });
       }
+    }
 
-      renderTranslateButtons();
+    function renderResult(job) {
+      const result = job.result;
+      currentCleanText = job.cleanedText || result.text;
+      currentDetectedLang = result.language;
+      const targetLang = document.getElementById("targetLang").value;
 
-      if (result.translatedText) {
-        const target = document.getElementById("targetLang").value;
-        showTranslation(target, result.translatedText);
+      resultMeta.textContent = "Detected: " + (SUPPORTED_LANGS[result.language] || result.language) +
+        " · Segments: " + result.segments.length;
+
+      if (job.translatedText && targetLang !== "none") {
+        // Primary output is the translation (matches Telegram bot behavior).
+        resultTitle.textContent = "🌐 " + (SUPPORTED_LANGS[job.translatedLang] || job.translatedLang);
+        resultText.textContent = job.translatedText;
+        currentDownloadText = job.translatedText;
+        currentDownloadFilename = "translation_" + Date.now() + ".txt";
+
+        translateButtons.style.display = "none";
+        segmentsBox.style.display = "none";
+
+        originalText.textContent = currentCleanText;
+        renderSegments(originalSegmentsBox, result.segments);
+        originalDetails.style.display = "block";
+      } else {
+        // No translation requested — show transcription as before.
+        resultTitle.textContent = "📝 Transcription";
+        resultText.textContent = currentCleanText;
+        currentDownloadText = currentCleanText;
+        currentDownloadFilename = "transcription_" + Date.now() + ".txt";
+
+        translateButtons.style.display = "flex";
+        segmentsBox.style.display = "block";
+        renderSegments(segmentsBox, result.segments);
+        renderTranslateButtons();
+
+        originalDetails.style.display = "none";
+        originalText.textContent = "";
+        originalSegmentsBox.innerHTML = "";
       }
 
       resultBox.classList.add("active");
@@ -436,7 +480,7 @@
       const div = document.createElement("div");
       div.className = "translation";
       div.innerHTML = `<h4>${SUPPORTED_LANGS[lang] || lang}</h4><div class="text-box">${escapeHtml(text)}</div>`;
-      translationBox.appendChild(div);
+      translationResults.appendChild(div);
     }
 
     async function translateResult(targetLang) {
@@ -538,6 +582,35 @@
         }
       }, 1000);
     }
+
+    downloadBtn.addEventListener("click", () => {
+      if (!currentDownloadText) return;
+      const blob = new Blob([currentDownloadText], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = currentDownloadFilename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+
+    function saveLanguagePrefs() {
+      localStorage.setItem("tiltap_source_lang", document.getElementById("sourceLang").value);
+      localStorage.setItem("tiltap_target_lang", document.getElementById("targetLang").value);
+    }
+
+    function loadLanguagePrefs() {
+      const savedSource = localStorage.getItem("tiltap_source_lang");
+      const savedTarget = localStorage.getItem("tiltap_target_lang");
+      if (savedSource) document.getElementById("sourceLang").value = savedSource;
+      if (savedTarget) document.getElementById("targetLang").value = savedTarget;
+    }
+
+    document.getElementById("sourceLang").addEventListener("change", saveLanguagePrefs);
+    document.getElementById("targetLang").addEventListener("change", saveLanguagePrefs);
+    loadLanguagePrefs();
 
     startBtn.addEventListener("click", startJob);
 

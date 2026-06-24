@@ -1005,14 +1005,24 @@ export function createTargetLanguageKeyboard(
   };
 }
 
-export function createConfirmationKeyboard(actionId: string, lang: SupportedLanguage): { inline_keyboard: InlineKeyboardButton[][] } {
+export function createConfirmationKeyboard(
+  actionId: string,
+  lang: SupportedLanguage,
+  targetLanguage: SupportedLanguage | "none" = "none"
+): { inline_keyboard: InlineKeyboardButton[][] } {
+  const targetLabel =
+    targetLanguage === "none"
+      ? t("noDefaultTarget", lang)
+      : `${LANGUAGE_FLAGS[targetLanguage]} ${LANGUAGE_LABELS[targetLanguage]}`;
+
   return {
     inline_keyboard: [
       [{ text: t("start", lang), callback_data: `confirm:start:${actionId}` }],
       [
-        { text: t("changeLanguage", lang), callback_data: `confirm:lang:${actionId}` },
-        { text: t("back", lang), callback_data: `confirm:cancel:${actionId}` },
+        { text: `🎙️ ${t("settingsSourceLanguage", lang)}`, callback_data: `confirm:lang:${actionId}` },
+        { text: `🌐 ${targetLabel}`, callback_data: `confirm:target:${actionId}` },
       ],
+      [{ text: t("back", lang), callback_data: `confirm:cancel:${actionId}` }],
     ],
   };
 }

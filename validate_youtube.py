@@ -4,7 +4,11 @@
 import sys
 import json
 import socket
+import os
+import tempfile
 import yt_dlp
+
+from youtube_common import get_cookies_path, get_extractor_args, cleanup_temp_cookies
 
 # Hard timeout so we never hang forever on slow/unreachable URLs
 socket.setdefaulttimeout(15)
@@ -20,7 +24,15 @@ def validate(url: str):
         "format": "worstaudio/worst",
         "extract_flat": False,
         "playlist_items": "1",
+        "geo_bypass": True,
+        # Prefer mobile/TV clients and inject PO token / visitor_data if set.
+        "extractor_args": get_extractor_args(),
     }
+
+    cookies_path = get_cookies_path()
+    if cookies_path:
+        opts["cookies"] = cookies_path
+
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -49,6 +61,8 @@ def validate(url: str):
         return {"ok": False, "reason": reason, "error": msg}
     except Exception as e:
         return {"ok": False, "reason": "unknown", "error": str(e)}
+    finally:
+        cleanup_temp_cookies(cookies_path)
 
 
 if __name__ == "__main__":

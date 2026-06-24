@@ -219,6 +219,11 @@ If Daniel's module URL is configured (`TRANSLATION_MODULE_URL`), all translation
 | `LINGVA_TRANSLATE_URL` | no | Free Lingva instance, default `https://lingva.ml` |
 | `LINGVA_TRANSLATE_CHUNK_SIZE` | no | Max characters per Lingva chunk (default `2000`) |
 | `TILTAB_TRANSLATION_PROVIDER` | no | `lingva`, `openai`, `groq`, `mock`, or `auto` |
+| `YOUTUBE_COOKIES_BASE64` | no | Base64-encoded Netscape-format YouTube cookies file; helps bypass "Sign in to confirm" on datacenter IPs |
+| `YOUTUBE_COOKIES_PATH` | no | Path to a Netscape-format YouTube cookies file (alternative to base64) |
+| `YOUTUBE_PO_TOKEN` | no | Proof-of-Origin token(s) for YouTube web client, comma-separated `CLIENT.CONTEXT+TOKEN` entries |
+| `YOUTUBE_VISITOR_DATA` | no | YouTube visitor data for Innertube API requests (use with PO token, not cookies) |
+| `YOUTUBE_AUTO_UPDATE_YTDLP` | no | Set `true` to upgrade `yt-dlp` on every container start (recommended on Render) |
 | `TRANSLATION_MODULE_URL` | no | Daniel's translation module endpoint |
 | `TELEGRAM_WEBHOOK_SECRET` | no | Future webhook validation |
 | `LOG_LEVEL` | no | `error`, `warn`, `info`, `debug` |
@@ -238,6 +243,10 @@ Free-tier containers do not have enough disk/memory for local Vosk/Whisper model
 Optional:
 - `OPENAI_API_KEY` (fallback STT/translation)
 - `TILTAB_CLEANUP_PROVIDER` / `TILTAB_CLEANUP_MODEL`
+- `LINGVA_TRANSLATE_URL` / `TILTAB_TRANSLATION_PROVIDER`
+- `YOUTUBE_COOKIES_BASE64` or `YOUTUBE_COOKIES_PATH` — if YouTube returns "Sign in to confirm" from Render's datacenter IP
+- `YOUTUBE_PO_TOKEN` / `YOUTUBE_VISITOR_DATA` — if YouTube still blocks with HTTP 403 or "Sign in" even with cookies
+- `YOUTUBE_AUTO_UPDATE_YTDLP=true` — keep `yt-dlp` up to date on Render
 
 ### Deploy to Render
 
@@ -262,3 +271,4 @@ Optional:
 - Cyrillic output safety: `PYTHONIOENCODING=utf-8` + `sys.stdout.reconfigure(encoding="utf-8")`.
 - Real-time progress for cloud STT is simulated from the Node service because the APIs do not stream per-word progress.
 - Local STT models (`models/`, `transcribe_hybrid.py`, Vosk, CTranslate2 Whisper) are deprecated and will be removed from the Docker image in a future cleanup pass.
+- **YouTube on Render:** if all videos return "Sign in to confirm" or HTTP 403, set `YOUTUBE_AUTO_UPDATE_YTDLP=true`, add fresh browser cookies via `YOUTUBE_COOKIES_BASE64`, and (if still blocked) provide a PO token via `YOUTUBE_PO_TOKEN`. The Docker startup script now updates `yt-dlp` automatically when this flag is enabled, and `download_youtube.py`/`validate_youtube.py` prefer mobile/TV player clients to reduce bot detection.

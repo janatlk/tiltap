@@ -195,6 +195,8 @@ export function handleWebJobProgress(req: Request, res: Response): void {
       progress: j.progress,
       result: j.result,
       cleanedText: j.cleanedText,
+      translatedText: j.translatedText,
+      translatedLang: j.translatedLang,
       transcriptionId: j.transcriptionId,
       error: j.error,
     })}\n\n`);

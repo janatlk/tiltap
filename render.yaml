@@ -28,6 +28,22 @@ services:
         sync: false
       - key: TRANSLATION_MODULE_URL
         sync: false
+      - key: LINGVA_TRANSLATE_URL
+        value: https://lingva.ml
+      - key: LINGVA_TRANSLATE_CHUNK_SIZE
+        value: "2000"
+      - key: TILTAB_TRANSLATION_PROVIDER
+        value: auto
+      - key: YOUTUBE_COOKIES_BASE64
+        sync: false
+      - key: YOUTUBE_COOKIES_PATH
+        sync: false
+      - key: YOUTUBE_PO_TOKEN
+        sync: false
+      - key: YOUTUBE_VISITOR_DATA
+        sync: false
+      - key: YOUTUBE_AUTO_UPDATE_YTDLP
+        value: true
       - key: LOG_LEVEL
         value: info
     healthCheckPath: /health
@@ -40,6 +56,7 @@ services:
         - tsconfig.json
         - swagger.yaml
         - Dockerfile
+        - "*.py"
 
 databases:
   - name: tiltab-db

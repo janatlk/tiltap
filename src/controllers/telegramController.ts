@@ -372,7 +372,7 @@ async function sendConfirmationMessage(chatId: number, prefs: UserPreferences, t
   if (!pending) return;
 
   const text = buildConfirmationText(lang, pending.sourceLanguage ?? prefs.sourceLanguage, pending.targetLanguage ?? prefs.targetLanguage, title);
-  await sendTextMessage(chatId, text, { replyMarkup: createConfirmationKeyboard(pending.actionId, lang) });
+  await sendTextMessage(chatId, text, { replyMarkup: createConfirmationKeyboard(pending.actionId, lang, pending.targetLanguage ?? prefs.targetLanguage) });
 }
 
 async function editConfirmationMessage(chatId: number, messageId: number, prefs: UserPreferences): Promise<void> {
@@ -381,7 +381,7 @@ async function editConfirmationMessage(chatId: number, messageId: number, prefs:
   if (!pending) return;
 
   const text = buildConfirmationText(lang, pending.sourceLanguage ?? prefs.sourceLanguage, pending.targetLanguage ?? prefs.targetLanguage, pending.type === "youtube" ? pending.title : undefined);
-  await editMessageText(chatId, messageId, text, { replyMarkup: createConfirmationKeyboard(pending.actionId, lang) });
+  await editMessageText(chatId, messageId, text, { replyMarkup: createConfirmationKeyboard(pending.actionId, lang, pending.targetLanguage ?? prefs.targetLanguage) });
 }
 
 async function startPendingAction(chatId: number, force = false): Promise<void> {
@@ -532,17 +532,16 @@ async function processAudio(
     await editMessageText(chatId, statusMsgId, t("transcriptionComplete", lang), removeKeyboard);
 
     const qualityWarning = quality.isSuspicious ? quality.flags.join(", ") : undefined;
-    const title = `📝 ${LANGUAGE_LABELS[result.language as SupportedLanguage] ?? result.language}`;
-    await sendTranscriptionDocument(chatId, title, cleanedText, result.segments, replyToMessageId, qualityWarning);
-
-    await sendTranslationIfNeeded(
+    await sendResultDocument(
       chatId,
-      cleanedText,
       result.language,
+      cleanedText,
+      result.segments,
       targetLanguage,
       transcriptionId,
       lang,
-      replyToMessageId
+      replyToMessageId,
+      qualityWarning
     );
 
     return { ...result, text: cleanedText };
@@ -624,16 +623,17 @@ async function downloadAndTranscribeYouTube(
       transcriptionId = 0;
     }
 
-    const title = `📝 YouTube — ${LANGUAGE_LABELS[result.language as SupportedLanguage] ?? result.language}`;
-    await sendTranscriptionDocument(chatId, title, cleanedText, result.segments);
-
-    await sendTranslationIfNeeded(
+    await sendResultDocument(
       chatId,
-      cleanedText,
       result.language,
+      cleanedText,
+      result.segments,
       targetLanguage,
       transcriptionId,
-      lang
+      lang,
+      undefined,
+      undefined,
+      "📝 YouTube"
     );
   } catch (err) {
     clearActiveProcess(chatId);
@@ -723,16 +723,71 @@ async function stopActiveProcess(chatId: number): Promise<void> {
   await sendTextMessage(chatId, t("processingStopped", lang), { replyMarkup: createMainKeyboard(lang) });
 }
 
-async function sendTranscriptionDocument(
+async function sendResultDocument(
   chatId: number,
-  title: string,
-  fullText: string,
+  sourceLang: string,
+  cleanedText: string,
   segments: TranscriptionSegment[],
+  targetLang: string | undefined,
+  transcriptionId: number,
+  lang: SupportedLanguage,
   replyToMessageId?: number,
-  qualityWarning?: string
+  qualityWarning?: string,
+  titlePrefix?: string
 ): Promise<void> {
+  const sourceLabel = LANGUAGE_LABELS[sourceLang as SupportedLanguage] ?? sourceLang;
+
+  // If a target language is chosen and differs from the source, send only the translated file.
+  if (targetLang && targetLang !== "none" && targetLang !== sourceLang && cleanedText.trim()) {
+    try {
+      const statusMsgId = await sendTextMessage(chatId, t("translating", lang), {
+        replyMarkup: { inline_keyboard: [] },
+        replyToMessageId,
+      });
+
+      const translation = await translateText({ text: cleanedText, targetLang, sourceLang: sourceLang });
+
+      if (transcriptionId > 0) {
+        await saveTranslation({
+          telegramChatId: chatId,
+          transcriptionId,
+          sourceText: cleanedText,
+          targetLang,
+          translatedText: translation.translatedText,
+        }).catch((err) => logger.error("Failed to persist translation", { error: err, chatId }));
+      }
+
+      await editMessageText(chatId, statusMsgId, t("translationComplete", lang), {
+        replyMarkup: { inline_keyboard: [] },
+      }).catch(() => {});
+
+      const targetLabel = LANGUAGE_LABELS[targetLang as SupportedLanguage] ?? targetLang;
+      const title = `🌐 ${targetLabel}`;
+      await sendDocument(
+        chatId,
+        Buffer.from(`${title}\n\n${translation.translatedText}`, "utf-8"),
+        `translation_${Date.now()}.txt`,
+        title
+      );
+      return;
+    } catch (err) {
+      logger.error("Translation failed, falling back to transcription", {
+        error: err instanceof Error ? err.message : String(err),
+        chatId,
+        targetLang,
+      });
+      await sendTextMessage(
+        chatId,
+        t("translationFailed", lang, { error: err instanceof Error ? err.message : String(err) }),
+        { replyMarkup: createMainKeyboard(lang) }
+      ).catch(() => {});
+      // Fall through to send the original transcription file.
+    }
+  }
+
+  const title = titlePrefix ? `${titlePrefix} — ${sourceLabel}` : `📝 ${sourceLabel}`;
   const subtitles = formatSubtitles(segments);
-  const fileContent = `${title}\n\n${fullText}\n\n---\n\n${subtitles}`;
+  const fileContent = `${title}\n\n${cleanedText}\n\n---\n\n${subtitles}`;
   const caption = qualityWarning ? `⚠️ ${qualityWarning}` : title;
   await sendDocument(
     chatId,
@@ -740,59 +795,6 @@ async function sendTranscriptionDocument(
     `transcription_${Date.now()}.txt`,
     caption
   );
-}
-
-async function sendTranslationIfNeeded(
-  chatId: number,
-  sourceText: string,
-  sourceLang: string,
-  targetLang: string | undefined,
-  transcriptionId: number,
-  lang: SupportedLanguage,
-  replyToMessageId?: number
-): Promise<void> {
-  if (!targetLang || targetLang === "none" || targetLang === sourceLang || !sourceText.trim()) {
-    return;
-  }
-
-  try {
-    const statusMsgId = await sendTextMessage(chatId, t("translating", lang), {
-      replyMarkup: { inline_keyboard: [] },
-      replyToMessageId,
-    });
-
-    const result = await translateText({ text: sourceText, targetLang, sourceLang: sourceLang });
-
-    if (transcriptionId > 0) {
-      await saveTranslation({
-        telegramChatId: chatId,
-        transcriptionId,
-        sourceText,
-        targetLang,
-        translatedText: result.translatedText,
-      }).catch((err) => logger.error("Failed to persist translation", { error: err, chatId }));
-    }
-
-    await editMessageText(chatId, statusMsgId, t("translationComplete", lang), {
-      replyMarkup: { inline_keyboard: [] },
-    }).catch(() => {});
-
-    const title = `🌐 ${LANGUAGE_LABELS[targetLang as SupportedLanguage] ?? targetLang}`;
-    await sendDocument(
-      chatId,
-      Buffer.from(`${title}\n\n${result.translatedText}`, "utf-8"),
-      `translation_${Date.now()}.txt`,
-      title
-    );
-  } catch (err) {
-    logger.error("Translation failed", {
-      error: err instanceof Error ? err.message : String(err),
-      chatId,
-      targetLang,
-    });
-    const msg = t("translationFailed", lang, { error: err instanceof Error ? err.message : String(err) });
-    await sendTextMessage(chatId, msg, { replyMarkup: createMainKeyboard(lang) }).catch(() => {});
-  }
 }
 
 async function prepareTestAudio(fixture: TestFixture, tmpWav: string): Promise<{ source: string; captionPromise: Promise<string | null> }> {
@@ -1035,6 +1037,7 @@ async function handleCallbackQuery(callbackQuery: {
       await editSettingsMenu(chatId, messageId, updatedPrefs);
     } else if (action === "confirm" && actionId) {
       updatePendingAction(chatId, { targetLanguage: normalized });
+      await setUserTargetLanguage(chatId, normalized);
       await editConfirmationMessage(chatId, messageId, prefs);
     }
     return;
@@ -1058,6 +1061,13 @@ async function handleCallbackQuery(callbackQuery: {
         messageId,
         t("chooseSourceLanguage", lang),
         { replyMarkup: createSourceLanguageKeyboard(`confirm:${actionId}`, `confirm:back:${actionId}`) }
+      );
+    } else if (action === "target") {
+      await editMessageText(
+        chatId,
+        messageId,
+        t("chooseTargetLanguage", lang),
+        { replyMarkup: createTargetLanguageKeyboard(`confirm:${actionId}`, `confirm:back:${actionId}`) }
       );
     } else if (action === "back") {
       await editConfirmationMessage(chatId, messageId, prefs);

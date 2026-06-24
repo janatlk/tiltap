@@ -9,6 +9,8 @@ import subprocess
 import shutil
 import yt_dlp
 
+from youtube_common import write_cookies_from_env, get_extractor_args
+
 
 def emit_progress(percent: int, label: str):
     print(
@@ -28,7 +30,7 @@ def progress_hook(d):
         emit_progress(95, "Конвертирую аудио...")
 
 
-def download_audio(url: str, output_path: str, ffmpeg_path: str):
+def download_audio(url: str, output_path: str, ffmpeg_path: str, cookies_path: str | None = None):
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": output_path.replace(".mp3", ""),
@@ -43,26 +45,15 @@ def download_audio(url: str, output_path: str, ffmpeg_path: str):
         "quiet": True,
         "no_warnings": True,
         "progress_hooks": [progress_hook],
-        # Try multiple player clients to avoid 403 Forbidden
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["web", "android", "ios"],
-                "player_skip": ["webpage", "configs", "js"],
-            }
-        },
-        # Mimic a real browser
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-            "Accept-Language": "en-US,en;q=0.9",
-        },
+        # Some videos are geo/age restricted; try to bypass geo restrictions.
+        "geo_bypass": True,
+        # Use mobile/TV clients first; inject PO token / visitor_data if provided.
+        "extractor_args": get_extractor_args(),
     }
 
-    # Use Node.js as JS runtime to bypass YouTube's bot checks when available.
-    node_path = shutil.which("node") or (
-        r"C:\Program Files\nodejs\node.exe" if sys.platform == "win32" else None
-    )
-    if node_path and os.path.exists(node_path):
-        ydl_opts["js_runtime"] = node_path
+    if cookies_path and os.path.exists(cookies_path):
+        ydl_opts["cookies"] = cookies_path
+
     emit_progress(5, "Начинаю загрузку...")
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
@@ -92,8 +83,9 @@ def main():
 
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
+            cookies_path = write_cookies_from_env(tmpdir)
             mp3_base = os.path.join(tmpdir, "audio")
-            download_audio(url, mp3_base, ffmpeg_path)
+            download_audio(url, mp3_base, ffmpeg_path, cookies_path)
 
             # Find the downloaded mp3 file
             mp3_file = None
