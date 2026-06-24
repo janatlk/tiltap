@@ -165,6 +165,7 @@ export async function transcribeWithOpenAI(
   }
 
   // Try OpenAI first if a key is configured.
+  let openaiError: Error | undefined;
   if (openaiKey) {
     try {
       return await callSttProvider(
@@ -178,12 +179,12 @@ export async function transcribeWithOpenAI(
         onProgress
       );
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      const isRetryable = isRetryableError(0, errorMessage);
-      logger.warn("OpenAI STT failed", { error: errorMessage, fallbackToGroq: Boolean(groqKey) && isRetryable });
+      openaiError = err instanceof Error ? err : new Error(String(err));
+      const isRetryable = isRetryableError(0, openaiError.message);
+      logger.warn("OpenAI STT failed", { error: openaiError.message, fallbackToGroq: Boolean(groqKey) && isRetryable });
 
       if (!groqKey || !isRetryable) {
-        throw err;
+        throw openaiError;
       }
       // Fall through to Groq.
     }
@@ -191,16 +192,16 @@ export async function transcribeWithOpenAI(
 
   // Fallback to Groq Whisper API.
   if (!groqKey) {
-    throw new Error("OpenAI STT failed and no GROQ_API_KEY is configured for fallback");
+    throw openaiError ?? new Error("OpenAI STT failed and no GROQ_API_KEY is configured for fallback");
   }
 
   const allowedGroqLanguages = new Set(config.TILTAB_GROQ_WHISPER_LANGUAGES);
   const requestedLang = language?.toLowerCase() ?? "auto";
   if (!allowedGroqLanguages.has(requestedLang)) {
-    throw new Error(
-      `OpenAI STT failed and Groq Whisper is disabled for language '${language}'. ` +
-        `Allowed languages: ${config.TILTAB_GROQ_WHISPER_LANGUAGES.join(", ")}`
-    );
+    logger.warn("Groq Whisper is not enabled for this language by default, trying anyway as a fallback", {
+      requestedLang,
+      allowedLanguages: config.TILTAB_GROQ_WHISPER_LANGUAGES,
+    });
   }
 
   return await callSttProvider(
