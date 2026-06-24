@@ -17,11 +17,22 @@ FROM node:22-slim
 
 WORKDIR /app
 
-# Install Python and yt-dlp so YouTube validation/download scripts work in production.
+# Install Python, yt-dlp, and minimal STT dependencies for priority languages.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 python3-pip \
+  && apt-get install -y --no-install-recommends python3 python3-pip wget unzip \
   && rm -rf /var/lib/apt/lists/* \
-  && pip3 install --break-system-packages --no-cache-dir yt-dlp
+  && pip3 install --break-system-packages --no-cache-dir yt-dlp vosk requests
+
+# Download lightweight public Vosk fallback models for ky/tg/uz.
+# Replace these with large/custom models if you need the same quality as local dev.
+RUN mkdir -p models && cd models \
+  && wget -q https://alphacephei.com/vosk/models/vosk-model-small-ky-0.42.zip \
+  && wget -q https://alphacephei.com/vosk/models/vosk-model-small-tg-0.22.zip \
+  && wget -q https://alphacephei.com/vosk/models/vosk-model-small-uz-0.22.zip \
+  && unzip -q vosk-model-small-ky-0.42.zip \
+  && unzip -q vosk-model-small-tg-0.22.zip \
+  && unzip -q vosk-model-small-uz-0.22.zip \
+  && rm -f *.zip
 
 COPY package*.json ./
 RUN npm ci --omit=dev

@@ -23,11 +23,17 @@ export async function transcribeAudio(
   onProcessStart?: (pid: number) => void,
   onProgress?: (progress: TranscriptionProgress) => void
 ): Promise<TranscriptionResult> {
+  // Priority Turkic languages need local models/Vosk/ElevenLabs for quality.
+  // OpenAI/Groq Whisper mislabels Kyrgyz as Kazakh and returns Persian-script Tajik.
+  const priorityLanguages = new Set(["ky", "tg", "uz"]);
+  const isPriorityLanguage = language !== undefined && priorityLanguages.has(language);
+
   const useOpenAI =
     config.TILTAB_STT_PROVIDER === "openai" ||
     (config.TILTAB_STT_PROVIDER === "auto" &&
       config.NODE_ENV === "production" &&
-      Boolean(config.OPENAI_API_KEY));
+      Boolean(config.OPENAI_API_KEY) &&
+      !isPriorityLanguage);
 
   if (useOpenAI) {
     return transcribeWithOpenAI(audioBuffer, filename, language, onProgress);
