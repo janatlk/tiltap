@@ -59,15 +59,16 @@ export async function transcribeAudio(
   // Auto mode: cloud-first. ElevenLabs → OpenAI/Groq → local fallback only
   // when no cloud keys are configured (local models are deprecated in production).
   const hasCloudKey = Boolean(config.ELEVENLABS_API_KEY || config.OPENAI_API_KEY || config.GROQ_API_KEY);
-  let lastCloudError: Error | undefined;
+  const cloudErrors: string[] = [];
 
   if (config.ELEVENLABS_API_KEY) {
     try {
       result = await transcribeWithElevenLabs(cloudBuffer, cloudFilename, language, onProgress);
       return normalizeTranscriptionResult(result);
     } catch (err) {
-      lastCloudError = err instanceof Error ? err : new Error(String(err));
-      logger.warn("ElevenLabs transcription failed, falling back", { error: lastCloudError.message });
+      const msg = err instanceof Error ? err.message : String(err);
+      cloudErrors.push(`ElevenLabs: ${msg}`);
+      logger.warn("ElevenLabs transcription failed, falling back", { error: msg });
     }
   }
 
@@ -76,13 +77,14 @@ export async function transcribeAudio(
       result = await transcribeWithOpenAI(cloudBuffer, cloudFilename, language, onProgress);
       return normalizeTranscriptionResult(result);
     } catch (err) {
-      lastCloudError = err instanceof Error ? err : new Error(String(err));
-      logger.warn("OpenAI/Groq transcription failed, falling back", { error: lastCloudError.message });
+      const msg = err instanceof Error ? err.message : String(err);
+      cloudErrors.push(`OpenAI/Groq: ${msg}`);
+      logger.warn("OpenAI/Groq transcription failed, falling back", { error: msg });
     }
   }
 
   if (hasCloudKey) {
-    throw lastCloudError ?? new Error("All configured cloud STT providers failed");
+    throw new Error(`All configured cloud STT providers failed:\n${cloudErrors.join("\n")}`);
   }
 
   result = await runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress);
