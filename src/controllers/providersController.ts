@@ -43,44 +43,65 @@ async function checkElevenLabs(): Promise<ProviderStatus> {
     return { configured: false, status: "unknown" };
   }
 
+  const headers = { "xi-api-key": config.ELEVENLABS_API_KEY };
+
   try {
-    const res = await fetchWithTimeout("https://api.elevenlabs.io/v1/user/subscription", {
-      headers: { "xi-api-key": config.ELEVENLABS_API_KEY },
+    // Try the subscription endpoint first — it gives quota, invoices and next billing.
+    const subRes = await fetchWithTimeout("https://api.elevenlabs.io/v1/user/subscription", {
+      headers,
     });
 
-    if (!res.ok) {
-      const body = await res.text();
-      return { configured: true, status: "error", error: `HTTP ${res.status}: ${body}` };
+    if (subRes.ok) {
+      const data = (await subRes.json()) as Record<string, unknown>;
+      const nextInvoice = data.next_invoice as Record<string, unknown> | undefined;
+      const openInvoices = data.open_invoices as Array<Record<string, unknown>> | undefined;
+      const overage = data.current_overage as Record<string, unknown> | undefined;
+
+      return {
+        configured: true,
+        status: "ok",
+        details: {
+          tier: data.tier,
+          status: data.status,
+          characterCount: data.character_count,
+          characterLimit: data.character_limit,
+          creditsRemaining:
+            typeof data.character_count === "number" && typeof data.character_limit === "number"
+              ? Math.max(0, data.character_limit - data.character_count)
+              : undefined,
+          nextResetAt: data.next_character_count_reset_unix
+            ? new Date((data.next_character_count_reset_unix as number) * 1000).toISOString()
+            : undefined,
+          currency: data.currency,
+          billingPeriod: data.billing_period,
+          currentOverage: overage,
+          amountDue: nextInvoice?.amount_due ?? openInvoices?.[0]?.amount_due,
+          nextInvoiceDate: nextInvoice?.date ?? openInvoices?.[0]?.date,
+        },
+      };
     }
 
-    const data = (await res.json()) as Record<string, unknown>;
+    const subBody = await subRes.text();
 
-    const nextInvoice = data.next_invoice as Record<string, unknown> | undefined;
-    const openInvoices = data.open_invoices as Array<Record<string, unknown>> | undefined;
-    const overage = data.current_overage as Record<string, unknown> | undefined;
+    // The API key exists but does not have the "user_read" permission.
+    // Fall back to a lightweight key check and explain how to enable billing info.
+    if (subRes.status === 401) {
+      const voicesRes = await fetchWithTimeout("https://api.elevenlabs.io/v1/voices", { headers });
+      if (voicesRes.ok) {
+        return {
+          configured: true,
+          status: "ok",
+          details: {
+            keyValid: true,
+            billingUnavailableReason:
+              "The API key is missing the 'user_read' permission. Create a key with that permission at https://elevenlabs.io/app/settings/api-keys to see quota, amount due and next invoice.",
+            subscriptionEndpointError: `HTTP ${subRes.status}: ${subBody}`,
+          },
+        };
+      }
+    }
 
-    return {
-      configured: true,
-      status: "ok",
-      details: {
-        tier: data.tier,
-        status: data.status,
-        characterCount: data.character_count,
-        characterLimit: data.character_limit,
-        creditsRemaining:
-          typeof data.character_count === "number" && typeof data.character_limit === "number"
-            ? Math.max(0, data.character_limit - data.character_count)
-            : undefined,
-        nextResetAt: data.next_character_count_reset_unix
-          ? new Date((data.next_character_count_reset_unix as number) * 1000).toISOString()
-          : undefined,
-        currency: data.currency,
-        billingPeriod: data.billing_period,
-        currentOverage: overage,
-        amountDue: nextInvoice?.amount_due ?? openInvoices?.[0]?.amount_due,
-        nextInvoiceDate: nextInvoice?.date ?? openInvoices?.[0]?.date,
-      },
-    };
+    return { configured: true, status: "error", error: `HTTP ${subRes.status}: ${subBody}` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { configured: true, status: "error", error: msg };
@@ -92,15 +113,25 @@ async function checkOpenAI(): Promise<ProviderStatus> {
     return { configured: false, status: "unknown" };
   }
 
-  try {
-    const headers = { Authorization: `Bearer ${config.OPENAI_API_KEY}` };
+  const headers = { Authorization: `Bearer ${config.OPENAI_API_KEY}` };
+  const details: Record<string, unknown> = {
+    billingNote:
+      "OpenAI billing endpoints require a browser session key. Check quota and invoices at https://platform.openai.com/account/usage.",
+  };
 
+  try {
+    // Validate the secret key by listing models.
+    const modelsRes = await fetchWithTimeout("https://api.openai.com/v1/models", { headers });
+    if (!modelsRes.ok) {
+      const body = await modelsRes.text();
+      return { configured: true, status: "error", error: `HTTP ${modelsRes.status}: ${body}` };
+    }
+
+    // Try billing endpoints anyway; for some org/admin keys they work.
     const [subRes, creditRes] = await Promise.all([
       fetchWithTimeout("https://api.openai.com/v1/dashboard/billing/subscription", { headers }),
       fetchWithTimeout("https://api.openai.com/v1/dashboard/billing/credit_grants", { headers }),
     ]);
-
-    const details: Record<string, unknown> = {};
 
     if (subRes.ok) {
       const sub = (await subRes.json()) as Record<string, unknown>;
@@ -125,7 +156,7 @@ async function checkOpenAI(): Promise<ProviderStatus> {
       details.creditsError = `HTTP ${creditRes.status}: ${await creditRes.text()}`;
     }
 
-    // Try to fetch current month usage.
+    // Current month usage.
     try {
       const now = new Date();
       const usageUrl = `https://api.openai.com/v1/usage?start_date=${startOfMonth(now)}&end_date=${endOfMonth(now)}`;
@@ -173,7 +204,7 @@ async function checkGroq(): Promise<ProviderStatus> {
       status: "ok",
       details: {
         availableModels: data.data?.map((m) => m.id) ?? [],
-        note: "Groq does not expose a billing API; check usage at https://console.groq.com/",
+        billingNote: "Groq does not expose a billing API; check usage at https://console.groq.com/",
       },
     };
   } catch (err) {
@@ -202,7 +233,7 @@ async function checkGemini(): Promise<ProviderStatus> {
       status: "ok",
       details: {
         availableModels: data.models?.map((m) => m.name) ?? [],
-        note: "Gemini does not expose a billing API; check quota at https://ai.google.dev/",
+        billingNote: "Gemini does not expose a billing API; check quota at https://ai.google.dev/",
       },
     };
   } catch (err) {
@@ -230,7 +261,7 @@ async function checkLingva(): Promise<ProviderStatus> {
       status: "ok",
       details: {
         url: config.LINGVA_TRANSLATE_URL,
-        note: "Free provider — no billing information available.",
+        billingNote: "Free provider — no billing information available.",
       },
     };
   } catch (err) {
@@ -259,15 +290,15 @@ export async function getProvidersHealth(_req: ExpressRequest, res: ExpressRespo
     },
   };
 
-  const anyError = Object.values(response.providers).some(
-    (p) => p.configured && p.status === "error"
+  const anyCriticalError = Object.values(response.providers).some(
+    (p) => p.configured && p.status === "error" && !p.details?.billingUnavailableReason
   );
 
   logger.info("Providers health checked", {
-    anyError,
+    anyError: anyCriticalError,
     elevenlabsStatus: elevenlabs.status,
     openaiStatus: openai.status,
   });
 
-  res.status(anyError ? 200 : 200).json(response);
+  res.status(200).json(response);
 }
