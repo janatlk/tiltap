@@ -7,6 +7,7 @@ import { requestLogger } from "./middleware/requestLogger";
 import webhookRoutes from "./routes/webhook";
 import translateRoutes from "./routes/translate";
 import webRoutes from "./routes/web";
+import { getProvidersHealth } from "./controllers/providersController";
 import { isDbHealthy } from "./db";
 import { config } from "./config";
 
@@ -32,6 +33,9 @@ app.get("/health", async (_req, res) => {
     elevenlabsConfigured: Boolean(config.ELEVENLABS_API_KEY),
   });
 });
+
+// Provider health & billing snapshot
+app.get("/health/providers", getProvidersHealth);
 
 // Static web UI
 app.use("/web", express.static(path.join(process.cwd(), "public/web")));

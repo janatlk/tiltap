@@ -64,6 +64,7 @@ The server will auto-run migrations on startup.
 ### 4. Verify
 
 - Health: `curl http://localhost:3000/health` — includes `elevenlabsConfigured` so you can confirm the key is loaded.
+- Provider status & billing: `curl http://localhost:3000/health/providers` — returns quota, remaining credits, amount due, and next billing date for ElevenLabs/OpenAI and key validity for Groq/Gemini/Lingva.
 - Swagger: `http://localhost:3000/api-docs`
 - Translate: `curl -X POST http://localhost:3000/api/translate -H "Content-Type: application/json" -d '{"text":"hello","targetLang":"ru"}'`
 - Telegram bot: Send `/test` to run the built-in accuracy benchmark
