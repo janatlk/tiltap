@@ -514,6 +514,41 @@
       }
     }
 
+    const MAX_FILE_BYTES = 25 * 1024 * 1024;
+
+    function uploadFileWithProgress(form, url) {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", url, true);
+
+        xhr.upload.addEventListener("progress", (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.max(0, Math.min(95, Math.round((e.loaded / e.total) * 30)));
+            updateProgress({ percent: pct, label: "Uploading file..." });
+          }
+        });
+
+        xhr.addEventListener("load", () => {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve({ ok: true, status: xhr.status, data });
+            } else {
+              resolve({ ok: false, status: xhr.status, data });
+            }
+          } catch {
+            resolve({ ok: false, status: xhr.status, data: { error: xhr.responseText || `Server returned ${xhr.status}` } });
+          }
+        });
+
+        xhr.addEventListener("error", () => reject(new Error("Upload failed. Please check your connection and try again.")));
+        xhr.addEventListener("abort", () => reject(new Error("Upload was cancelled.")));
+        xhr.addEventListener("timeout", () => reject(new Error("Upload timed out. The file may be too large or the connection is slow.")));
+
+        xhr.send(form);
+      });
+    }
+
     async function startJob() {
       resetUI();
       try {
@@ -521,31 +556,35 @@
         const targetLang = document.getElementById("targetLang").value;
         const activeTab = document.querySelector(".tab.active").dataset.tab;
 
-        let res;
+        let data;
         if (activeTab === "file") {
           if (!currentFile) throw new Error("Please select a file first");
+          if (currentFile.size > MAX_FILE_BYTES) {
+            throw new Error(`File is too large (${(currentFile.size / 1024 / 1024).toFixed(1)} MB). Max allowed is 25 MB.`);
+          }
           const form = new FormData();
           form.append("file", currentFile);
           form.append("sourceLang", sourceLang);
           form.append("targetLang", targetLang);
-          res = await fetch(API + "/api/web/transcribe", { method: "POST", body: form });
+          const res = await uploadFileWithProgress(form, API + "/api/web/transcribe");
+          if (!res.ok) throw new Error(mapErrorMessage(res.data.error, res.data.details?.reason) || "Request failed");
+          data = res.data;
         } else {
           if (!youtubeUrl.value.trim()) throw new Error("Please enter a YouTube URL");
-          res = await fetch(API + "/api/web/youtube", {
+          const res = await fetch(API + "/api/web/youtube", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ url: youtubeUrl.value.trim(), sourceLang, targetLang }),
           });
+          try {
+            data = await res.json();
+          } catch {
+            const text = await res.text().catch(() => "");
+            throw new Error(text || `Server returned ${res.status}`);
+          }
+          if (!res.ok) throw new Error(mapErrorMessage(data.error, data.details?.reason) || "Request failed");
         }
 
-        let data;
-        try {
-          data = await res.json();
-        } catch {
-          const text = await res.text().catch(() => "");
-          throw new Error(text || `Server returned ${res.status}`);
-        }
-        if (!res.ok) throw new Error(mapErrorMessage(data.error, data.details?.reason) || "Request failed");
         currentJobId = data.jobId;
         listenProgress(currentJobId);
       } catch (err) {

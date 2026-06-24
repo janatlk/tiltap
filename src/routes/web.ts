@@ -8,7 +8,10 @@ import {
   handleWebJobProgress,
 } from "../controllers/webController";
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+});
 const router = Router();
 
 router.post("/transcribe", upload.single("file"), handleWebTranscribe);
