@@ -35,16 +35,17 @@ def validate(url: str):
     except yt_dlp.utils.DownloadError as e:
         msg = str(e)
         reason = "unknown"
-        if "This video is not available" in msg:
+        lower = msg.lower()
+        if any(s in lower for s in ["this video is not available", "video unavailable", "this video is unavailable"]):
             reason = "not_available"
-        elif "Video unavailable" in msg:
-            reason = "not_available"
-        elif "Sign in to confirm" in msg:
+        elif "sign in to confirm" in lower or "sign in to view" in lower:
             reason = "sign_in_required"
-        elif "Private video" in msg:
+        elif "private video" in lower:
             reason = "private"
-        elif "age-restricted" in msg.lower():
+        elif "age-restricted" in lower:
             reason = "age_restricted"
+        elif "login" in lower or "logged in" in lower:
+            reason = "sign_in_required"
         return {"ok": False, "reason": reason, "error": msg}
     except Exception as e:
         return {"ok": False, "reason": "unknown", "error": str(e)}

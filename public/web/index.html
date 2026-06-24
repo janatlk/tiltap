@@ -364,6 +364,19 @@
       startBtn.disabled = false;
     }
 
+    function mapErrorMessage(error, reason) {
+      const code = reason || error;
+      const messages = {
+        not_available: "This video is not available. It may be deleted, private, region-blocked, or the URL is incorrect.",
+        sign_in_required: "This video requires a YouTube sign-in. The bot cannot download it. Try another video.",
+        private: "This is a private video. The bot cannot download it.",
+        age_restricted: "This video is age-restricted. The bot cannot download it.",
+        invalid: "Invalid YouTube URL.",
+        timeout: "YouTube check timed out. Please try again.",
+      };
+      return messages[code] || error || "Request failed";
+    }
+
     function updateProgress(progress) {
       const pct = Math.max(0, Math.min(100, progress.percent));
       progressFill.style.width = pct + "%";
@@ -470,8 +483,14 @@
           });
         }
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Request failed");
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          const text = await res.text().catch(() => "");
+          throw new Error(text || `Server returned ${res.status}`);
+        }
+        if (!res.ok) throw new Error(mapErrorMessage(data.error, data.details?.reason) || "Request failed");
         currentJobId = data.jobId;
         listenProgress(currentJobId);
       } catch (err) {
