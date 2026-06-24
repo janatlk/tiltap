@@ -142,6 +142,95 @@ def normalize_repeated_punctuation(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Tajik-specific date normalization
+# ---------------------------------------------------------------------------
+_PERSIAN_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+_TAJIK_MONTHS = {
+    "январ": "январ",
+    "феврал": "феврал",
+    "март": "март",
+    "апрел": "апрел",
+    "май": "май",
+    "июн": "июн",
+    "июл": "июл",
+    "август": "август",
+    "сентябр": "сентябр",
+    "октябр": "октябр",
+    "ноябр": "ноябр",
+    "декабр": "декабр",
+    # Arabic/Persian month names sometimes leak in
+    "مای": "май",
+    "حوزаيران": "июн",
+    "تیر": "июл",
+    "مرداد": "август",
+    "شهریور": "сентябр",
+    "مهر": "октябр",
+    "آبان": "ноябр",
+    "آذر": "декабр",
+    "دی": "январ",
+    "بهمن": "феврал",
+    "اسفند": "март",
+}
+
+
+def _normalize_persian_digits(text: str) -> str:
+    return text.translate(_PERSIAN_DIGITS)
+
+
+def normalize_tajik_dates(text: str) -> str:
+    """Fix common date errors in Tajik STT output.
+
+    Examples:
+      '28 و 23 مای' -> '28 ба 29-уми май'
+      '28 ва 23 май' -> '28 ба 29-уми май'
+      '23 майи соли 2024' -> '23-юми майи соли 2024'
+    """
+    text = _normalize_persian_digits(text)
+
+    # Helper to convert a number word or digit to ordinal form.
+    def ordinalize(num_str: str) -> str:
+        num_str = num_str.strip()
+        # Keep simple digits as-is, adding -ум/-юм suffix handled below.
+        return num_str
+
+    # Pattern: '28 و 23 مای' or '28 ва 23 май' -> '28 ба 29-уми май'
+    # We look for two numbers separated by an Arabic/Persian/Tajik connector,
+    # followed by a month name. We assume the second number is a day-of-month.
+    def replace_range_connector(m: re.Match) -> str:
+        first = m.group(1).strip()
+        second = m.group(2).strip()
+        month_raw = m.group(3).strip()
+        month_lower = month_raw.lower()
+        month = _TAJIK_MONTHS.get(month_lower, month_raw)
+        # Try to interpret as a date range: first is start, second is end.
+        try:
+            start_day = int(first)
+            end_day = int(second)
+            return f"{start_day} ба {end_day}-уми {month}"
+        except ValueError:
+            return m.group(0)
+
+    connector = r"(?:و|ва|бар|то|–|-)"
+    month_alts = "|".join(re.escape(m) for m in _TAJIK_MONTHS.keys())
+    pattern = rf"(\d{{1,2}})\s*{connector}\s*(\d{{1,2}})\s*({month_alts})"
+    text = re.sub(pattern, replace_range_connector, text, flags=re.IGNORECASE)
+
+    # Pattern: '23 май' -> '23-юми май' (only when followed by nothing or year markers)
+    def replace_day_month(m: re.Match) -> str:
+        day = m.group(1)
+        month_raw = m.group(2)
+        month = _TAJIK_MONTHS.get(month_raw.lower(), month_raw)
+        return f"{day}-уми {month}"
+
+    text = re.sub(rf"(\d{{1,2}})\s+({month_alts})(?=[\s\.,;:!?]|$)", replace_day_month, text, flags=re.IGNORECASE)
+
+    # Pattern: '23-ум май' -> '23-уми май'
+    text = re.sub(rf"(\d{{1,2}})-?ум\s+({month_alts})", replace_day_month, text, flags=re.IGNORECASE)
+
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Language-specific wordlists for scoring
 # ---------------------------------------------------------------------------
 _COMMON_WORDS = {
@@ -235,6 +324,36 @@ def score_segment(text: str, language: str) -> float:
     return max(0.0, min(1.0, score))
 
 
+def _looks_like_crying_or_noise(text: str) -> bool:
+    """Detect emotional sounds, sobbing, heavy breathing, and non-speech noise."""
+    # Long vowel/cry repetitions: ааааа, ойойой, охохох, вох вох, etc.
+    if re.search(r"\b([аоеиӯуяёю])(\1{3,}|\1[^\w\s]*\1[^\w\s]*\1)\b", text, re.IGNORECASE):
+        return True
+    # Known cry/sob/interjection patterns
+    noise_patterns = [
+        r"\b(ой|вой|вох|ух|ах|ох|эх|ай|эй|ӯй|ҳай|ҳой|ҳуҳ)\s*(\1|\w{1,3}){1,4}\b",
+        r"\b(а|о|у|и|э)аа+\b",
+        r"\b(плач|гиря|зор|озор|нуҳа|нуҳаҳ)\b",
+    ]
+    for pat in noise_patterns:
+        if re.search(pat, text, re.IGNORECASE):
+            return True
+    # High ratio of single-letter/interjection tokens
+    tokens = text.split()
+    if tokens:
+        noise_tokens = sum(1 for t in tokens if re.fullmatch(r"[аоеиӯуяёюҳвoуiеaohu]{1,4}[.,!?]?", t, re.IGNORECASE))
+        if noise_tokens / len(tokens) > 0.7 and len(tokens) >= 2:
+            return True
+    return False
+
+
+def mark_noise(text: str, language: str) -> str:
+    """Replace crying/noise segments with a localized marker."""
+    if _looks_like_crying_or_noise(text):
+        return "[плач]" if language == "tg" else UNINTELLIGIBLE
+    return text
+
+
 def is_garbage(text: str, language: str, threshold: float = GARBAGE_THRESHOLD) -> bool:
     """True if segment looks like noise/hallucination for the target language."""
     text = text.strip()
@@ -245,6 +364,8 @@ def is_garbage(text: str, language: str, threshold: float = GARBAGE_THRESHOLD) -
     if re.search(r"Straßen|\b[НH]{2,}[?pwrvmk]+\b", text, re.IGNORECASE):
         return True
     if _repetition_ratio(text) > 0.45:
+        return True
+    if _looks_like_crying_or_noise(text):
         return True
 
     script = SCRIPT_FAMILIES.get(language, "")
@@ -265,9 +386,10 @@ def is_garbage(text: str, language: str, threshold: float = GARBAGE_THRESHOLD) -
 # ---------------------------------------------------------------------------
 DEFAULT_TAJIK_ENTITIES = {
     # Family names
-    "Ахмедов": ["Аҳмедов", "Ахмадов"],
-    "Ахмедова": ["Аҳмедова", "Ахмадова"],
-    "Иброҳимов": ["Иброҳимова", "Иброҳим", "Иброҳимовы", "Иброҳимовыи"],
+    "Ахмедов": ["Аҳмедов", "Ахмадов", "احمدوف"],
+    "Ахмедова": ["Аҳмедова", "Ахмадова", "احمدوفا"],
+    "Иброҳимов": ["Иброҳимова", "Иброҳим", "Иброҳимовы", "Иброҳимовыи", "ابراهیموف"],
+    "Иброҳимова": ["Иброҳимов", "Иброҳим", "ابراهیموفا"],
     "Каримов": ["Каримова"],
     "Раҳимов": ["Раҳимова"],
     # Male names
@@ -283,8 +405,10 @@ DEFAULT_TAJIK_ENTITIES = {
     "Шариф": ["Шарифҷон"],
     "Ҳамид": ["Ҳамидҷон"],
     # Female names
-    "Маҳбуба": ["Махбуба"],
-    "Нозанин": ["Нозирин", "Нозимахон"],
+    "Маҳбуба": ["Махбуба", "مهبوبا"],
+    "Маҳбуба Ахмедова": ["Махбуба Ахмедова", "Маҳбуба Аҳмедова"],
+    "Нозанин": ["Нозирин", "Нозимахон", "نازنین"],
+    "Нозанин Ахмедова": ["Нозирин Ахмедова", "Нозимахон Ахмедова"],
     "Шаҳло": ["Шахло"],
     "Фирӯза": ["Фирузa"],
     "Гулноз": ["Гулнор"],
@@ -641,19 +765,23 @@ class LLMTextCleaner:
 
         if language == "tg":
             return (
-                "Ты — строгий нормализатор таджикской кириллицы для расшифровки речи. "
+                "Ты — строгий нормализатор таджикской речи для расшифровки. "
                 "Твоя задача — привести любой текст к чистому таджикскому языку (кириллица), "
-                "исправить падежи/спряжения и убрать мусор.\n\n"
+                "исправить падежи/спряжения, даты, имена, топонимы и убрать мусор.\n\n"
                 "Абсолютные правила:\n"
-                "1. Язык выхода — обязательно тоҷикӣ на кириллице. Латинские или арабские вставки, "
-                "а также русские/английские слова, переведи на таджикский, если это общие фразы "
-                "(например, 'good, thanks' → 'хуб, ташаккур').\n"
-                "2. Если текст уже на таджикской кириллице, исправь только явные грамматические ошибки (падеж, спряжение).\n"
-                "3. Переводи арабско-персидские написания в таджикскую кириллицу.\n"
-                "4. НЕ меняй смысл, НЕ перефразируй, НЕ додумывай слова.\n"
-                "5. НЕ меняй имена собственные, фамилии, топонимы.\n"
-                "6. Если фрагмент неразборчив или явный мусор, замени его на [неразборчиво].\n"
-                "7. Верни только очищенный текст, без пояснений."
+                "1. Язык выхода — обязательно тоҷикӣ на кириллице.\n"
+                "2. Переводи арабско-персидские написания в таджикскую кириллицу.\n"
+                "3. Исправляй даты: '28 ва 23 май' → '28 ба 29-уми май'; '23 май' → '23-юми май'. "
+                "Дни месяца пиши с суффиксом -ум/-юм.\n"
+                "4. Исправляй имена собственные и топонимы на стандартные таджикские написания: "
+                "Конибодом, Душанбе, Хуҷанд, Маҳбуба Ахмедова, Нозанин Ахмедова, Абдуфаттоҳ Иброҳимов, "
+                "Қурбонгул Иброҳимова, Радиои Озоди.\n"
+                "5. Если в таджикской речи встречается узбекская вставка, оставь её как есть и не пытайся "
+                "переводить на таджикский.\n"
+                "6. Если слышен плач, рыдание, крик, тяжёлое дыхание или фрагмент неразборчив — "
+                "замени его на [плач] или [неразборчиво].\n"
+                "7. НЕ меняй смысл, НЕ перефразируй, НЕ додумывай слова.\n"
+                "8. Верни только очищенный текст, без пояснений."
             )
 
         if language == "ru":
@@ -910,6 +1038,8 @@ def _apply_tajik_rules(text: str) -> str:
     """Tajik-specific rule-based cleanup before/after LLM."""
     text = transliterate_arabic_words(text)
     text = fix_mixed_script_typos(text)
+    text = normalize_tajik_dates(text)
+    text = mark_noise(text, "tg")
     fixer = _get_tajik_fixer()
     text = fixer.fix(text)
     return text
@@ -943,6 +1073,7 @@ def postprocess_segment(text: str, language: str) -> Tuple[str, float]:
     else:
         cleaned = normalize_repeated_punctuation(cleaned)
         cleaned = fix_mixed_script_typos(cleaned)
+        cleaned = mark_noise(cleaned, language)
 
     return cleaned, score
 
