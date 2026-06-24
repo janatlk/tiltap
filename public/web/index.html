@@ -259,6 +259,7 @@
           <button class="lang-btn" id="downloadBtn">⬇️ Download .txt</button>
         </div>
         <div class="result-meta" id="resultMeta"></div>
+        <div id="translationWarning" style="display:none; color:var(--warning); font-size:0.875rem; margin-bottom:12px;"></div>
         <div class="text-box" id="resultText"></div>
 
         <div class="lang-buttons" id="translateButtons">
@@ -313,6 +314,7 @@
     const originalText = document.getElementById("originalText");
     const originalSegmentsBox = document.getElementById("originalSegmentsBox");
     const translationResults = document.getElementById("translationResults");
+    const translationWarning = document.getElementById("translationWarning");
 
     let currentFile = null;
     let currentJobId = null;
@@ -442,6 +444,13 @@
 
       resultMeta.textContent = "Detected: " + (SUPPORTED_LANGS[result.language] || result.language) +
         " · Segments: " + result.segments.length;
+
+      translationWarning.style.display = "none";
+      translationWarning.textContent = "";
+      if (job.translationError) {
+        translationWarning.textContent = "⚠️ Translation failed: " + job.translationError;
+        translationWarning.style.display = "block";
+      }
 
       if (job.translatedText && targetLang !== "none") {
         // Primary output is the translation (matches Telegram bot behavior).

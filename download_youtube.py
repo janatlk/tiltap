@@ -51,6 +51,10 @@ def download_audio(url: str, output_path: str, ffmpeg_path: str, cookies_path: s
         "extractor_args": get_extractor_args(),
     }
 
+    proxy = os.environ.get("YOUTUBE_PROXY", "").strip()
+    if proxy:
+        ydl_opts["proxy"] = proxy
+
     if cookies_path and os.path.exists(cookies_path):
         ydl_opts["cookies"] = cookies_path
 

@@ -29,6 +29,10 @@ def validate(url: str):
         "extractor_args": get_extractor_args(),
     }
 
+    proxy = os.environ.get("YOUTUBE_PROXY", "").strip()
+    if proxy:
+        opts["proxy"] = proxy
+
     cookies_path = get_cookies_path()
     if cookies_path:
         opts["cookies"] = cookies_path

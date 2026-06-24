@@ -223,6 +223,7 @@ If Daniel's module URL is configured (`TRANSLATION_MODULE_URL`), all translation
 | `YOUTUBE_COOKIES_PATH` | no | Path to a Netscape-format YouTube cookies file (alternative to base64) |
 | `YOUTUBE_PO_TOKEN` | no | Proof-of-Origin token(s) for YouTube web client, comma-separated `CLIENT.CONTEXT+TOKEN` entries |
 | `YOUTUBE_VISITOR_DATA` | no | YouTube visitor data for Innertube API requests (use with PO token, not cookies) |
+| `YOUTUBE_PROXY` | no | HTTP/HTTPS/SOCKS proxy for YouTube requests (e.g. `http://user:pass@host:port`) |
 | `YOUTUBE_AUTO_UPDATE_YTDLP` | no | Set `true` to upgrade `yt-dlp` on every container start (recommended on Render) |
 | `TRANSLATION_MODULE_URL` | no | Daniel's translation module endpoint |
 | `TELEGRAM_WEBHOOK_SECRET` | no | Future webhook validation |
@@ -246,6 +247,7 @@ Optional:
 - `LINGVA_TRANSLATE_URL` / `TILTAB_TRANSLATION_PROVIDER`
 - `YOUTUBE_COOKIES_BASE64` or `YOUTUBE_COOKIES_PATH` — if YouTube returns "Sign in to confirm" from Render's datacenter IP
 - `YOUTUBE_PO_TOKEN` / `YOUTUBE_VISITOR_DATA` — if YouTube still blocks with HTTP 403 or "Sign in" even with cookies
+- `YOUTUBE_PROXY` — route YouTube requests through a residential/proxy IP if datacenter IP is heavily flagged
 - `YOUTUBE_AUTO_UPDATE_YTDLP=true` — keep `yt-dlp` up to date on Render
 
 ### Deploy to Render

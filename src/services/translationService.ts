@@ -1,6 +1,7 @@
 import { logger } from "../utils/logger";
 import { config } from "../config";
 import type { TranslateRequest, TranslateResponse } from "../types";
+import { normalizeLanguageCodeOrKeep } from "../utils/languageCodes";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -19,8 +20,9 @@ const languageNames: Record<string, string> = {
 
 function mapLingvaLanguage(code: string | undefined): string {
   if (!code || code === "auto" || code === "multi") return "auto";
-  // Google Translate uses the same ISO codes for our supported languages.
-  return code;
+  // Some STT providers return ISO 639-3 codes (e.g. `kir`, `tgk`, `uzb`).
+  // Lingva/Google Translate expect ISO 639-1, so normalize first.
+  return normalizeLanguageCodeOrKeep(code) ?? code;
 }
 
 function chunkText(text: string, maxSize: number): string[] {

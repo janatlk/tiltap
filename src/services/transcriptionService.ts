@@ -8,6 +8,7 @@ import { config } from "../config";
 import { transcribeWithOpenAI } from "./openaiSttService";
 import { transcribeWithElevenLabs } from "./elevenlabsSttService";
 import type { TranscriptionResult, TranscriptionSegment } from "../types";
+import { normalizeLanguageCodeOrKeep } from "../utils/languageCodes";
 
 const FFMPEG_PATH = require("ffmpeg-static");
 const PYTHON_PATH = process.platform === "win32" ? "python" : "python3";
@@ -37,22 +38,28 @@ export async function transcribeAudio(
     : audioBuffer;
   const cloudFilename = filename.replace(/\.[^.]+$/, ".mp3") || "audio.mp3";
 
+  let result: TranscriptionResult;
+
   if (provider === "openai") {
-    return transcribeWithOpenAI(cloudBuffer, cloudFilename, language, onProgress);
+    result = await transcribeWithOpenAI(cloudBuffer, cloudFilename, language, onProgress);
+    return normalizeTranscriptionResult(result);
   }
 
   if (provider === "elevenlabs") {
-    return transcribeWithElevenLabs(cloudBuffer, cloudFilename, language, onProgress);
+    result = await transcribeWithElevenLabs(cloudBuffer, cloudFilename, language, onProgress);
+    return normalizeTranscriptionResult(result);
   }
 
   if (provider === "local") {
-    return runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress);
+    result = await runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress);
+    return normalizeTranscriptionResult(result);
   }
 
   // Auto mode: cloud-first. ElevenLabs → OpenAI/Groq → local fallback.
   if (config.ELEVENLABS_API_KEY) {
     try {
-      return await transcribeWithElevenLabs(cloudBuffer, cloudFilename, language, onProgress);
+      result = await transcribeWithElevenLabs(cloudBuffer, cloudFilename, language, onProgress);
+      return normalizeTranscriptionResult(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.warn("ElevenLabs transcription failed, falling back", { error: msg });
@@ -61,14 +68,16 @@ export async function transcribeAudio(
 
   if (config.OPENAI_API_KEY || config.GROQ_API_KEY) {
     try {
-      return await transcribeWithOpenAI(cloudBuffer, cloudFilename, language, onProgress);
+      result = await transcribeWithOpenAI(cloudBuffer, cloudFilename, language, onProgress);
+      return normalizeTranscriptionResult(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.warn("OpenAI/Groq transcription failed, falling back to local", { error: msg });
     }
   }
 
-  return runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress);
+  result = await runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress);
+  return normalizeTranscriptionResult(result);
 }
 
 async function convertToAudio(inputBuffer: Buffer, _filename: string): Promise<Buffer> {
@@ -217,6 +226,13 @@ async function runHybridTranscription(
       reject(err);
     });
   });
+}
+
+function normalizeTranscriptionResult(result: TranscriptionResult): TranscriptionResult {
+  return {
+    ...result,
+    language: normalizeLanguageCodeOrKeep(result.language) ?? "auto",
+  };
 }
 
 function parseTranscriptionResult(data: {

@@ -62,21 +62,30 @@ def get_extractor_args() -> dict:
     - Prefer mobile/TV clients which are less likely to demand sign-in.
     - Skip heavy webpage/JS processing when possible.
     - Optionally inject a PO token and/or visitor_data for the web client.
+    - Add the web client as a final fallback when a PO token or visitor_data is
+      provided, because a valid token can sometimes bypass strict sign-in checks.
     """
+    clients = ["ios", "android", "tv"]
+
+    po_token = os.environ.get("YOUTUBE_PO_TOKEN", "").strip()
+    visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA", "").strip()
+
+    # Only fall back to the web client if we have something to feed it.
+    if po_token or visitor_data:
+        clients.append("web")
+
     extractor_args: dict = {
         "youtube": {
             # ios/tv/android usually work without cookies/PO tokens on flagged IPs.
-            "player_client": ["ios", "android", "tv"],
+            "player_client": clients,
             "player_skip": ["webpage", "configs", "js"],
         }
     }
 
-    po_token = os.environ.get("YOUTUBE_PO_TOKEN", "").strip()
     if po_token:
         # Comma-separated list of CLIENT.CONTEXT+TOKEN entries.
         extractor_args["youtube"]["po_token"] = [t.strip() for t in po_token.split(",") if t.strip()]
 
-    visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA", "").strip()
     if visitor_data:
         extractor_args["youtube"]["visitor_data"] = visitor_data
 

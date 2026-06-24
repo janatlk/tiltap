@@ -20,6 +20,7 @@ export interface WebJob {
   cleanedText?: string;
   translatedText?: string;
   translatedLang?: string;
+  translationError?: string;
   transcriptionId?: number;
   error?: string;
   pid?: number;
@@ -172,6 +173,7 @@ export async function handleWebJobStatus(req: Request, res: Response): Promise<v
     cleanedText: job.cleanedText,
     translatedText: job.translatedText,
     translatedLang: job.translatedLang,
+    translationError: job.translationError,
     transcriptionId: job.transcriptionId,
     error: job.error,
   });
@@ -197,6 +199,7 @@ export function handleWebJobProgress(req: Request, res: Response): void {
       cleanedText: j.cleanedText,
       translatedText: j.translatedText,
       translatedLang: j.translatedLang,
+      translationError: j.translationError,
       transcriptionId: j.transcriptionId,
       error: j.error,
     })}\n\n`);
@@ -271,12 +274,14 @@ async function finalizeTranscription(
   }
 
   let translatedText: string | undefined;
+  let translationError: string | undefined;
   if (targetLanguage && targetLanguage !== result.language && cleanedText) {
     try {
       const translation = await translateText({ text: cleanedText, targetLang: targetLanguage, sourceLang: result.language });
       translatedText = translation.translatedText;
     } catch (err) {
-      logger.error("Web auto-translation failed", { error: err, jobId: job.id });
+      translationError = err instanceof Error ? err.message : String(err);
+      logger.error("Web auto-translation failed", { error: translationError, jobId: job.id });
     }
   }
 
@@ -286,6 +291,7 @@ async function finalizeTranscription(
     cleanedText,
     translatedText,
     translatedLang: targetLanguage,
+    translationError,
   });
 }
 
