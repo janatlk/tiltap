@@ -19,9 +19,9 @@ WORKDIR /app
 
 # Install Python, yt-dlp, and minimal STT dependencies for priority languages.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 python3-pip wget unzip \
+  && apt-get install -y --no-install-recommends python3 python3-pip wget unzip libgomp1 \
   && rm -rf /var/lib/apt/lists/* \
-  && pip3 install --break-system-packages --no-cache-dir yt-dlp vosk requests
+  && pip3 install --break-system-packages --no-cache-dir yt-dlp vosk requests numpy
 
 # Download lightweight public Vosk fallback models for ky/tg/uz.
 # Replace these with large/custom models if you need the same quality as local dev.
