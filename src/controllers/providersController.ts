@@ -82,23 +82,25 @@ async function checkElevenLabs(): Promise<ProviderStatus> {
     }
 
     const subBody = await subRes.text();
+    let subDetail: Record<string, unknown> | undefined;
+    try {
+      subDetail = JSON.parse(subBody).detail as Record<string, unknown>;
+    } catch {
+      // ignore
+    }
 
     // The API key exists but does not have the "user_read" permission.
-    // Fall back to a lightweight key check and explain how to enable billing info.
-    if (subRes.status === 401) {
-      const voicesRes = await fetchWithTimeout("https://api.elevenlabs.io/v1/voices", { headers });
-      if (voicesRes.ok) {
-        return {
-          configured: true,
-          status: "ok",
-          details: {
-            keyValid: true,
-            billingUnavailableReason:
-              "The API key is missing the 'user_read' permission. Create a key with that permission at https://elevenlabs.io/app/settings/api-keys to see quota, amount due and next invoice.",
-            subscriptionEndpointError: `HTTP ${subRes.status}: ${subBody}`,
-          },
-        };
-      }
+    // We still treat the provider as functional, but cannot show quota/billing.
+    if (subRes.status === 401 && subDetail?.status === "missing_permissions") {
+      return {
+        configured: true,
+        status: "ok",
+        details: {
+          keyPresent: true,
+          billingUnavailableReason:
+            "The API key is missing the 'user_read' permission. Create a key with that permission at https://elevenlabs.io/app/settings/api-keys to see quota, amount due and next invoice.",
+        },
+      };
     }
 
     return { configured: true, status: "error", error: `HTTP ${subRes.status}: ${subBody}` };
@@ -170,11 +172,10 @@ async function checkOpenAI(): Promise<ProviderStatus> {
       // Ignore usage fetch failures.
     }
 
-    const hasError = details.subscriptionError || details.creditsError;
+    // The secret key itself is valid; billing endpoints may require a browser session key.
     return {
       configured: true,
-      status: hasError ? "error" : "ok",
-      error: hasError ? String(details.subscriptionError ?? details.creditsError) : undefined,
+      status: "ok",
       details,
     };
   } catch (err) {
