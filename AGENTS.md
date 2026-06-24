@@ -174,8 +174,9 @@ Endpoints:
 
 Temporary in-memory state that is intentionally not persisted:
 
-- `pendingActions` Map — ephemeral audio buffers / YouTube URLs while the user confirms language selection (auto-expires after 10 minutes)
 - `activeProcesses` Map — currently running Python PIDs keyed by chat ID
+
+`pendingActions` is backed by PostgreSQL: audio buffers and YouTube URLs awaiting user confirmation are persisted to the `pending_actions` table so the confirmation flow survives Render free-tier spin-downs and container restarts. Rows are removed when the action is started/cancelled and expire after 60 minutes.
 
 ## Environment Variables
 

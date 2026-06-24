@@ -7,6 +7,13 @@ import {
   updateUserPreferences,
   type User,
 } from "../db/repos";
+import {
+  setPendingAction as setPendingActionDb,
+  deletePendingAction as deletePendingActionDb,
+  deleteExpiredPendingActions,
+  listPendingActions,
+  type PendingActionRow,
+} from "../db/repos/pendingActionRepo";
 
 const TELEGRAM_API = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`;
 
@@ -601,13 +608,73 @@ type PendingActionWithId = (PendingMedia | PendingYouTube) & { actionId: string 
 const pendingActions = new Map<number, PendingActionWithId>();
 const PENDING_TTL_MS = 60 * 60 * 1000; // 60 minutes
 
+function rowToPendingAction(row: PendingActionRow): PendingActionWithId {
+  const payload = row.payload;
+  if (row.action_type === "media") {
+    return {
+      type: "media",
+      actionId: row.action_id,
+      filename: String(payload.filename ?? "media.mp4"),
+      messageId: Number(payload.messageId ?? 0),
+      dbMessageId: Number(payload.dbMessageId ?? 0),
+      sourceLanguage: (payload.sourceLanguage as any) ?? "auto",
+      targetLanguage: (payload.targetLanguage as any) ?? "none",
+      buffer: row.buffer ?? Buffer.alloc(0),
+      createdAt: new Date(row.created_at).getTime(),
+    } as PendingActionWithId;
+  }
+  return {
+    type: "youtube",
+    actionId: row.action_id,
+    url: String(payload.url ?? ""),
+    title: payload.title ? String(payload.title) : undefined,
+    sourceLanguage: (payload.sourceLanguage as any) ?? "auto",
+    targetLanguage: (payload.targetLanguage as any) ?? "none",
+    createdAt: new Date(row.created_at).getTime(),
+  } as PendingActionWithId;
+}
+
+/** Load pending actions from DB on startup so they survive Render restarts/spin-downs. */
+export async function initPendingActions(): Promise<void> {
+  try {
+    const rows = await listPendingActions();
+    for (const row of rows) {
+      try {
+        pendingActions.set(Number(row.telegram_chat_id), rowToPendingAction(row));
+      } catch (err) {
+        logger.warn("Failed to hydrate pending action", { chatId: row.telegram_chat_id, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    logger.info("Hydrated pending actions from database", { count: pendingActions.size });
+  } catch (err) {
+    logger.warn("Failed to hydrate pending actions from database", { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 function cleanExpiredPendingActions(): void {
   const now = Date.now();
+  const expiredChatIds: number[] = [];
   for (const [chatId, action] of pendingActions.entries()) {
     if (now - action.createdAt > PENDING_TTL_MS) {
       pendingActions.delete(chatId);
+      expiredChatIds.push(chatId);
     }
   }
+  if (expiredChatIds.length > 0) {
+    deleteExpiredPendingActions(PENDING_TTL_MS).catch((err) =>
+      logger.warn("Failed to clean expired pending actions from DB", { error: err instanceof Error ? err.message : String(err) })
+    );
+  }
+}
+
+function syncPendingActionToDb(chatId: number, action: PendingActionWithId): void {
+  const payload: Record<string, unknown> = { ...action };
+  delete payload.buffer;
+  delete payload.actionId;
+  const buffer = action.type === "media" ? action.buffer : undefined;
+  setPendingActionDb(chatId, action.actionId, action.type, payload, buffer).catch((err) =>
+    logger.warn("Failed to persist pending action", { chatId, error: err instanceof Error ? err.message : String(err) })
+  );
 }
 
 export function getPendingAction(chatId: number): PendingActionWithId | undefined {
@@ -618,19 +685,26 @@ export function getPendingAction(chatId: number): PendingActionWithId | undefine
 export function setPendingAction(chatId: number, action: PendingAction): string {
   cleanExpiredPendingActions();
   const actionId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  pendingActions.set(chatId, { ...action, actionId } as PendingActionWithId);
+  const withId = { ...action, actionId } as PendingActionWithId;
+  pendingActions.set(chatId, withId);
+  syncPendingActionToDb(chatId, withId);
   return actionId;
 }
 
 export function updatePendingAction(chatId: number, updates: Partial<PendingAction>): void {
   const existing = pendingActions.get(chatId);
   if (existing) {
-    pendingActions.set(chatId, { ...existing, ...updates } as PendingActionWithId);
+    const updated = { ...existing, ...updates } as PendingActionWithId;
+    pendingActions.set(chatId, updated);
+    syncPendingActionToDb(chatId, updated);
   }
 }
 
 export function clearPendingAction(chatId: number): void {
   pendingActions.delete(chatId);
+  deletePendingActionDb(chatId).catch((err) =>
+    logger.warn("Failed to delete pending action from DB", { chatId, error: err instanceof Error ? err.message : String(err) })
+  );
 }
 
 // ---------------------------------------------------------------------------

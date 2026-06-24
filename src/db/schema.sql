@@ -51,5 +51,16 @@ CREATE TABLE IF NOT EXISTS translations (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS pending_actions (
+  id SERIAL PRIMARY KEY,
+  telegram_chat_id BIGINT UNIQUE NOT NULL,
+  action_id VARCHAR(64) NOT NULL,
+  action_type VARCHAR(20) NOT NULL, -- 'media', 'youtube'
+  payload JSONB NOT NULL,
+  buffer BYTEA,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_actions_chat_id ON pending_actions(telegram_chat_id);
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(telegram_chat_id);
 CREATE INDEX IF NOT EXISTS idx_transcriptions_chat_id ON transcriptions(telegram_chat_id);

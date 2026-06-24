@@ -2,6 +2,7 @@ import app from "./app";
 import { config } from "./config";
 import { logger } from "./utils/logger";
 import { migrate, isDbHealthy } from "./db";
+import { initPendingActions } from "./services/telegramService";
 
 const PORT = config.PORT;
 
@@ -13,6 +14,7 @@ async function start() {
       process.exit(1);
     }
     await migrate();
+    await initPendingActions();
   } catch (err) {
     logger.error("Failed to start server due to DB issue", { error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
     process.exit(1);
