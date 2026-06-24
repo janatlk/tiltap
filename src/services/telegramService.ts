@@ -240,6 +240,13 @@ const TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
     en: "❌ Transcription failed: {error}",
     ru: "❌ Распознавание не удалось: {error}",
   },
+  translationFailed: {
+    ky: "❌ Которуу ишке ашкан жок: {error}",
+    tg: "❌ Тарҷума иҷро нашуд: {error}",
+    uz: "❌ Tarjima amalga oshmadi: {error}",
+    en: "❌ Translation failed: {error}",
+    ru: "❌ Перевод не удался: {error}",
+  },
   processingStopped: {
     ky: "🛑 Процесс токтотулду.",
     tg: "🛑 Процесс қатъ карда шуд.",
@@ -361,7 +368,7 @@ const TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
   },
   qualityWarning: {
     ky: "Транскрипция текшерилгенде эскертүүлөр бар",
-    tg: "Дар транскрипция огоҳкунињо мављуданд",
+    tg: "Дар транскрипция огоҳкуниҳо мавҷуданд",
     uz: "Transkripsiyada ogohlantirishlar mavjud",
     en: "Quality warnings detected in transcription",
     ru: "В транскрипции обнаружены предупреждения",

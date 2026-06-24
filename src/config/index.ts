@@ -15,7 +15,11 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional().or(z.literal("")),
   OPENAI_STT_MODEL: z.string().optional().or(z.literal("")).default("whisper-1"),
   TRANSLATION_MODULE_URL: z.string().url().optional().or(z.literal("")),
+  LINGVA_TRANSLATE_URL: z.string().url().optional().or(z.literal("")).default("https://lingva.ml"),
+  LINGVA_TRANSLATE_CHUNK_SIZE: z.string().default("2000").transform(Number),
+  TILTAB_TRANSLATION_PROVIDER: z.enum(["lingva", "openai", "groq", "mock", "auto"]).default("auto"),
   GROQ_API_KEY: z.string().optional().or(z.literal("")),
+
   GEMINI_API_KEY: z.string().optional().or(z.literal("")),
   ELEVENLABS_API_KEY: z.string().optional().or(z.literal("")),
   ELEVENLABS_MODEL_ID: z.string().optional().or(z.literal("")).default("scribe_v2"),

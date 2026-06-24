@@ -188,6 +188,19 @@ Temporary in-memory state that is intentionally not persisted:
 
 `pendingActions` is backed by PostgreSQL: audio buffers and YouTube URLs awaiting user confirmation are persisted to the `pending_actions` table so the confirmation flow survives Render free-tier spin-downs and container restarts. Rows are removed when the action is started/cancelled and expire after 60 minutes.
 
+## Translation
+
+Translation is available both in the Telegram bot (after transcription, if a target language was selected) and via the Web API (`POST /api/translate`).
+
+Provider priority (unless overridden by `TILTAB_TRANSLATION_PROVIDER`):
+
+1. **Lingva Translate** — free, open-source front-end for Google Translate. No API key required for public instances. Supports all Tiltap languages (`en/ru/tg/uz/ky`). Long texts are automatically split into chunks.
+2. **OpenAI GPT-4o-mini** — high-quality LLM translation (requires `OPENAI_API_KEY`).
+3. **Groq llama-3.3-70b** — LLM fallback (requires `GROQ_API_KEY`).
+4. **Mock** — returns a placeholder translation if nothing else is available.
+
+If Daniel's module URL is configured (`TRANSLATION_MODULE_URL`), all translation requests are proxied to it instead.
+
 ## Environment Variables
 
 | Variable | Required | Description |
@@ -197,12 +210,15 @@ Temporary in-memory state that is intentionally not persisted:
 | `ELEVENLABS_API_KEY` | yes (production) | Primary STT provider |
 | `ELEVENLABS_MODEL_ID` | no | Defaults to `scribe_v2` |
 | `OPENAI_API_KEY` | no | Fallback STT and translator |
-| `GROQ_API_KEY` | no | Fallback STT (English only) and LLM cleanup |
+| `GROQ_API_KEY` | no | Fallback STT (English only), translation, and LLM cleanup |
 | `GEMINI_API_KEY` | no | Primary LLM cleanup provider |
 | `TILTAB_STT_PROVIDER` | no | `elevenlabs` (default primary in auto), `openai`, `local`, `auto` |
 | `TILTAB_GROQ_WHISPER_LANGUAGES` | no | Comma-separated list of languages allowed for Groq Whisper fallback (default `en`) |
 | `TILTAB_CLEANUP_PROVIDER` | no | Override cleanup provider: `gemini`, `openai`, `groq`, or `none` |
 | `TILTAB_CLEANUP_MODEL` | no | Override the default model for the chosen cleanup provider |
+| `LINGVA_TRANSLATE_URL` | no | Free Lingva instance, default `https://lingva.ml` |
+| `LINGVA_TRANSLATE_CHUNK_SIZE` | no | Max characters per Lingva chunk (default `2000`) |
+| `TILTAB_TRANSLATION_PROVIDER` | no | `lingva`, `openai`, `groq`, `mock`, or `auto` |
 | `TRANSLATION_MODULE_URL` | no | Daniel's translation module endpoint |
 | `TELEGRAM_WEBHOOK_SECRET` | no | Future webhook validation |
 | `LOG_LEVEL` | no | `error`, `warn`, `info`, `debug` |

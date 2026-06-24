@@ -8,6 +8,7 @@ import { fetchTelegramFile } from "../services/fileDownloadService";
 import { transcribeAudio, formatSubtitles } from "../services/transcriptionService";
 
 import { cleanupTranscription, detectTranscriptionIssues } from "../services/cleanupService";
+import { translateText } from "../services/translationService";
 import { extractYouTubeCaptions } from "../services/youtubeCaptionService";
 import {
   isValidYouTubeUrl,
@@ -56,6 +57,7 @@ import {
 import {
   createMessage,
   createTranscription,
+  saveTranslation,
   type Transcription,
 } from "../db/repos";
 
@@ -533,6 +535,16 @@ async function processAudio(
     const title = `📝 ${LANGUAGE_LABELS[result.language as SupportedLanguage] ?? result.language}`;
     await sendTranscriptionDocument(chatId, title, cleanedText, result.segments, replyToMessageId, qualityWarning);
 
+    await sendTranslationIfNeeded(
+      chatId,
+      cleanedText,
+      result.language,
+      targetLanguage,
+      transcriptionId,
+      lang,
+      replyToMessageId
+    );
+
     return { ...result, text: cleanedText };
   } catch (err) {
     clearActiveProcess(chatId);
@@ -614,6 +626,15 @@ async function downloadAndTranscribeYouTube(
 
     const title = `📝 YouTube — ${LANGUAGE_LABELS[result.language as SupportedLanguage] ?? result.language}`;
     await sendTranscriptionDocument(chatId, title, cleanedText, result.segments);
+
+    await sendTranslationIfNeeded(
+      chatId,
+      cleanedText,
+      result.language,
+      targetLanguage,
+      transcriptionId,
+      lang
+    );
   } catch (err) {
     clearActiveProcess(chatId);
     await unlink(tmpWav).catch(() => {});
@@ -719,6 +740,59 @@ async function sendTranscriptionDocument(
     `transcription_${Date.now()}.txt`,
     caption
   );
+}
+
+async function sendTranslationIfNeeded(
+  chatId: number,
+  sourceText: string,
+  sourceLang: string,
+  targetLang: string | undefined,
+  transcriptionId: number,
+  lang: SupportedLanguage,
+  replyToMessageId?: number
+): Promise<void> {
+  if (!targetLang || targetLang === "none" || targetLang === sourceLang || !sourceText.trim()) {
+    return;
+  }
+
+  try {
+    const statusMsgId = await sendTextMessage(chatId, t("translating", lang), {
+      replyMarkup: { inline_keyboard: [] },
+      replyToMessageId,
+    });
+
+    const result = await translateText({ text: sourceText, targetLang, sourceLang: sourceLang });
+
+    if (transcriptionId > 0) {
+      await saveTranslation({
+        telegramChatId: chatId,
+        transcriptionId,
+        sourceText,
+        targetLang,
+        translatedText: result.translatedText,
+      }).catch((err) => logger.error("Failed to persist translation", { error: err, chatId }));
+    }
+
+    await editMessageText(chatId, statusMsgId, t("translationComplete", lang), {
+      replyMarkup: { inline_keyboard: [] },
+    }).catch(() => {});
+
+    const title = `🌐 ${LANGUAGE_LABELS[targetLang as SupportedLanguage] ?? targetLang}`;
+    await sendDocument(
+      chatId,
+      Buffer.from(`${title}\n\n${result.translatedText}`, "utf-8"),
+      `translation_${Date.now()}.txt`,
+      title
+    );
+  } catch (err) {
+    logger.error("Translation failed", {
+      error: err instanceof Error ? err.message : String(err),
+      chatId,
+      targetLang,
+    });
+    const msg = t("translationFailed", lang, { error: err instanceof Error ? err.message : String(err) });
+    await sendTextMessage(chatId, msg, { replyMarkup: createMainKeyboard(lang) }).catch(() => {});
+  }
 }
 
 async function prepareTestAudio(fixture: TestFixture, tmpWav: string): Promise<{ source: string; captionPromise: Promise<string | null> }> {

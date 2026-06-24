@@ -13,6 +13,103 @@ const languageNames: Record<string, string> = {
   uz: "Uzbek",
 };
 
+// ---------------------------------------------------------------------------
+// Lingva Translate — free, no-API-key front-end for Google Translate
+// ---------------------------------------------------------------------------
+
+function mapLingvaLanguage(code: string | undefined): string {
+  if (!code || code === "auto" || code === "multi") return "auto";
+  // Google Translate uses the same ISO codes for our supported languages.
+  return code;
+}
+
+function chunkText(text: string, maxSize: number): string[] {
+  if (text.length <= maxSize) return [text];
+
+  const chunks: string[] = [];
+  const paragraphs = text.split(/\n\n+/);
+  let current = "";
+
+  for (const paragraph of paragraphs) {
+    if ((current + "\n\n" + paragraph).length > maxSize && current.length > 0) {
+      chunks.push(current.trim());
+      current = paragraph;
+    } else {
+      current = current ? current + "\n\n" + paragraph : paragraph;
+    }
+  }
+
+  if (current.trim()) chunks.push(current.trim());
+
+  // If a single paragraph is still too long, split it by sentences.
+  const result: string[] = [];
+  for (const chunk of chunks) {
+    if (chunk.length <= maxSize) {
+      result.push(chunk);
+      continue;
+    }
+    const sentences = chunk.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [chunk];
+    let sentenceBuffer = "";
+    for (const sentence of sentences) {
+      if ((sentenceBuffer + " " + sentence).length > maxSize && sentenceBuffer.length > 0) {
+        result.push(sentenceBuffer.trim());
+        sentenceBuffer = sentence;
+      } else {
+        sentenceBuffer = sentenceBuffer ? sentenceBuffer + " " + sentence : sentence;
+      }
+    }
+    if (sentenceBuffer.trim()) result.push(sentenceBuffer.trim());
+  }
+
+  return result;
+}
+
+async function translateWithLingva(req: TranslateRequest): Promise<TranslateResponse> {
+  const baseUrl = config.LINGVA_TRANSLATE_URL.replace(/\/$/, "");
+  const source = mapLingvaLanguage(req.sourceLang);
+  const target = req.targetLang;
+  const chunkSize = Math.max(500, config.LINGVA_TRANSLATE_CHUNK_SIZE || 2000);
+  const chunks = chunkText(req.text, chunkSize);
+
+  logger.info("Lingva translation started", { chunks: chunks.length, target, source });
+
+  const translatedChunks: string[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const url = `${baseUrl}/api/v1/${source}/${target}/${encodeURIComponent(chunk)}`;
+    const res = await fetch(url, { method: "GET" });
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Lingva translation failed (${res.status}): ${body}`);
+    }
+
+    const data = (await res.json()) as { translation?: string; error?: string };
+    if (data.error) {
+      throw new Error(`Lingva translation error: ${data.error}`);
+    }
+    if (typeof data.translation !== "string") {
+      throw new Error("Lingva returned an unexpected response format");
+    }
+
+    translatedChunks.push(data.translation);
+
+    // Be polite to the public instance.
+    if (i < chunks.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+
+  return {
+    translatedText: translatedChunks.join("\n\n"),
+    detectedLang: source === "auto" ? "auto" : source,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI / Groq LLM translation
+// ---------------------------------------------------------------------------
+
 function buildSystemPrompt(targetName: string): string {
   return (
     `You are a professional translator. Translate the user's text into ${targetName}. ` +
@@ -70,7 +167,83 @@ function isRetryableError(status: number, body: string): boolean {
   return false;
 }
 
+async function translateWithOpenAI(req: TranslateRequest): Promise<TranslateResponse> {
+  const openaiKey = config.OPENAI_API_KEY;
+  const groqKey = config.GROQ_API_KEY;
+  const targetName = languageNames[req.targetLang] ?? req.targetLang;
+
+  if (!openaiKey && !groqKey) {
+    throw new Error("Neither OPENAI_API_KEY nor GROQ_API_KEY is configured for translation");
+  }
+
+  if (openaiKey) {
+    try {
+      const translatedText = await callTranslationProvider(
+        OPENAI_API_URL,
+        openaiKey,
+        buildPayload(targetName, req.text, "gpt-4o-mini"),
+        "OpenAI"
+      );
+      logger.info("Translated with OpenAI", { targetLang: req.targetLang });
+      return { translatedText, detectedLang: "auto" };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      const isRetryable = isRetryableError(0, errorMessage);
+      logger.warn("OpenAI translation failed", { error: errorMessage, fallbackToGroq: Boolean(groqKey) && isRetryable });
+
+      if (!groqKey || !isRetryable) {
+        throw err;
+      }
+    }
+  }
+
+  if (!groqKey) {
+    throw new Error("OpenAI translation failed and no GROQ_API_KEY is configured");
+  }
+
+  const translatedText = await callTranslationProvider(
+    GROQ_API_URL,
+    groqKey,
+    buildPayload(targetName, req.text, "llama-3.3-70b-versatile"),
+    "Groq"
+  );
+  logger.info("Translated with Groq fallback", { targetLang: req.targetLang });
+  return { translatedText, detectedLang: "auto" };
+}
+
+async function translateWithGroq(req: TranslateRequest): Promise<TranslateResponse> {
+  const groqKey = config.GROQ_API_KEY;
+  if (!groqKey) {
+    throw new Error("GROQ_API_KEY is not configured for translation");
+  }
+  const targetName = languageNames[req.targetLang] ?? req.targetLang;
+  const translatedText = await callTranslationProvider(
+    GROQ_API_URL,
+    groqKey,
+    buildPayload(targetName, req.text, "llama-3.3-70b-versatile"),
+    "Groq"
+  );
+  logger.info("Translated with Groq", { targetLang: req.targetLang });
+  return { translatedText, detectedLang: "auto" };
+}
+
+function mockTranslation(req: TranslateRequest): TranslateResponse {
+  logger.warn("No translation provider available, returning mock translation");
+  return {
+    translatedText: `[MOCK TRANSLATION to ${req.targetLang}]\n\n${req.text}`,
+    detectedLang: "auto",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Public entry point
+// ---------------------------------------------------------------------------
+
 export async function translateText(req: TranslateRequest): Promise<TranslateResponse> {
+  if (!req.text?.trim()) {
+    return { translatedText: "", detectedLang: "auto" };
+  }
+
   // If Daniel's module URL is configured, proxy to it.
   if (config.TRANSLATION_MODULE_URL) {
     logger.info("Proxying translation to Daniel's module", { targetLang: req.targetLang });
@@ -87,55 +260,42 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
     return (await res.json()) as TranslateResponse;
   }
 
-  const targetName = languageNames[req.targetLang] ?? req.targetLang;
+  const provider = config.TILTAB_TRANSLATION_PROVIDER;
 
-  // Fallback chain: OpenAI -> Groq -> mock.
-  const openaiKey = config.OPENAI_API_KEY;
-  const groqKey = config.GROQ_API_KEY;
+  if (provider === "lingva") {
+    return translateWithLingva(req);
+  }
 
-  if (openaiKey) {
+  if (provider === "openai") {
+    return translateWithOpenAI(req);
+  }
+
+  if (provider === "groq") {
+    return translateWithGroq(req);
+  }
+
+  if (provider === "mock") {
+    return mockTranslation(req);
+  }
+
+  // Auto mode: free first, then paid fallbacks, then mock.
+  if (config.LINGVA_TRANSLATE_URL) {
     try {
-      const translatedText = await callTranslationProvider(
-        OPENAI_API_URL,
-        openaiKey,
-        buildPayload(targetName, req.text, "gpt-4o-mini"),
-        "OpenAI"
-      );
-      logger.info("Using OpenAI fallback for translation", { targetLang: req.targetLang });
-      return { translatedText, detectedLang: "auto" };
+      return await translateWithLingva(req);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      const isRetryable = isRetryableError(0, errorMessage);
-      logger.warn("OpenAI translation failed", { error: errorMessage, fallbackToGroq: Boolean(groqKey) && isRetryable });
-
-      if (!groqKey || !isRetryable) {
-        if (!groqKey) {
-          logger.warn("No Groq API key configured, returning mock translation");
-          return {
-            translatedText: `[MOCK TRANSLATION to ${req.targetLang}]\n\n${req.text}`,
-            detectedLang: "auto",
-          };
-        }
-        throw err;
-      }
-      // Fall through to Groq.
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn("Lingva translation failed, falling back", { error: msg });
     }
   }
 
-  if (groqKey) {
-    const translatedText = await callTranslationProvider(
-      GROQ_API_URL,
-      groqKey,
-      buildPayload(targetName, req.text, "llama-3.3-70b-versatile"),
-      "Groq"
-    );
-    logger.info("Using Groq fallback for translation", { targetLang: req.targetLang });
-    return { translatedText, detectedLang: "auto" };
+  if (config.OPENAI_API_KEY || config.GROQ_API_KEY) {
+    try {
+      return await translateWithOpenAI(req);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn("OpenAI/Groq translation failed, returning mock", { error: msg });
+    }
   }
 
-  logger.warn("No translation provider configured, returning mock translation");
-  return {
-    translatedText: `[MOCK TRANSLATION to ${req.targetLang}]\n\n${req.text}`,
-    detectedLang: "auto",
-  };
+  return mockTranslation(req);
 }

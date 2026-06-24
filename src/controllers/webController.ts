@@ -271,7 +271,7 @@ async function finalizeTranscription(
   let translatedText: string | undefined;
   if (targetLanguage && targetLanguage !== result.language && cleanedText) {
     try {
-      const translation = await translateText({ text: cleanedText, targetLang: targetLanguage });
+      const translation = await translateText({ text: cleanedText, targetLang: targetLanguage, sourceLang: result.language });
       translatedText = translation.translatedText;
     } catch (err) {
       logger.error("Web auto-translation failed", { error: err, jobId: job.id });
