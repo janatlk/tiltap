@@ -1,5 +1,6 @@
 import { logger } from "../utils/logger";
 import { config } from "../config";
+import { normalizeLanguageCodeOrKeep } from "../utils/languageCodes";
 import type { TranscriptionResult, TranscriptionSegment } from "../types";
 
 const OPENAI_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions";
@@ -86,7 +87,7 @@ async function parseTranscriptionResponse(res: Response, fallbackLanguage: strin
 
   return {
     text: data.text?.trim() ?? "",
-    language: data.language ?? fallbackLanguage,
+    language: normalizeLanguageCodeOrKeep(data.language) ?? fallbackLanguage,
     segments,
   };
 }

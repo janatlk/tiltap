@@ -24,6 +24,16 @@ const ISO_639_3_TO_1: Record<string, SupportedLanguage> = {
   eng: "en",
 };
 
+// Some Whisper providers return full language names instead of codes.
+const NAME_TO_CODE: Record<string, SupportedLanguage> = {
+  kazakh: "ky",
+  kyrgyz: "ky",
+  tajik: "tg",
+  uzbek: "uz",
+  russian: "ru",
+  english: "en",
+};
+
 const CANONICAL_CODES = new Set<string>(["ky", "tg", "uz", "ru", "en"]);
 
 /**
@@ -35,7 +45,7 @@ export function normalizeLanguageCode(code: string | undefined): SupportedLangua
   const lower = code.trim().toLowerCase();
   if (lower === "auto" || lower === "multi") return undefined;
   if (CANONICAL_CODES.has(lower)) return lower as SupportedLanguage;
-  return ISO_639_3_TO_1[lower];
+  return ISO_639_3_TO_1[lower] ?? NAME_TO_CODE[lower];
 }
 
 /**
