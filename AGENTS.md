@@ -249,10 +249,14 @@ The provider is controlled by `TILTAB_STT_PROVIDER`:
   - `score_segment()` — scores a segment by Latin/English ratio, repetition, entropy, and dictionary presence.
   - `is_garbage()` — marks obvious noise (Latin spam, repetitive nonsense, patterns like `Straßen...`, `Н?р...`).
   - `LLMTextCleaner` — normalizes Persian/Arabic-script output to Tajik Cyrillic and fixes STT errors. Provider priority: **Gemini → OpenAI → Groq**, with automatic fallback if the primary fails. Retries with backoff on 429/503. Set `TILTAB_CLEANUP_PROVIDER=gemini|openai|groq|none` and `TILTAB_CLEANUP_MODEL` to override the default model. `TILTAB_CLEANUP_PROVIDER=none` disables the LLM step for a fast/cheap mode.
-  - The cleaner is invoked conditionally: only when a segment contains Arabic script, has significant Latin leakage, or scores below the quality threshold. This saves cost and prevents strong models from over-editing already clean Cyrillic text.
-  - Prompt guardrails forbid changing verb tenses, names, or word order; the cleaner must only convert script and fix obvious STT noise.
-  - Rule-based Arabic/Persian transliterator — converts isolated Arabic-script loanwords to Tajik Cyrillic before any LLM call (`عқл` → `ақл`).
-  - `NamedEntityFixer` — fuzzy-matches names/places against a dictionary (`DEFAULT_ENTITIES` or `data/tajik_entities.json`). Dictionary entries map a canonical form to known STT variants, so variants are normalized to the canonical spelling. Multi-word variants (e.g. `Радио Озоди` → `Радиои Озоди`) are replaced first. A stoplist protects common function words and verb forms from being replaced. The default fuzzy threshold is 0.80 to avoid false positives.
+  - The cleaner is invoked for every Tajik segment (priority quality) and conditionally for other languages only on low-scoring or dirty segments.
+  - Prompt guardrails forbid changing verb tenses, names, or word order; the cleaner must only convert script and fix obvious STT noise. The prompt explicitly preserves Russian/Uzbek/English code-switching, attaches the `ро` enclitic, uses correct date ordinals (`1-ум`, `2-юм`, `3-юм`, `12-ум`, `13-ум`, `22-юм`, `23-юм`), and maps non-speech to markers.
+  - Rule-based Arabic/Persian transliterator — converts isolated Arabic-script loanwords to Tajik Cyrillic before any LLM call (`عқل` → `ақл`).
+  - `NamedEntityFixer` — fuzzy-matches names/places against a dictionary (`DEFAULT_ENTITIES` or `data/tajik_entities.json`). Dictionary entries map a canonical form to known STT variants, so variants are normalized to the canonical spelling. Multi-word variants (e.g. `Радио Озоди` → `Радиои Озоди`, `Ховар муқаддас` → `Хонаи муқаддас`) are replaced first. A stoplist protects common function words and verb forms from being replaced. The default fuzzy threshold is 0.80 to avoid false positives.
   - Mixed-script typo fixer — replaces Latin look-alike chars inside Cyrillic words (`муfассал` → `муфассал`).
+  - `normalize_tajik_dates()` — normalizes day/month ranges, numeric dates (`23.05.2024`), and izofa forms (`23 майи соли 2024`) with correct ordinal suffixes.
+  - `normalize_tajik_clitics()` — attaches detached direct-object enclitic `ро` (`мо ро` → `моро`).
+  - Noise markers — segments detected as crying, laughter, applause, or music are replaced with `[плач]`, `[кулол]`, `[аплодисменты]`, or `[музыка]` before the garbage detector runs.
+  - Rule-based cleanup runs **before** scoring/garbage detection so that misrecognized names/dates can be rescued instead of dropped.
 
 - Real-time progress is emitted as JSON lines (`{"type":"progress","percent":..,"label":".."}`) from `transcribe_hybrid.py` and `download_youtube.py`; the Node controller streams stdout and updates the Telegram loading bar.

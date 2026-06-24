@@ -94,16 +94,9 @@ def _repetition_ratio(text: str) -> float:
             max_run = max(max_run, cur)
         else:
             cur = 1
-    run_ratio = max_run / n
+    # Normalize so that no repeated words -> 0, all identical -> 1.
+    run_ratio = (max_run - 1) / (n - 1) if n > 1 else 0.0
 
-    phrase_max = 1
-    for L in (2, 3):
-        if n < L * 2:
-            continue
-        counts = Counter(tuple(words[i : i + L]) for i in range(n - L + 1))
-        local_max = max(counts.values(), default=1)
-        if local_max > phrase_max:
-            phrase_max = local_max
     phrase_ratio = 0.0
     for L in (2, 3):
         if n < L * 2:
@@ -151,6 +144,7 @@ _TAJIK_MONTHS = {
     "март": "март",
     "апрел": "апрел",
     "май": "май",
+    "мая": "май",
     "июн": "июн",
     "июл": "июл",
     "август": "август",
@@ -172,6 +166,40 @@ _TAJIK_MONTHS = {
     "اسفند": "март",
 }
 
+_TAJIK_MONTH_BY_NUMBER = {
+    1: "январ",
+    2: "феврал",
+    3: "март",
+    4: "апрел",
+    5: "май",
+    6: "июн",
+    7: "июл",
+    8: "август",
+    9: "сентябр",
+    10: "октябр",
+    11: "ноябр",
+    12: "декабр",
+}
+
+# Match month names with optional izofa "и" (e.g. "май", "майи", "мая").
+_TAJIK_MONTH_ALTS = "|".join(
+    re.escape(m) + "(?:и|я)?"
+    for m in sorted(set(_TAJIK_MONTHS.keys()) | set(_TAJIK_MONTHS.values()), key=len, reverse=True)
+)
+
+
+def _tajik_ordinal_suffix(num: int) -> str:
+    """Return the correct Tajik ordinal suffix for a day-of-month number.
+
+    1-ум, 2-юм, 3-юм, 4-ум ... 12-ум, 13-ум, 22-юм, 23-юм, etc.
+    """
+    n = abs(num)
+    if 12 <= (n % 100) <= 13:
+        return "ум"
+    if (n % 10) in (2, 3):
+        return "юм"
+    return "ум"
+
 
 def _normalize_persian_digits(text: str) -> str:
     return text.translate(_PERSIAN_DIGITS)
@@ -181,53 +209,146 @@ def normalize_tajik_dates(text: str) -> str:
     """Fix common date errors in Tajik STT output.
 
     Examples:
-      '28 و 23 مای' -> '28 ба 29-уми май'
-      '28 ва 23 май' -> '28 ба 29-уми май'
+      '28 ва 23 май'      -> '28-уми ба 23-юми май'
       '23 майи соли 2024' -> '23-юми майи соли 2024'
+      'аз 23 то 25 майи'  -> 'аз 23-юми то 25-уми майи'
+      '23.05.2024'        -> '23-юми майи соли 2024'
+      '23/05'             -> '23-юми май'
     """
     text = _normalize_persian_digits(text)
 
-    # Helper to convert a number word or digit to ordinal form.
-    def ordinalize(num_str: str) -> str:
-        num_str = num_str.strip()
-        # Keep simple digits as-is, adding -ум/-юм suffix handled below.
-        return num_str
+    def _month_canonical(raw: str) -> str:
+        key = raw.lower().rstrip("и")
+        return _TAJIK_MONTHS.get(key, raw)
 
-    # Pattern: '28 و 23 مای' or '28 ва 23 май' -> '28 ба 29-уми май'
-    # We look for two numbers separated by an Arabic/Persian/Tajik connector,
-    # followed by a month name. We assume the second number is a day-of-month.
-    def replace_range_connector(m: re.Match) -> str:
+    def _preserve_izofa(raw: str, canonical: str) -> str:
+        return canonical + "и" if raw.lower().endswith("и") else canonical
+
+    def _ordinal(num: int) -> str:
+        return f"{num}-{_tajik_ordinal_suffix(num)}и"
+
+    # Day-month range: "28 ва 23 май(и)" -> "28-уми ва 23-юми май(и)"
+    #                "аз 23 то 25 май(и)" -> "аз 23-юми то 25-уми май(и)"
+    range_pattern = rf"(\d{{1,2}})\s*(و|ва|бар|то|–|-)\s*(\d{{1,2}})\s*({_TAJIK_MONTH_ALTS})"
+
+    def replace_range(m: re.Match) -> str:
         first = m.group(1).strip()
-        second = m.group(2).strip()
-        month_raw = m.group(3).strip()
-        month_lower = month_raw.lower()
-        month = _TAJIK_MONTHS.get(month_lower, month_raw)
-        # Try to interpret as a date range: first is start, second is end.
+        conn = m.group(2).strip()
+        second = m.group(3).strip()
+        month_raw = m.group(4).strip()
+        month = _preserve_izofa(month_raw, _month_canonical(month_raw))
+        # Normalize connectors to Tajik Cyrillic.
+        if conn in ("و",):
+            conn = "ва"
+        elif conn in ("–", "-"):
+            conn = "то"
         try:
             start_day = int(first)
             end_day = int(second)
-            return f"{start_day} ба {end_day}-уми {month}"
+            return f"{_ordinal(start_day)} {conn} {_ordinal(end_day)} {month}"
         except ValueError:
             return m.group(0)
 
-    connector = r"(?:و|ва|бар|то|–|-)"
-    month_alts = "|".join(re.escape(m) for m in _TAJIK_MONTHS.keys())
-    pattern = rf"(\d{{1,2}})\s*{connector}\s*(\d{{1,2}})\s*({month_alts})"
-    text = re.sub(pattern, replace_range_connector, text, flags=re.IGNORECASE)
+    text = re.sub(range_pattern, replace_range, text, flags=re.IGNORECASE)
 
-    # Pattern: '23 май' -> '23-юми май' (only when followed by nothing or year markers)
+    # Numeric dates: 23.05.2024, 23/05/2024, 23-05-2024.
+    def replace_numeric_date(m: re.Match) -> str:
+        day = int(m.group(1))
+        month_num = int(m.group(2))
+        year = m.group(3)
+        if 1 <= month_num <= 12:
+            month_name = _TAJIK_MONTH_BY_NUMBER[month_num]
+            if len(year) == 2:
+                year_int = int(year)
+                year = f"20{year}" if year_int < 50 else f"19{year}"
+            return f"{_ordinal(day)} {month_name}и соли {year}"
+        return m.group(0)
+
+    text = re.sub(
+        r"(\d{1,2})[./](\d{1,2})[./](\d{2,4})",
+        replace_numeric_date,
+        text,
+    )
+
+    # Numeric month-day without year: 23.05 / 23/05 -> 23-юми май
+    def replace_numeric_month(m: re.Match) -> str:
+        day = int(m.group(1))
+        month_num = int(m.group(2))
+        if 1 <= month_num <= 12:
+            return f"{_ordinal(day)} {_TAJIK_MONTH_BY_NUMBER[month_num]}"
+        return m.group(0)
+
+    text = re.sub(
+        r"(\d{1,2})[./](\d{1,2})(?![/\.\d])",
+        replace_numeric_month,
+        text,
+    )
+
+    # Standalone day + month with optional existing suffix: '23 май', '23-ум май', '23-уми май'
     def replace_day_month(m: re.Match) -> str:
-        day = m.group(1)
+        day = int(m.group(1))
         month_raw = m.group(2)
-        month = _TAJIK_MONTHS.get(month_raw.lower(), month_raw)
-        return f"{day}-уми {month}"
+        month = _preserve_izofa(month_raw, _month_canonical(month_raw))
+        return f"{_ordinal(day)} {month}"
 
-    text = re.sub(rf"(\d{{1,2}})\s+({month_alts})(?=[\s\.,;:!?]|$)", replace_day_month, text, flags=re.IGNORECASE)
-
-    # Pattern: '23-ум май' -> '23-уми май'
-    text = re.sub(rf"(\d{{1,2}})-?ум\s+({month_alts})", replace_day_month, text, flags=re.IGNORECASE)
+    standalone_pattern = rf"(\d{{1,2}})(?:\s*[-–]\s*(?:ум|юм|м)?и?)?\s+({_TAJIK_MONTH_ALTS})(?=[\s\.,;:!?]|$)"
+    text = re.sub(standalone_pattern, replace_day_month, text, flags=re.IGNORECASE)
 
     return text
+
+
+# ---------------------------------------------------------------------------
+# Tajik clitic normalization
+# ---------------------------------------------------------------------------
+_TAJIK_RO_STOP_PREV = {
+    # conjunctions / particles (cannot be direct objects)
+    "ва", "ки", "ҳам", "а", "аммо", "вале", "зеро", "чун", "чунки", "ё", "агар", "але",
+    "бале", "не", "ҳа", "ча", "ки",
+    # prepositions / postpositions
+    "ба", "дар", "аз", "барои", "бо", "без", "то", "пеш", "пас", "баъд", "баъди", "бар",
+    "байни", "назди", "тавассути", "ҷониби",
+    # question / demonstrative words
+    "кӣ", "к", "чи", "чӣ", "чигуна", "куҷо", "кай", "чаро", "чанд", "чин", "чунон", "чунин",
+    # negation / quantifiers / adverbs
+    "на", "не", "нест", "фақат", "танҳо", "ҳатто", "ҳеч", "ҳеҷ", "боз", "боз ҳам",
+    "хеле", "бисёр", "кам", "зиёд",
+    # function words that are not objects
+    "ин", "он", "ки", "ки",
+}
+
+
+def normalize_tajik_clitics(text: str) -> str:
+    """Attach detached Tajik object-marker enclitic 'ро' to the preceding word.
+
+    Examples:
+      'Аллоҳ мо ро' -> 'Аллоҳ моро'
+      'Аллоҳи меҳрабон ро' -> 'Аллоҳи меҳрабонро'
+    """
+    words = text.split()
+    if not words:
+        return text
+
+    out: List[str] = []
+    for i, word in enumerate(words):
+        stripped = word.strip('.,!?;:"\'()[]')
+        if stripped == "ро" and i > 0:
+            prev = out[-1]
+            prev_stripped = prev.strip('.,!?;:"\'()[]')
+            if (
+                prev_stripped.lower() not in _TAJIK_RO_STOP_PREV
+                and len(prev_stripped) > 1
+                and re.search(r"[\w\u0400-\u04FF]", prev_stripped)
+            ):
+                prefix_match = re.match(r"^[^\w\u0400-\u04FF]+", prev)
+                suffix_match = re.search(r"[^\w\u0400-\u04FF]+$", prev)
+                prefix = prefix_match.group(0) if prefix_match else ""
+                suffix = suffix_match.group(0) if suffix_match else ""
+                # Preserve any trailing punctuation that followed the detached 'ро'
+                trailing = word[len(stripped):]
+                out[-1] = prefix + prev_stripped + "ро" + suffix + trailing
+                continue
+        out.append(word)
+    return " ".join(out)
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +378,38 @@ _COMMON_WORDS = {
         "how", "are", "you", "what", "is", "it", "this", "that", "and", "or",
         "but", "if", "when", "where", "why", "who", "which", "the", "a", "an",
         "i", "you", "he", "she", "we", "they", "was", "were", "am", "been",
+    },
+    "tg": {
+        # pronouns
+        "ман", "ту", "ӯ", "вай", "мо", "шумо", "онҳо", "инҳо", "ҳамин", "ҳамон",
+        # numbers
+        "як", "ду", "се", "чор", "панҷ", "шаш", "ҳафт", "ҳашт", "нӯҳ", "даҳ",
+        # prepositions / conjunctions
+        "ва", "дар", "ки", "ба", "аз", "кӣ", "барои", "бо", "то", "пеш", "пас", "баъд",
+        "аммо", "вале", "зеро", "чун", "чунки", "ё", "агар",
+        # common verbs
+        "кардам", "кардӣ", "кард", "кардем", "кардед", "карданд",
+        "кунам", "кунӣ", "кунад", "кунем", "кунед", "кунанд",
+        "карда", "кардаам", "кардаӣ", "кардааст", "кардаем", "кардаед", "кардаанд",
+        "мекунам", "мекунӣ", "мекунад", "мекунем", "мекунед", "мекунанд",
+        "гуфт", "гуфтанд", "гуфта", "мегӯяд", "мегӯянд", "мегӯям", "мегӯӣ",
+        "омад", "омада", "омадааст", "меояд", "меоянд",
+        "рафт", "рафта", "рафтааст", "рафтанд",
+        "шуд", "шуда", "шудааст", "шуданд", "шавад", "шаванд",
+        "буд", "буда", "будааст", "буданд", "бошад", "бошанд",
+        "аст", "ҳаст", "ҳастанд", "нест",
+        # common adjectives / adverbs
+        "зиёд", "кам", "хеле", "бисёр", "хуб", "бад", "калон", "хурд", "нав", "кӯҳна",
+        "тоза", "вало", "зуд", "охиста", "ҳозир",
+        # time
+        "имрӯз", "дирӯз", "фардо", "ҳоло", "субҳ", "бегоҳ", "шом", "рӯз", "шаб", "сол", "моҳ", "ҳафта",
+        # greetings / interjections
+        "салом", "хало", "ҳабале", "хабар", "хайр", "ало", "бале", "не", "ҳа",
+        # common nouns
+        "мактаб", "китоб", "хона", "кӯча", "шаҳр", "деҳа", "модар", "падар", "бародар", "апа", "одар",
+        "кор", "об", "нуқта", "ҷой", "вақт", "сабаб", "тарз", "қисм", "тараф",
+        # nationalities / places
+        "тоҷик", "тоҷикистон", "рус", "русия", "ӯзбек", "ӯзбекистон", "қирғиз", "қирғизистон", "қазоқ", "қазоқистон",
     },
 }
 
@@ -347,8 +500,59 @@ def _looks_like_crying_or_noise(text: str) -> bool:
     return False
 
 
+def _looks_like_laughter(text: str) -> bool:
+    """Detect laughter and giggling in speech transcripts."""
+    patterns = [
+        r"\b(ҳа[-\s]*){2,}",
+        r"\b(ха[-\s]*){2,}",
+        r"\b(хи[-\s]*){2,}",
+        r"\b(ҳи[-\s]*){2,}",
+        r"\b(ку[-]?\s*кул|ҷаҳ[-]?\s*ҷаҳ|ҷа[-]?\s*ҷа)\b",
+    ]
+    for pat in patterns:
+        if re.search(pat, text, re.IGNORECASE):
+            return True
+    return False
+
+
+def _looks_like_applause(text: str) -> bool:
+    """Detect applause / clapping in transcripts."""
+    patterns = [
+        r"\b(каф[-\s]*){2,}",
+        r"\b(клак[-\s]*){2,}",
+        r"\b(таш[-\s]*){2,}",
+        r"\bаплодисмент(ы|ҳо|ҳо?)?\b",
+    ]
+    for pat in patterns:
+        if re.search(pat, text, re.IGNORECASE):
+            return True
+    return False
+
+
+def _looks_like_music(text: str) -> bool:
+    """Detect humming, singing, or instrumental music placeholders."""
+    patterns = [
+        r"\b(ла[-\s]*){2,}",
+        r"\b(на[-\s]*){2,}",
+        r"\bмм+\b",
+        r"\b(tra|тра)\s*[-]?\s*ла\s*[-]?\s*ла\b",
+    ]
+    for pat in patterns:
+        if re.search(pat, text, re.IGNORECASE):
+            return True
+    return False
+
+
 def mark_noise(text: str, language: str) -> str:
     """Replace crying/noise segments with a localized marker."""
+    # Laughter/applause/music are more specific than the generic cry detector,
+    # so check them first.
+    if _looks_like_laughter(text):
+        return "[кулол]" if language == "tg" else UNINTELLIGIBLE
+    if _looks_like_applause(text):
+        return "[аплодисменты]" if language == "tg" else UNINTELLIGIBLE
+    if _looks_like_music(text):
+        return "[музыка]" if language == "tg" else UNINTELLIGIBLE
     if _looks_like_crying_or_noise(text):
         return "[плач]" if language == "tg" else UNINTELLIGIBLE
     return text
@@ -452,6 +656,16 @@ DEFAULT_TAJIK_ENTITIES = {
     "Ғарм": [],
     "Ваҳдат": [],
     "Ёвон": [],
+    # Religious / Islamic terms
+    "Хонаи муқаддас": ["Ховар муқаддас", "Хонаи мукаддас", "Хонаи Муқаддас", "Ховари Муқаддас"],
+    "Масҷидулҳаром": ["Масҷид ул Ҳаром", "Масҷид-ул-ҳаром", "Масҷиди Ҳаром"],
+    "Масҷидулнабавӣ": ["Масҷид ул Набавӣ", "Масҷиди Набавӣ"],
+    "Мадина": ["Мадинаи Мунаввара", "Мадинa"],
+    "Макка": ["Маккаи Мукаррама"],
+    "Пайғамбар": ["Пайғамбари"],
+    "Қурбон": ["Курбон"],
+    "Рамазон": [],
+    "Айд": ["Ид", "Иди"],
     # Countries / regions
     "Тоҷикистон": [],
     "Русия": ["Россия"],
@@ -467,7 +681,10 @@ DEFAULT_TAJIK_ENTITIES = {
     "Амрико": ["Америка"],
     # Media / orgs
     "Радиои Озоди": ["Радио Озоди"],
-    "Азия-Плюс": ["Азия Плюс"],
+    "Азия-Плюс": ["Азия Плюс", "Азия-Плюс"],
+    "Озодагон": ["Озоди"],
+    "Сомона": ["Самон"],
+    "Фараж": [],
     "Ховар": [],
     "Ҷаҳоннамо": [],
     "САДО": [],
@@ -771,17 +988,21 @@ class LLMTextCleaner:
                 "Абсолютные правила:\n"
                 "1. Язык выхода — обязательно тоҷикӣ на кириллице.\n"
                 "2. Переводи арабско-персидские написания в таджикскую кириллицу.\n"
-                "3. Исправляй даты: '28 ва 23 май' → '28 ба 29-уми май'; '23 май' → '23-юми май'. "
-                "Дни месяца пиши с суффиксом -ум/-юм.\n"
-                "4. Исправляй имена собственные и топонимы на стандартные таджикские написания: "
+                "3. Исправляй даты: '28 ва 23 май' → '28-уми ва 23-юми май'; "
+                "'аз 23 то 25 май' → 'аз 23-юми то 25-уми май'; "
+                "'23 май' → '23-юми май'; '23.05.2024' → '23-юми майи соли 2024'. "
+                "Дни месяца пиши с суффиксом -ум/-юм: 1-ум, 2-юм, 3-юм, 4-ум, 12-ум, 13-ум, 22-юм, 23-юм.\n"
+                "4. Частица 'ро' всегда присоединяй к предыдущему слову: 'мо ро' → 'моро', "
+                "'Аллоҳи меҳрабон ро' → 'Аллоҳи меҳрабонро'.\n"
+                "5. Исправляй имена собственные и топонимы на стандартные таджикские написания: "
                 "Конибодом, Душанбе, Хуҷанд, Маҳбуба Ахмедова, Нозанин Ахмедова, Абдуфаттоҳ Иброҳимов, "
-                "Қурбонгул Иброҳимова, Радиои Озоди.\n"
-                "5. Если в таджикской речи встречается узбекская вставка, оставь её как есть и не пытайся "
-                "переводить на таджикский.\n"
-                "6. Если слышен плач, рыдание, крик, тяжёлое дыхание или фрагмент неразборчив — "
-                "замени его на [плач] или [неразборчиво].\n"
-                "7. НЕ меняй смысл, НЕ перефразируй, НЕ додумывай слова.\n"
-                "8. Верни только очищенный текст, без пояснений."
+                "Қурбонгул Иброҳимова, Радиои Озоди, Хонаи муқаддас.\n"
+                "6. Если в таджикской речи встречаются русские, узбекские или английские вставки, "
+                "оставь их как есть и не переводи на таджикский.\n"
+                "7. Если слышен плач, смех, крики, аплодисменты, музыка, тяжёлое дыхание или фрагмент неразборчив — "
+                "замени его на [плач], [кулол], [аплодисменты], [музыка] или [неразборчиво].\n"
+                "8. НЕ меняй смысл, НЕ перефразируй, НЕ додумывай слова.\n"
+                "9. Верни только очищенный текст, без пояснений."
             )
 
         if language == "ru":
@@ -926,7 +1147,9 @@ class LLMTextCleaner:
             data = resp.json()
             return data["candidates"][0]["content"]["parts"][0]["text"].strip()
         except Exception as e:
-            print(f"[postprocess] gemini cleanup failed: {e}", file=sys.stderr)
+            # Never log the raw API key.
+            safe_err = re.sub(r"key=[A-Za-z0-9_\-]+", "key=***", str(e))
+            print(f"[postprocess] gemini cleanup failed: {safe_err}", file=sys.stderr)
             return None
 
     def _provider_chain(self) -> List[Tuple[str, str, str]]:
@@ -1039,7 +1262,23 @@ def _apply_tajik_rules(text: str) -> str:
     text = transliterate_arabic_words(text)
     text = fix_mixed_script_typos(text)
     text = normalize_tajik_dates(text)
+    text = normalize_tajik_clitics(text)
     text = mark_noise(text, "tg")
+    fixer = _get_tajik_fixer()
+    text = fixer.fix(text)
+    return text
+
+
+def _apply_tajik_rules_early(text: str) -> str:
+    """Tajik rule-based cleanup that should run before scoring/garbage check.
+
+    This can rescue named entities and fix obvious orthographic errors so that
+    the segment is not prematurely marked as unintelligible.
+    """
+    text = transliterate_arabic_words(text)
+    text = fix_mixed_script_typos(text)
+    text = normalize_tajik_dates(text)
+    text = normalize_tajik_clitics(text)
     fixer = _get_tajik_fixer()
     text = fixer.fix(text)
     return text
@@ -1051,9 +1290,17 @@ def postprocess_segment(text: str, language: str) -> Tuple[str, float]:
     if not text:
         return UNINTELLIGIBLE, 0.0
 
-    # Tajik: rule-based Arabic/Persian conversion first.
+    # Language-specific rule-based cleanup first so that names, dates, and
+    # clitics are normalized before the garbage detector sees the segment.
     if language == "tg":
-        text = transliterate_arabic_words(text)
+        text = _apply_tajik_rules_early(text)
+    else:
+        text = fix_mixed_script_typos(text)
+
+    # Noise markers should win over the garbage detector.
+    noisy = mark_noise(text, language)
+    if noisy != text:
+        return noisy, 0.0
 
     score = score_segment(text, language)
     if is_garbage(text, language):
@@ -1067,7 +1314,7 @@ def postprocess_segment(text: str, language: str) -> Tuple[str, float]:
     if not cleaned:
         return UNINTELLIGIBLE, score
 
-    # Apply language-specific rule-based fixes.
+    # Apply language-specific rule-based fixes again after LLM editing.
     if language == "tg":
         cleaned = _apply_tajik_rules(cleaned)
     else:
