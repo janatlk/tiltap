@@ -20,10 +20,7 @@ COPY vad_utils.py /app/vad_utils.py
 COPY text_postprocessing.py /app/text_postprocessing.py
 COPY stt-service/main.py /app/stt-service/main.py
 
-# Optional: default entity dictionary
-RUN mkdir -p /app/data
-RUN --mount=type=bind,source=data,target=/tmp/data \
-    cp /tmp/data/tajik_entities.json /app/data/ 2>/dev/null || true
+# Optional entity dictionary can be mounted at runtime; default entities are baked into text_postprocessing.py
 
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
