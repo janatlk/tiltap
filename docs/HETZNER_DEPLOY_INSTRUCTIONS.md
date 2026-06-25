@@ -4,12 +4,13 @@
 
 1. Go to [hetzner.com/cloud](https://www.hetzner.com/cloud/) and sign up/log in.
 2. In the Cloud Console click **Add Server**.
-3. Choose location: **Nuremberg** or **Falkenstein** (cheapest, EU).
-4. Select image: **Ubuntu 24.04**.
+3. Choose location: **Nuremberg** or **Falkenstein**.
+4. Select image: **Ubuntu 22.04**.
 5. Select type:
-   - For testing: **CX22** (2 vCPU / 4 GB RAM / 40 GB) — €3.79/month
-   - For production with all local models: **CX32** (4 vCPU / 8 GB RAM / 80 GB) — €6.80/month
-6. Add your **SSH public key** (so you can connect without password).
+   - For testing with small models: **CPX22** (2 vCPU / 4 GB RAM / 80 GB) — ~$23.59/month
+   - For production with large Kyrgyz model active for all lengths: **CPX32** (4 vCPU / 8 GB RAM / 160 GB) — ~$33.59/month
+   > Note: Cost-optimized CX22/CX23 were unavailable at the time of writing.
+6. Add your **SSH public key**.
 7. Give it a name, e.g. `tiltab-stt`.
 8. Click **Create & Buy**.
 9. Copy the **IPv4 address**.
@@ -20,10 +21,10 @@ In Hetzner Cloud Console:
 1. Go to **Firewalls** → **Create Firewall**.
 2. Add inbound rules:
    - **SSH** (TCP 22) — your IP only
-   - **HTTP/HTTPS** (TCP 80/443) — or just 8000 for testing
+   - **STT API** (TCP 8000) — your backend IP / anywhere (use a reverse proxy for production)
 3. Attach firewall to your server.
 
-For quick testing you can allow port **8000**:
+For quick testing you can allow port **8000** directly:
 ```bash
 ufw allow 8000/tcp
 ```
@@ -36,11 +37,23 @@ ssh root@YOUR_SERVER_IP
 
 ## 4. Run the deployment script
 
+The recommended way is to clone the repo and run `deploy.sh` from it. This avoids issues with local modifications on the server:
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/janatlk/tiltap/main/stt-service/deploy.sh | bash
+rm -rf /opt/tiltap
+git clone https://github.com/janatlk/tiltap.git /opt/tiltap
+cd /opt/tiltap/stt-service
+bash deploy.sh
 ```
 
-This installs Docker, clones the repo, downloads Vosk models, and builds the STT container.
+If you already have `/opt/tiltap` and want a clean redeploy:
+
+```bash
+cd /opt/tiltap
+git reset --hard origin/main
+cd stt-service
+bash deploy.sh
+```
 
 ## 5. Upload Rubai model
 
@@ -71,7 +84,7 @@ Expected response:
     "vosk_small_ky": true,
     "vosk_small_uz": true,
     "rubai_uz": true,
-    ...
+    "whisper_distil": true
   }
 }
 ```
@@ -81,16 +94,26 @@ Expected response:
 From your local machine:
 
 ```bash
-cd stt-service
-python test_client.py http://YOUR_SERVER_IP:8000
+curl -X POST -F file=@test_audio/ky.wav -F language=ky http://YOUR_SERVER_IP:8000/transcribe
+curl -X POST -F file=@test_audio/uz.wav -F language=uz http://YOUR_SERVER_IP:8000/transcribe
 ```
 
-## 8. Update the main bot
+## 8. Wire the main backend
 
 In your main application `.env` add:
 
 ```env
-STT_SERVICE_URL=http://YOUR_SERVER_IP:8000
+TILTAB_STT_SERVICE_URL=http://YOUR_SERVER_IP:8000
 ```
 
-Then configure `transcriptionService.ts` to call `/transcribe` for `ky` and `uz`.
+The backend (`src/services/transcriptionService.ts`) will automatically route `ky` and `uz` requests to the remote STT service.
+
+## 9. Updating the service
+
+After pushing changes to `main`:
+
+```bash
+ssh root@YOUR_SERVER_IP "cd /opt/tiltap && git reset --hard origin/main && cd stt-service && bash deploy.sh"
+```
+
+> The `git reset --hard origin/main` step is important because `deploy.sh` currently does not handle local modifications on the server.

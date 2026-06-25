@@ -27,9 +27,11 @@ if ! docker compose version &> /dev/null; then
     apt-get install -y docker-compose-plugin
 fi
 
-echo "=== Cloning repository ==="
+echo "=== Cloning/updating repository ==="
 if [ -d "$REPO_DIR" ]; then
-    cd "$REPO_DIR" && git pull
+    cd "$REPO_DIR"
+    git fetch origin
+    git reset --hard origin/main
 else
     git clone "$REPO_URL" "$REPO_DIR"
     cd "$REPO_DIR"
