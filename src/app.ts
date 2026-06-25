@@ -28,6 +28,7 @@ app.get("/health", async (_req, res) => {
     timestamp: new Date().toISOString(),
     database: dbHealthy ? "connected" : "disconnected",
     sttProvider: config.TILTAB_STT_PROVIDER,
+    remoteSttConfigured: Boolean(config.TILTAB_STT_SERVICE_URL),
     openaiConfigured: Boolean(config.OPENAI_API_KEY),
     groqConfigured: Boolean(config.GROQ_API_KEY),
     elevenlabsConfigured: Boolean(config.ELEVENLABS_API_KEY),
