@@ -10,6 +10,7 @@ import { transcribeWithOpenAI } from "./openaiSttService";
 import { transcribeWithElevenLabs } from "./elevenlabsSttService";
 import type { TranscriptionResult, TranscriptionSegment } from "../types";
 import { normalizeLanguageCodeOrKeep } from "../utils/languageCodes";
+import { transcribeWithRemoteService } from "./remoteSttService";
 
 const FFMPEG_PATH = require("ffmpeg-static");
 const PYTHON_PATH = process.platform === "win32" ? "python" : "python3";
@@ -27,6 +28,15 @@ export async function transcribeAudio(
   onProgress?: (progress: TranscriptionProgress) => void
 ): Promise<TranscriptionResult> {
   const provider = config.TILTAB_STT_PROVIDER;
+  const normalizedLang = language ? normalizeLanguageCodeOrKeep(language) : undefined;
+
+  // Priority local models hosted on the remote STT server (ky/uz are too heavy for Render/Starter RAM).
+  const remoteSupported = new Set(["ky", "uz"]);
+  if (config.TILTAB_STT_SERVICE_URL && normalizedLang && remoteSupported.has(normalizedLang)) {
+    const result = await transcribeWithRemoteService(audioBuffer, filename, normalizedLang);
+    return normalizeTranscriptionResult(result);
+  }
+
   const useCloud = provider === "openai" || provider === "elevenlabs" || (provider === "auto" && (config.ELEVENLABS_API_KEY || config.OPENAI_API_KEY || config.GROQ_API_KEY));
 
   // Cloud STT providers accept compressed audio, but we normalize to a small mono MP3
