@@ -214,35 +214,6 @@ async function checkGroq(): Promise<ProviderStatus> {
   }
 }
 
-async function checkGemini(): Promise<ProviderStatus> {
-  if (!config.GEMINI_API_KEY) {
-    return { configured: false, status: "unknown" };
-  }
-
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${config.GEMINI_API_KEY}`;
-    const res = await fetchWithTimeout(url, { method: "GET" });
-
-    if (!res.ok) {
-      const body = await res.text();
-      return { configured: true, status: "error", error: `HTTP ${res.status}: ${body}` };
-    }
-
-    const data = (await res.json()) as { models?: Array<{ name: string }> };
-    return {
-      configured: true,
-      status: "ok",
-      details: {
-        availableModels: data.models?.map((m) => m.name) ?? [],
-        billingNote: "Gemini does not expose a billing API; check quota at https://ai.google.dev/",
-      },
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { configured: true, status: "error", error: msg };
-  }
-}
-
 async function checkLingva(): Promise<ProviderStatus> {
   if (!config.LINGVA_TRANSLATE_URL) {
     return { configured: false, status: "unknown" };
@@ -272,11 +243,10 @@ async function checkLingva(): Promise<ProviderStatus> {
 }
 
 export async function getProvidersHealth(_req: ExpressRequest, res: ExpressResponse): Promise<void> {
-  const [elevenlabs, openai, groq, gemini, lingva] = await Promise.all([
+  const [elevenlabs, openai, groq, lingva] = await Promise.all([
     checkElevenLabs(),
     checkOpenAI(),
     checkGroq(),
-    checkGemini(),
     checkLingva(),
   ]);
 
@@ -286,7 +256,6 @@ export async function getProvidersHealth(_req: ExpressRequest, res: ExpressRespo
       elevenlabs,
       openai,
       groq,
-      gemini,
       lingva,
     },
   };

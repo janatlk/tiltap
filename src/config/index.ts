@@ -8,9 +8,7 @@ const isTest = process.env.NODE_ENV === "test";
 const envSchema = z.object({
   PORT: z.string().default("3000").transform(Number),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
-  TELEGRAM_BOT_TOKEN: isTest
-    ? z.string().default("")
-    : z.string().min(1, "TELEGRAM_BOT_TOKEN is required"),
+  TELEGRAM_BOT_TOKEN: z.string().optional().or(z.literal("")),
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
   OPENAI_API_KEY: z.string().optional().or(z.literal("")),
   OPENAI_STT_MODEL: z.string().optional().or(z.literal("")).default("whisper-1"),
@@ -26,7 +24,6 @@ const envSchema = z.object({
   GROQ_API_KEY: z.string().optional().or(z.literal("")),
 
 
-  GEMINI_API_KEY: z.string().optional().or(z.literal("")),
   ELEVENLABS_API_KEY: z.string().optional().or(z.literal("")),
   ELEVENLABS_MODEL_ID: z.string().optional().or(z.literal("")).default("scribe_v2"),
   TILTAB_STT_PROVIDER: z.enum(["openai", "local", "auto", "elevenlabs"]).default("auto"),
@@ -44,7 +41,7 @@ const envSchema = z.object({
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean) ?? ["en"]
     ),
-  TILTAB_CLEANUP_PROVIDER: z.enum(["gemini", "openai", "groq", "none"]).optional(),
+  TILTAB_CLEANUP_PROVIDER: z.enum(["openai", "groq", "none"]).optional(),
   TILTAB_CLEANUP_MODEL: z.string().optional().or(z.literal("")),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
   DATABASE_URL: isTest

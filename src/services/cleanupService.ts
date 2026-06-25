@@ -15,9 +15,8 @@ export interface CleanupOptions {
  * Post-process an STT transcript via an LLM chain.
  *
  * Provider priority (unless overridden by TILTAB_CLEANUP_PROVIDER):
- *   1. Gemini
- *   2. Groq
- *   3. OpenAI
+ *   1. Groq
+ *   2. OpenAI
  *
  * Set TILTAB_CLEANUP_PROVIDER=none to disable.
  */
@@ -66,7 +65,7 @@ export async function cleanupTranscription(
 // ---------------------------------------------------------------------------
 
 interface ProviderSpec {
-  name: "gemini" | "groq" | "openai";
+  name: "groq" | "openai";
 }
 
 function buildProviderChain(): ProviderSpec[] {
@@ -79,7 +78,6 @@ function buildProviderChain(): ProviderSpec[] {
   }
 
   const chain: ProviderSpec[] = [];
-  if (config.GEMINI_API_KEY) chain.push({ name: "gemini" });
   if (config.GROQ_API_KEY) chain.push({ name: "groq" });
   if (config.OPENAI_API_KEY) chain.push({ name: "openai" });
   return chain;
@@ -87,8 +85,6 @@ function buildProviderChain(): ProviderSpec[] {
 
 function hasProviderKey(name: string): boolean {
   switch (name) {
-    case "gemini":
-      return Boolean(config.GEMINI_API_KEY);
     case "groq":
       return Boolean(config.GROQ_API_KEY);
     case "openai":
@@ -104,8 +100,6 @@ async function callProvider(
   userPrompt: string
 ): Promise<CleanupResult | null> {
   switch (provider.name) {
-    case "gemini":
-      return callGemini(systemPrompt, userPrompt);
     case "groq":
       return callGroq(systemPrompt, userPrompt);
     case "openai":
@@ -149,46 +143,6 @@ async function callGroq(systemPrompt: string, userPrompt: string): Promise<Clean
   };
   const cleaned = data.choices?.[0]?.message?.content?.trim() ?? userPrompt;
   return { cleanedText: stripMarkdownCodeBlock(cleaned), provider: "groq" };
-}
-
-// ---------------------------------------------------------------------------
-// Gemini
-// ---------------------------------------------------------------------------
-
-async function callGemini(systemPrompt: string, userPrompt: string): Promise<CleanupResult | null> {
-  if (!config.GEMINI_API_KEY) return null;
-
-  const model = config.TILTAB_CLEANUP_MODEL || "gemini-2.5-flash";
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: `${systemPrompt}\n\nText:\n${userPrompt}` }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 4096,
-        },
-      }),
-    }
-  );
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini API error: ${res.status} ${errText}`);
-  }
-
-  const data = (await res.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-  const cleaned = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? userPrompt;
-  return { cleanedText: stripMarkdownCodeBlock(cleaned), provider: "gemini" };
 }
 
 // ---------------------------------------------------------------------------
