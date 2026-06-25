@@ -48,6 +48,11 @@ __pycache__/
 .pytest_cache/
 .torch_cache/
 
+# STT service local secrets / env
+stt-service/.keys/
+stt-service/.venv/
+stt-service/__pycache__/
+
 # Temporary files
 tmp/
 tmp_*.wav

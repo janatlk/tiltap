@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  stt:
+    build:
+      context: ..
+      dockerfile: stt-service/Dockerfile
+    image: tiltab-stt:latest
+    container_name: tiltab-stt
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../models:/app/models:ro
+      - ../tmp:/app/tmp
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - ELEVENLABS_MODEL_ID=${ELEVENLABS_MODEL_ID:-scribe_v2}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - TILTAB_CLEANUP_PROVIDER=${TILTAB_CLEANUP_PROVIDER:-gemini}
+      - TILTAB_CLEANUP_MODEL=${TILTAB_CLEANUP_MODEL:-}
+      - TILTAB_ENTITIES_PATH=${TILTAB_ENTITIES_PATH:-/app/data/tajik_entities.json}
+      - PYTHONIOENCODING=utf-8
+    deploy:
+      resources:
+        limits:
+          memory: 3.5G
+        reservations:
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
