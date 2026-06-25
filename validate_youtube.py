@@ -8,10 +8,28 @@ import os
 import tempfile
 import yt_dlp
 
-from youtube_common import get_cookies_path, get_extractor_args, cleanup_temp_cookies
+from youtube_common import get_cookies_path, get_extractor_args, cleanup_temp_cookies, DESKTOP_HEADERS
+from youtube_cobalt import validate_via_cobalt
+
 
 # Hard timeout so we never hang forever on slow/unreachable URLs
 socket.setdefaulttimeout(15)
+
+
+def _is_bot_or_auth_error(msg: str) -> bool:
+    lower = msg.lower()
+    return any(
+        phrase in lower
+        for phrase in [
+            "sign in",
+            "http error 403",
+            "bot",
+            "blocked",
+            "unable to extract",
+            "the provided youtube account cookies are no longer valid",
+            "this request was detected as a bot",
+        ]
+    )
 
 
 def validate(url: str):
@@ -25,7 +43,9 @@ def validate(url: str):
         "extract_flat": False,
         "playlist_items": "1",
         "geo_bypass": True,
-        # Prefer mobile/TV clients and inject PO token / visitor_data if set.
+        # Mimic a real desktop browser to reduce bot detection.
+        "http_headers": DESKTOP_HEADERS,
+        # Use the BgUtils POT provider plugin + cookies.
         "extractor_args": get_extractor_args(),
     }
 
@@ -62,6 +82,14 @@ def validate(url: str):
             reason = "age_restricted"
         elif "login" in lower or "logged in" in lower:
             reason = "sign_in_required"
+
+        # If yt-dlp is blocked by bot detection, ask a Cobalt instance instead.
+        if _is_bot_or_auth_error(msg):
+            cobalt = validate_via_cobalt(url)
+            if cobalt["ok"]:
+                return {"ok": True, "title": "", "duration": 0, "uploader": ""}
+            return {"ok": False, "reason": cobalt.get("reason", reason), "error": f"yt-dlp: {msg}; Cobalt: {cobalt.get('error', 'unknown')}"}
+
         return {"ok": False, "reason": reason, "error": msg}
     except Exception as e:
         return {"ok": False, "reason": "unknown", "error": str(e)}

@@ -117,3 +117,128 @@ ssh root@YOUR_SERVER_IP "cd /opt/tiltap && git reset --hard origin/main && cd st
 ```
 
 > The `git reset --hard origin/main` step is important because `deploy.sh` currently does not handle local modifications on the server.
+
+## 10. Deploy/Update the backend on the same server
+
+Because the backend is also running on `tiltab-stt-1`, it needs Node.js, npm dependencies, Python, and `yt-dlp` on the host.
+
+### One-time host setup
+
+```bash
+# Node.js 22 (if not already installed)
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt-get install -y nodejs
+
+# Python tooling used by the YouTube scripts
+apt-get install -y python3-pip
+pip3 install -r /opt/tiltap/requirements.txt
+```
+
+### Install / build the backend
+
+```bash
+cd /opt/tiltap
+npm ci
+npm run build
+```
+
+### Create the systemd service
+
+Copy the provided unit file:
+
+```bash
+cp /opt/tiltap/scripts/tiltab-backend.service /etc/systemd/system/tiltab-backend.service
+```
+
+Then enable and start it:
+
+```bash
+systemctl daemon-reload
+systemctl enable --now tiltab-backend.service
+```
+
+### Environment file
+
+Create `/opt/tiltap/.env` with at least:
+
+```env
+NODE_ENV=production
+DATABASE_URL=...
+TELEGRAM_BOT_TOKEN=...
+TILTAB_STT_SERVICE_URL=http://localhost:8000
+OPENAI_API_KEY=...
+GROQ_API_KEY=...
+ELEVENLABS_API_KEY=...
+```
+
+Then restart the service:
+
+```bash
+systemctl restart tiltab-backend.service
+```
+
+### Updating the backend
+
+After pushing changes to `main`:
+
+```bash
+ssh root@YOUR_SERVER_IP "cd /opt/tiltap && git reset --hard origin/main && npm ci && npm run build && systemctl restart tiltab-backend.service"
+```
+
+### Telegram bot
+
+Telegram requires an **HTTPS URL** for webhooks. On a bare Hetzner IP you can run the included polling forwarder instead:
+
+```bash
+cp /opt/tiltap/scripts/tiltab-telegram-poll.service /etc/systemd/system/tiltab-telegram-poll.service
+systemctl daemon-reload
+systemctl enable --now tiltab-telegram-poll.service
+```
+
+This polls `https://api.telegram.org/bot<TOKEN>/getUpdates` and forwards updates to `http://localhost:3000/webhook/telegram`.
+
+If you have a domain with HTTPS later, disable the forwarder and set the webhook directly:
+
+```bash
+systemctl stop tiltab-telegram-poll.service
+systemctl disable tiltab-telegram-poll.service
+
+curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://YOUR_DOMAIN/webhook/telegram"}'
+```
+
+### Memory safety on CPX22
+
+CPX22 has only 4 GB RAM. The STT Docker container is limited to 2.5 GB. To prevent OOM kills when Kyrgyz Vosk large and Uzbek Rubai would otherwise load together:
+
+- The backend queues remote STT requests (`src/services/remoteSttService.ts`) so only one runs at a time.
+- The STT service drops cached Whisper models after each request.
+
+No extra configuration is needed; this is automatic after the deploy steps above.
+
+### YouTube sign-in errors
+
+Hetzner's datacenter IP is often blocked by YouTube. If every link returns "Sign in to confirm", follow `docs/YOUTUBE_COOKIES.md` to add fresh browser cookies, PO token, and visitor data to `/opt/tiltap/.env`.
+
+> Do **not** use Cloudflare WARP on the server — it reroutes all traffic and can lock you out of SSH.
+
+### Verify YouTube end-to-end
+
+```bash
+curl -X POST http://YOUR_SERVER_IP:3000/api/web/youtube \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","language":"en"}'
+```
+
+Expected response:
+
+```json
+{"jobId":"...","title":"Rick Astley - Never Gonna Give You Up ..."}
+```
+
+Then poll the job:
+
+```bash
+curl http://YOUR_SERVER_IP:3000/api/web/jobs/JOB_ID
+```

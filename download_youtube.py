@@ -9,7 +9,9 @@ import subprocess
 import shutil
 import yt_dlp
 
-from youtube_common import write_cookies_from_env, get_extractor_args
+from youtube_common import write_cookies_from_env, get_extractor_args, DESKTOP_HEADERS
+from youtube_cobalt import download_audio_via_cobalt
+
 
 
 def emit_progress(percent: int, label: str):
@@ -47,7 +49,9 @@ def download_audio(url: str, output_path: str, ffmpeg_path: str, cookies_path: s
         "progress_hooks": [progress_hook],
         # Some videos are geo/age restricted; try to bypass geo restrictions.
         "geo_bypass": True,
-        # Use mobile/TV clients first; inject PO token / visitor_data if provided.
+        # Mimic a real desktop browser to reduce bot detection.
+        "http_headers": DESKTOP_HEADERS,
+        # Use the BgUtils POT provider plugin + cookies.
         "extractor_args": get_extractor_args(),
     }
 
@@ -76,6 +80,44 @@ def convert_to_wav(input_path: str, output_path: str, ffmpeg_path: str):
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def _find_audio_file(tmpdir: str):
+    """Return the first audio file Cobalt/yt-dlp may have written."""
+    for ext in (".mp3", ".m4a", ".webm", ".ogg", ".opus"):
+        for f in os.listdir(tmpdir):
+            if f.lower().endswith(ext):
+                return os.path.join(tmpdir, f)
+    return None
+
+
+def _is_bot_or_auth_error(msg: str) -> bool:
+    lower = msg.lower()
+    return any(
+        phrase in lower
+        for phrase in [
+            "sign in",
+            "http error 403",
+            "bot",
+            "blocked",
+            "unable to extract",
+            "the provided youtube account cookies are no longer valid",
+            "this request was detected as a bot",
+        ]
+    )
+
+
+def _format_ytdlp_error(e: yt_dlp.utils.DownloadError) -> str:
+    msg = str(e)
+    if "This video is not available" in msg:
+        return "Video is not available (may be private, geo-blocked, or deleted)"
+    if "Sign in to confirm" in msg:
+        return "YouTube requires sign-in for this video"
+    if "Video unavailable" in msg:
+        return "Video unavailable"
+    if "HTTP Error 403" in msg:
+        return "YouTube blocked the download (HTTP 403). Try another video or update yt-dlp."
+    return msg
+
+
 def main():
     if len(sys.argv) < 4:
         print("Usage: download_youtube.py <youtube_url> <ffmpeg_path> <output_wav_path>", file=sys.stderr)
@@ -85,39 +127,47 @@ def main():
     ffmpeg_path = sys.argv[2]
     output_wav = sys.argv[3]
 
+    ytdlp_error = None
+    cobalt_error = None
+
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             cookies_path = write_cookies_from_env(tmpdir)
             mp3_base = os.path.join(tmpdir, "audio")
-            download_audio(url, mp3_base, ffmpeg_path, cookies_path)
 
-            # Find the downloaded mp3 file
-            mp3_file = None
-            for f in os.listdir(tmpdir):
-                if f.endswith(".mp3"):
-                    mp3_file = os.path.join(tmpdir, f)
-                    break
+            try:
+                download_audio(url, mp3_base, ffmpeg_path, cookies_path)
+            except yt_dlp.utils.DownloadError as e:
+                ytdlp_error = _format_ytdlp_error(e)
+                if _is_bot_or_auth_error(str(e)):
+                    emit_progress(5, "YouTube заблокировал yt-dlp, пробую Cobalt...")
+                    try:
+                        download_audio_via_cobalt(
+                            url,
+                            tmpdir,
+                            progress_cb=lambda p, l: emit_progress(int(p * 0.8 + 5), l),
+                        )
+                    except Exception as ce:
+                        cobalt_error = str(ce)
+                        raise RuntimeError(
+                            f"yt-dlp: {ytdlp_error}; Cobalt fallback: {cobalt_error}"
+                        ) from ce
+                else:
+                    raise
 
-            if not mp3_file:
-                print("MP3 not found after download", file=sys.stderr)
+            audio_file = _find_audio_file(tmpdir)
+            if not audio_file:
+                print("Audio file not found after download", file=sys.stderr)
                 sys.exit(1)
 
-            convert_to_wav(mp3_file, output_wav, ffmpeg_path)
+            convert_to_wav(audio_file, output_wav, ffmpeg_path)
             emit_progress(100, "Аудио готово")
             print(f"Downloaded and converted to {output_wav}")
     except yt_dlp.utils.DownloadError as e:
-        # Extract a clean error message for the user
-        msg = str(e)
-        if "This video is not available" in msg:
-            print("ERROR: Video is not available (may be private, geo-blocked, or deleted)", file=sys.stderr)
-        elif "Sign in to confirm" in msg:
-            print("ERROR: YouTube requires sign-in for this video", file=sys.stderr)
-        elif "Video unavailable" in msg:
-            print("ERROR: Video unavailable", file=sys.stderr)
-        elif "HTTP Error 403" in msg:
-            print("ERROR: YouTube blocked the download (HTTP 403). Try another video or update yt-dlp.", file=sys.stderr)
-        else:
-            print(f"ERROR: {msg}", file=sys.stderr)
+        print(f"ERROR: {_format_ytdlp_error(e)}", file=sys.stderr)
+        sys.exit(1)
+    except RuntimeError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)

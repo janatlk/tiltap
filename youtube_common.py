@@ -7,6 +7,25 @@ import subprocess
 import sys
 import tempfile
 
+# Desktop Chrome headers to mimic a real browser. YouTube datacenter/bot
+# detection is less aggressive when the request looks like normal user traffic.
+DESKTOP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8"
+    ),
+    "Sec-Ch-Ua": '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Upgrade-Insecure-Requests": "1",
+}
+
 
 def write_cookies_from_env(tmpdir: str) -> str | None:
     """Decode YOUTUBE_COOKIES_BASE64 or return YOUTUBE_COOKIES_PATH if present."""
@@ -59,33 +78,30 @@ def cleanup_temp_cookies(cookies_path: str | None) -> None:
 def get_extractor_args() -> dict:
     """Build yt-dlp extractor_args optimized for datacenter/cloud IPs.
 
-    - Prefer mobile/TV clients which are less likely to demand sign-in.
+    - Use the web client with the BgUtils POT provider plugin so PO tokens are
+      generated automatically instead of being collected manually.
+    - Fall back to mobile/TV clients if the web client fails.
     - Skip heavy webpage/JS processing when possible.
-    - Optionally inject a PO token and/or visitor_data for the web client.
-    - Add the web client as a final fallback when a PO token or visitor_data is
-      provided, because a valid token can sometimes bypass strict sign-in checks.
+    - Keep manual YOUTUBE_PO_TOKEN / YOUTUBE_VISITOR_DATA support for backwards
+      compatibility, but prefer the POT provider when available.
     """
-    clients = ["ios", "android", "tv"]
-
-    po_token = os.environ.get("YOUTUBE_PO_TOKEN", "").strip()
-    visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA", "").strip()
-
-    # Only fall back to the web client if we have something to feed it.
-    if po_token or visitor_data:
-        clients.append("web")
-
     extractor_args: dict = {
         "youtube": {
-            # ios/tv/android usually work without cookies/PO tokens on flagged IPs.
-            "player_client": clients,
+            # web needs a PO token on flagged IPs; the bgutil provider supplies it.
+            "player_client": ["web", "ios", "android", "tv"],
             "player_skip": ["webpage", "configs", "js"],
-        }
+        },
+        # Automatic PO-token generation via the local bgutil-pot server.
+        "youtubepot-bgutilhttp": {
+            "base_url": os.environ.get("YOUTUBE_POT_PROVIDER_URL", "http://127.0.0.1:4416"),
+        },
     }
 
+    # Backwards compatibility: manual PO token / visitor data still works if set.
+    po_token = os.environ.get("YOUTUBE_PO_TOKEN", "").strip()
+    visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA", "").strip()
     if po_token:
-        # Comma-separated list of CLIENT.CONTEXT+TOKEN entries.
         extractor_args["youtube"]["po_token"] = [t.strip() for t in po_token.split(",") if t.strip()]
-
     if visitor_data:
         extractor_args["youtube"]["visitor_data"] = visitor_data
 
