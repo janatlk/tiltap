@@ -29,4 +29,6 @@ ENV FFMPEG_PATH=ffmpeg
 EXPOSE 8000
 
 WORKDIR /app/stt-service
+# Models are mounted at /app/models at runtime; symlink so relative "models/..." paths work.
+RUN ln -s /app/models /app/stt-service/models
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
