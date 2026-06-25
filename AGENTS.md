@@ -225,7 +225,8 @@ If Daniel's module URL is configured (`TRANSLATION_MODULE_URL`), all translation
 | `YOUTUBE_PO_TOKEN` | no | Proof-of-Origin token(s) for YouTube web client, comma-separated `CLIENT.CONTEXT+TOKEN` entries |
 | `YOUTUBE_VISITOR_DATA` | no | YouTube visitor data for Innertube API requests (use with PO token, not cookies) |
 | `YOUTUBE_PROXY` | no | HTTP/HTTPS/SOCKS proxy for YouTube requests (e.g. `http://user:pass@host:port`) |
-| `COBALT_API_URL` | no | Cobalt API fallback when yt-dlp is blocked. Default: `https://api.cobalt.blackcat.sweeux.org/` |
+| `COBALT_API_URL` | no | Single Cobalt API fallback URL. Default rotates through public instances |
+| `COBALT_API_URLS` | no | Comma-separated list of Cobalt API URLs for rotation |
 | `YOUTUBE_AUTO_UPDATE_YTDLP` | no | Set `true` to upgrade `yt-dlp` on every container start (recommended on Render) |
 | `TRANSLATION_MODULE_URL` | no | Daniel's translation module endpoint |
 | `TELEGRAM_WEBHOOK_SECRET` | no | Future webhook validation |
@@ -250,7 +251,7 @@ Optional:
 - `YOUTUBE_COOKIES_BASE64` or `YOUTUBE_COOKIES_PATH` — if YouTube returns "Sign in to confirm" from Render's datacenter IP
 - `YOUTUBE_PO_TOKEN` / `YOUTUBE_VISITOR_DATA` — if YouTube still blocks with HTTP 403 or "Sign in" even with cookies
 - `YOUTUBE_PROXY` — route YouTube requests through a residential/proxy IP if datacenter IP is heavily flagged
-- `COBALT_API_URL` — override the default public Cobalt instance used when yt-dlp is blocked
+- `COBALT_API_URL` / `COBALT_API_URLS` — override or extend the list of public Cobalt instances used when yt-dlp is blocked
 - `YOUTUBE_AUTO_UPDATE_YTDLP=true` — keep `yt-dlp` up to date on Render
 
 ### Deploy to Render
@@ -277,4 +278,4 @@ Optional:
 - Real-time progress for cloud STT is simulated from the Node service because the APIs do not stream per-word progress.
 - Local STT models (`models/`, `transcribe_hybrid.py`, Vosk, CTranslate2 Whisper) are deprecated and will be removed from the Docker image in a future cleanup pass.
 - **YouTube on Render:** if all videos return "Sign in to confirm" or HTTP 403, set `YOUTUBE_AUTO_UPDATE_YTDLP=true`, add fresh browser cookies via `YOUTUBE_COOKIES_BASE64`, and (if still blocked) provide a PO token via `YOUTUBE_PO_TOKEN`. The Docker startup script now updates `yt-dlp` automatically when this flag is enabled, and `download_youtube.py`/`validate_youtube.py` prefer mobile/TV player clients to reduce bot detection.
-- **YouTube Cobalt fallback:** when yt-dlp fails with bot detection or sign-in requirements, `download_youtube.py` and `validate_youtube.py` automatically fall back to a public Cobalt API instance (`COBALT_API_URL`). This is the current workaround for datacenter IPs (including Hetzner) where YouTube blocks direct yt-dlp downloads. For production load, deploy a private Cobalt instance and point `COBALT_API_URL` at it.
+- **YouTube Cobalt fallback:** when yt-dlp fails with bot detection or sign-in requirements, `download_youtube.py` and `validate_youtube.py` automatically fall back to public Cobalt API instances (`COBALT_API_URL` or `COBALT_API_URLS`). The downloader rotates through the list until one succeeds. This is the current workaround for datacenter IPs (including Hetzner) where YouTube blocks direct yt-dlp downloads. For production load, deploy a private Cobalt instance and point `COBALT_API_URL` at it.

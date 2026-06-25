@@ -26,6 +26,7 @@ const LANGUAGE_MAP: Record<string, string | undefined> = {
   en: "en",
   ru: "ru",
   uz: "uz",
+  uz_cyrl: "uz", // source transcription is the same Uzbek audio
   ky: "ky",
   tg: "tgk", // Tajik is listed as tgk (ISO 639-3); tg may also work but tgk is safer.
   auto: undefined,
@@ -113,7 +114,8 @@ export async function transcribeWithElevenLabs(
   audioBuffer: Buffer,
   filename: string,
   language?: string,
-  onProgress?: (progress: ElevenLabsSttProgress) => void
+  onProgress?: (progress: ElevenLabsSttProgress) => void,
+  abortSignal?: AbortSignal
 ): Promise<TranscriptionResult> {
   const apiKey = config.ELEVENLABS_API_KEY;
   if (!apiKey) {
@@ -150,6 +152,7 @@ export async function transcribeWithElevenLabs(
       "xi-api-key": apiKey,
     },
     body: formData,
+    signal: abortSignal,
   });
 
   if (!res.ok) {

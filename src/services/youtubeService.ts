@@ -60,19 +60,27 @@ export async function validateYouTubeUrl(url: string): Promise<YouTubeValidation
 export interface YouTubeDownloadResult {
   audioBuffer: Buffer;
   tmpWav: string;
+  pid: number;
 }
 
 export async function downloadYouTubeAudio(
   url: string,
-  onProgress?: (progress: TranscriptionProgress) => void
+  onProgress?: (progress: TranscriptionProgress) => void,
+  abortSignal?: AbortSignal
 ): Promise<YouTubeDownloadResult> {
   const tmpWav = join(tmpdir(), `tiltab_yt_${Date.now()}.wav`);
 
-  await new Promise<void>((resolve, reject) => {
+  const pid = await new Promise<number>((resolve, reject) => {
     const proc = spawn(PYTHON_PATH, ["download_youtube.py", url, FFMPEG_PATH, tmpWav], {
       cwd: process.cwd(),
       env: { ...process.env, PYTHONIOENCODING: "utf-8" },
     });
+
+    if (abortSignal) {
+      abortSignal.addEventListener("abort", () => {
+        proc.kill("SIGTERM");
+      });
+    }
 
     let stderr = "";
     const stdoutLines: string[] = [];
@@ -107,7 +115,7 @@ export async function downloadYouTubeAudio(
         const errMsg = stderr.trim() || stdoutLines.join("\n").trim() || `Download failed with code ${code}`;
         reject(new Error(errMsg));
       } else {
-        resolve();
+        resolve(proc.pid ?? 0);
       }
     });
     proc.on("error", (err: Error) => {
@@ -118,7 +126,7 @@ export async function downloadYouTubeAudio(
 
   const fs = await import("fs/promises");
   const audioBuffer = await fs.readFile(tmpWav);
-  return { audioBuffer, tmpWav };
+  return { audioBuffer, tmpWav, pid };
 }
 
 export async function cleanupTempFile(tmpWav: string): Promise<void> {
@@ -130,16 +138,21 @@ export async function transcribeYouTube(
   url: string,
   language: string,
   onProgress?: (progress: TranscriptionProgress) => void,
-  onProcessStart?: (pid: number) => void
+  onProcessStart?: (pid: number) => void,
+  abortSignal?: AbortSignal
 ): Promise<TranscriptionResult> {
-  const { audioBuffer, tmpWav } = await downloadYouTubeAudio(url, onProgress);
+  const { audioBuffer, tmpWav, pid } = await downloadYouTubeAudio(url, onProgress, abortSignal);
+  if (onProcessStart && pid) {
+    onProcessStart(pid);
+  }
   try {
     const result = await transcribeAudio(
       audioBuffer,
       "youtube_audio.wav",
       language,
       onProcessStart,
-      onProgress
+      onProgress,
+      abortSignal
     );
     return result;
   } finally {

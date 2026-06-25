@@ -2,6 +2,7 @@ import { logger } from "../utils/logger";
 import { config } from "../config";
 import type { TranslateRequest, TranslateResponse } from "../types";
 import { normalizeLanguageCodeOrKeep } from "../utils/languageCodes";
+import { latinToCyrillic } from "../utils/uzbekTransliteration";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -12,6 +13,7 @@ const languageNames: Record<string, string> = {
   ky: "Kyrgyz",
   tg: "Tajik",
   uz: "Uzbek",
+  uz_cyrl: "Uzbek Cyrillic",
 };
 
 // ---------------------------------------------------------------------------
@@ -246,58 +248,66 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
     return { translatedText: "", detectedLang: "auto" };
   }
 
+  // Uzbek Cyrillic is a script variant of Uzbek Latin. Translate to Latin first,
+  // then transliterate. For LLM providers we could ask directly, but transliteration
+  // keeps the output consistent and works for all providers.
+  const isUzbekCyrillic = req.targetLang === "uz_cyrl";
+  const translateReq: TranslateRequest = isUzbekCyrillic
+    ? { ...req, targetLang: "uz" }
+    : req;
+
+  let result: TranslateResponse;
+
   // If Daniel's module URL is configured, proxy to it.
   if (config.TRANSLATION_MODULE_URL) {
     logger.info("Proxying translation to Daniel's module", { targetLang: req.targetLang });
     const res = await fetch(config.TRANSLATION_MODULE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req),
+      body: JSON.stringify(translateReq),
     });
 
     if (!res.ok) {
       throw new Error(`Translation module error: ${res.status} ${await res.text()}`);
     }
 
-    return (await res.json()) as TranslateResponse;
-  }
+    result = (await res.json()) as TranslateResponse;
+  } else {
+    const provider = config.TILTAB_TRANSLATION_PROVIDER;
 
-  const provider = config.TILTAB_TRANSLATION_PROVIDER;
-
-  if (provider === "lingva") {
-    return translateWithLingva(req);
-  }
-
-  if (provider === "openai") {
-    return translateWithOpenAI(req);
-  }
-
-  if (provider === "groq") {
-    return translateWithGroq(req);
-  }
-
-  if (provider === "mock") {
-    return mockTranslation(req);
-  }
-
-  // Auto mode: free first, then paid fallbacks, then mock.
-  if (config.LINGVA_TRANSLATE_URL) {
-    try {
-      return await translateWithLingva(req);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn("Lingva translation failed, falling back", { error: msg });
+    if (provider === "lingva") {
+      result = await translateWithLingva(translateReq);
+    } else if (provider === "openai") {
+      result = await translateWithOpenAI(translateReq);
+    } else if (provider === "groq") {
+      result = await translateWithGroq(translateReq);
+    } else if (provider === "mock") {
+      result = mockTranslation(translateReq);
+    } else if (config.LINGVA_TRANSLATE_URL) {
+      try {
+        result = await translateWithLingva(translateReq);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn("Lingva translation failed, falling back", { error: msg });
+        if (config.OPENAI_API_KEY || config.GROQ_API_KEY) {
+          result = await translateWithOpenAI(translateReq);
+        } else {
+          result = mockTranslation(translateReq);
+        }
+      }
+    } else if (config.OPENAI_API_KEY || config.GROQ_API_KEY) {
+      result = await translateWithOpenAI(translateReq);
+    } else {
+      result = mockTranslation(translateReq);
     }
   }
 
-  if (config.OPENAI_API_KEY || config.GROQ_API_KEY) {
-    try {
-      return await translateWithOpenAI(req);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn("OpenAI/Groq translation failed, returning mock", { error: msg });
-    }
+  if (isUzbekCyrillic) {
+    return {
+      translatedText: latinToCyrillic(result.translatedText),
+      detectedLang: result.detectedLang,
+    };
   }
 
-  return mockTranslation(req);
+  return result;
 }

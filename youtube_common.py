@@ -108,6 +108,23 @@ def get_extractor_args() -> dict:
     return extractor_args
 
 
+def is_youtube_bot_error(msg: str) -> bool:
+    """Return True when yt-dlp failed because of bot detection or auth."""
+    lower = msg.lower()
+    return any(
+        phrase in lower
+        for phrase in [
+            "sign in",
+            "http error 403",
+            "bot",
+            "blocked",
+            "unable to extract",
+            "the provided youtube account cookies are no longer valid",
+            "this request was detected as a bot",
+        ]
+    )
+
+
 def update_ytdlp() -> None:
     """Optionally upgrade yt-dlp at runtime. Called by startup script."""
     if os.environ.get("YOUTUBE_AUTO_UPDATE_YTDLP", "").lower() not in ("true", "1"):

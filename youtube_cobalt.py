@@ -2,8 +2,8 @@
 """Cobalt API fallback for YouTube audio downloads.
 
 Public Cobalt instances are community-run and may change or break.  This
-module is intentionally small so we can swap the provider quickly if an
-instance stops working.
+module rotates through a list of instances so a single broken instance does
+not block downloads.
 """
 
 import json
@@ -12,17 +12,30 @@ import sys
 
 import requests
 
-# Default community instance that currently allows unauthenticated YouTube
-# audio downloads.  Override with COBALT_API_URL if it breaks.
-DEFAULT_COBALT_API = "https://api.cobalt.blackcat.sweeux.org/"
+# Community instances that currently allow unauthenticated YouTube audio
+# downloads (Turnstile disabled).  Override with COBALT_API_URL or
+# COBALT_API_URLS (comma-separated).
+DEFAULT_COBALT_APIS = [
+    "https://api.cobalt.blackcat.sweeux.org/",
+    "https://dog.kittycat.boo/",
+    "https://fox.kittycat.boo/",
+    "https://cobaltapi.kittycat.boo/",
+    "https://rue-cobalt.xenon.zone/",
+]
 
-# How long to wait for Cobalt to resolve a stream and for the first bytes.
 COBALT_TIMEOUT = 45
 DOWNLOAD_TIMEOUT = 300
 
 
-def _api_url() -> str:
-    return os.environ.get("COBALT_API_URL", DEFAULT_COBALT_API).rstrip("/") + "/"
+def _api_urls() -> list[str]:
+    """Return the list of Cobalt API URLs to try."""
+    env_urls = os.environ.get("COBALT_API_URLS", "").strip()
+    if env_urls:
+        return [u.strip().rstrip("/") + "/" for u in env_urls.split(",") if u.strip()]
+    single = os.environ.get("COBALT_API_URL", "").strip()
+    if single:
+        return [single.rstrip("/") + "/"]
+    return [u.rstrip("/") + "/" for u in DEFAULT_COBALT_APIS]
 
 
 def _emit(progress_cb, percent: int, label: str):
@@ -38,6 +51,28 @@ def _cobalt_error_text(data: dict) -> str:
     return f"Cobalt error: {code} (service: {service})"
 
 
+def _request_stream(url: str, payload: dict) -> dict:
+    """POST to a Cobalt API and return the JSON response."""
+    resp = requests.post(
+        url,
+        json=payload,
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        timeout=COBALT_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _download_media(media_url: str, output_path: str):
+    """Download a media file from a Cobalt tunnel/redirect URL."""
+    with requests.get(media_url, stream=True, timeout=DOWNLOAD_TIMEOUT) as dl:
+        dl.raise_for_status()
+        with open(output_path, "wb") as f:
+            for chunk in dl.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    f.write(chunk)
+
+
 def download_audio_via_cobalt(
     youtube_url: str,
     output_dir: str,
@@ -46,10 +81,9 @@ def download_audio_via_cobalt(
 ):
     """Download a YouTube video's audio track via a Cobalt API instance.
 
-    Returns the path to the downloaded audio file (mp3/m4a/webm depending on
-    Cobalt's choice).  Raises RuntimeError on failure.
+    Tries each configured Cobalt URL in order.  Returns the path to the
+    downloaded audio file.  Raises RuntimeError if all instances fail.
     """
-    api = _api_url()
     payload = {
         "url": youtube_url,
         "downloadMode": "audio",
@@ -57,99 +91,86 @@ def download_audio_via_cobalt(
         "filenameStyle": "basic",
     }
 
-    _emit(progress_cb, 5, "Пробую Cobalt API...")
+    last_error = "No Cobalt API URLs configured"
+    for api in _api_urls():
+        try:
+            _emit(progress_cb, 5, f"Пробую Cobalt ({api})...")
+            data = _request_stream(api, payload)
 
-    try:
-        resp = requests.post(
-            api,
-            json=payload,
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-            timeout=COBALT_TIMEOUT,
-        )
-    except requests.RequestException as e:
-        raise RuntimeError(f"Cobalt API request failed: {e}") from e
+            if data.get("status") == "error":
+                last_error = _cobalt_error_text(data)
+                continue
 
-    try:
-        data = resp.json()
-    except Exception as e:
-        raise RuntimeError(f"Cobalt API returned non-JSON ({resp.status_code}): {resp.text[:200]}") from e
+            if data.get("status") not in ("tunnel", "redirect"):
+                last_error = f"Cobalt unexpected status: {data.get('status')}"
+                continue
 
-    if data.get("status") == "error":
-        raise RuntimeError(_cobalt_error_text(data))
+            media_url = data.get("url")
+            if not media_url:
+                last_error = "Cobalt API did not return a media URL"
+                continue
 
-    if data.get("status") not in ("tunnel", "redirect"):
-        raise RuntimeError(f"Cobalt API unexpected status: {data.get('status')}")
+            filename = data.get("filename") or "audio.mp3"
+            output_path = os.path.join(output_dir, filename)
 
-    media_url = data.get("url")
-    if not media_url:
-        raise RuntimeError("Cobalt API did not return a media URL")
+            _emit(progress_cb, 15, "Скачиваю аудио через Cobalt...")
+            _download_media(media_url, output_path)
 
-    filename = data.get("filename") or "audio.mp3"
-    output_path = os.path.join(output_dir, filename)
+            if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+                last_error = "Cobalt returned an empty audio file"
+                continue
 
-    _emit(progress_cb, 15, "Скачиваю аудио через Cobalt...")
-    try:
-        with requests.get(media_url, stream=True, timeout=DOWNLOAD_TIMEOUT) as dl:
-            dl.raise_for_status()
-            with open(output_path, "wb") as f:
-                for chunk in dl.iter_content(chunk_size=64 * 1024):
-                    if chunk:
-                        f.write(chunk)
-    except requests.RequestException as e:
-        raise RuntimeError(f"Cobalt media download failed: {e}") from e
+            _emit(progress_cb, 85, "Конвертирую аудио...")
+            return output_path
+        except requests.RequestException as e:
+            last_error = f"Cobalt API request failed ({api}): {e}"
+        except Exception as e:
+            last_error = f"Cobalt error ({api}): {e}"
 
-    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-        raise RuntimeError("Cobalt returned an empty audio file")
-
-    _emit(progress_cb, 85, "Конвертирую аудио...")
-    return output_path
+    raise RuntimeError(last_error)
 
 
 def validate_via_cobalt(youtube_url: str) -> dict:
     """Validate a YouTube URL by asking Cobalt to resolve it.
 
-    Returns {"ok": True, ...} if Cobalt can produce a stream, otherwise
+    Returns {"ok": True, ...} if any instance can produce a stream, otherwise
     {"ok": False, "reason": ..., "error": ...}.
     """
-    api = _api_url()
     payload = {
         "url": youtube_url,
         "downloadMode": "audio",
         "audioFormat": "mp3",
     }
 
-    try:
-        resp = requests.post(
-            api,
-            json=payload,
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-            timeout=COBALT_TIMEOUT,
-        )
-    except requests.RequestException as e:
-        return {"ok": False, "reason": "network", "error": f"Cobalt API request failed: {e}"}
+    last_error = "No Cobalt API URLs configured"
+    for api in _api_urls():
+        try:
+            data = _request_stream(api, payload)
 
-    try:
-        data = resp.json()
-    except Exception as e:
-        return {"ok": False, "reason": "unknown", "error": f"Cobalt API non-JSON response: {e}"}
+            if data.get("status") in ("tunnel", "redirect"):
+                return {"ok": True, "title": "", "duration": 0, "uploader": ""}
 
-    if data.get("status") in ("tunnel", "redirect"):
-        return {"ok": True, "title": "", "duration": 0, "uploader": ""}
+            if data.get("status") == "error":
+                code = data.get("error", {}).get("code", "unknown")
+                reason = "unknown"
+                if "login" in code.lower():
+                    reason = "sign_in_required"
+                elif "age" in code.lower():
+                    reason = "age_restricted"
+                elif "unavailable" in code.lower() or "not.found" in code.lower():
+                    reason = "not_available"
+                elif "bot" in code.lower() or "turnstile" in code.lower():
+                    reason = "bot_detected"
+                last_error = _cobalt_error_text(data)
+                continue
 
-    if data.get("status") == "error":
-        code = data.get("error", {}).get("code", "unknown")
-        reason = "unknown"
-        if "login" in code.lower():
-            reason = "sign_in_required"
-        elif "age" in code.lower():
-            reason = "age_restricted"
-        elif "unavailable" in code.lower() or "not.found" in code.lower():
-            reason = "not_available"
-        elif "bot" in code.lower() or "turnstile" in code.lower():
-            reason = "bot_detected"
-        return {"ok": False, "reason": reason, "error": _cobalt_error_text(data)}
+            last_error = f"Cobalt unexpected status: {data.get('status')}"
+        except requests.RequestException as e:
+            last_error = f"Cobalt API request failed ({api}): {e}"
+        except Exception as e:
+            last_error = f"Cobalt error ({api}): {e}"
 
-    return {"ok": False, "reason": "unknown", "error": f"Cobalt unexpected status: {data.get('status')}"}
+    return {"ok": False, "reason": "unknown", "error": last_error}
 
 
 if __name__ == "__main__":

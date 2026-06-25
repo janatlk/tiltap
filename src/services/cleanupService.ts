@@ -203,6 +203,7 @@ function languageName(code: string): string {
     uz: "Uzbek (Latin script)",
     ky: "Kyrgyz (Cyrillic script)",
     tg: "Tajik (Cyrillic script)",
+    uz_cyrl: "Uzbek (Cyrillic script)",
   };
   return names[code.split("+")[0]] ?? code;
 }
@@ -245,7 +246,7 @@ function buildSystemPrompt(language: string): string {
     );
   }
 
-  if (lang === "uz") {
+  if (lang === "uz" || lang === "uz_cyrl") {
     return (
       `${base}\n\n` +
       "Language: Uzbek (Latin script).\n\n" +

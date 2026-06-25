@@ -8,28 +8,12 @@ import os
 import tempfile
 import yt_dlp
 
-from youtube_common import get_cookies_path, get_extractor_args, cleanup_temp_cookies, DESKTOP_HEADERS
+from youtube_common import get_cookies_path, get_extractor_args, cleanup_temp_cookies, DESKTOP_HEADERS, is_youtube_bot_error
 from youtube_cobalt import validate_via_cobalt
 
 
 # Hard timeout so we never hang forever on slow/unreachable URLs
 socket.setdefaulttimeout(15)
-
-
-def _is_bot_or_auth_error(msg: str) -> bool:
-    lower = msg.lower()
-    return any(
-        phrase in lower
-        for phrase in [
-            "sign in",
-            "http error 403",
-            "bot",
-            "blocked",
-            "unable to extract",
-            "the provided youtube account cookies are no longer valid",
-            "this request was detected as a bot",
-        ]
-    )
 
 
 def validate(url: str):
@@ -84,7 +68,7 @@ def validate(url: str):
             reason = "sign_in_required"
 
         # If yt-dlp is blocked by bot detection, ask a Cobalt instance instead.
-        if _is_bot_or_auth_error(msg):
+        if is_youtube_bot_error(msg):
             cobalt = validate_via_cobalt(url)
             if cobalt["ok"]:
                 return {"ok": True, "title": "", "duration": 0, "uploader": ""}

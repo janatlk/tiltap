@@ -20,8 +20,13 @@ const TELEGRAM_API = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`;
 export const MAX_MESSAGE_LENGTH = 4000;
 export const TEXT_FILE_THRESHOLD = 3900;
 
-export const SUPPORTED_LANGUAGES = ["ky", "tg", "uz", "en", "ru"] as const;
+export const SUPPORTED_LANGUAGES = ["ky", "tg", "uz", "en", "ru", "uz_cyrl"] as const;
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
+
+// Languages that can be used as a transcription/interface language.
+// uz_cyrl is translation-target only (output script variant).
+export const SOURCE_LANGUAGES = ["ky", "tg", "uz", "en", "ru"] as const;
+export const INTERFACE_LANGUAGES = ["ky", "tg", "uz", "en", "ru"] as const;
 
 export const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
   ky: "Кыргызча",
@@ -29,6 +34,7 @@ export const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
   uz: "O'zbekcha",
   en: "English",
   ru: "Русский",
+  uz_cyrl: "Ўзбекча (Кирил)",
 };
 
 export const LANGUAGE_FLAGS: Record<SupportedLanguage, string> = {
@@ -37,6 +43,7 @@ export const LANGUAGE_FLAGS: Record<SupportedLanguage, string> = {
   uz: "🇺🇿",
   en: "🇬🇧",
   ru: "🇷🇺",
+  uz_cyrl: "🇺🇿",
 };
 
 export const INTERFACE_LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
@@ -45,12 +52,13 @@ export const INTERFACE_LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
   uz: "O'zbekcha",
   en: "English",
   ru: "Русский",
+  uz_cyrl: "Ўзбекча (Кирил)",
 };
 
 // ---------------------------------------------------------------------------
 // Translations
 // ---------------------------------------------------------------------------
-const TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
+const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> = {
   welcome: {
     ky: "👋 <b>TilTap</b>ке кош келиңиз!\n\n🎙 Аудио, видео жана YouTube шилтемелерин расмийлоңуз.\n🌐 Кыргызча, тоҷикӣ, ўзбекча, русча жана англисча иштеиет.\n\nТөмөнкү баскычтарды колдонуңуз же медиа файлды түз эле жибериңиз.",
     tg: "👋 Хуш омадед ба <b>TilTap</b>!\n\n🎙 Ман аудио, видео ва пайвандҳои YouTube-ро транскрипция мекунам.\n🌐 Ба забонҳои қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ва англисӣ.\n\nАз тугмаҳои зерин истифода баред ё мустақиман файл фиристед.",
@@ -460,7 +468,8 @@ const TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
 };
 
 export function t(key: keyof typeof TRANSLATIONS, lang: SupportedLanguage, vars?: Record<string, string>): string {
-  let text = TRANSLATIONS[key]?.[lang] ?? TRANSLATIONS[key]?.["en"] ?? key;
+  // uz_cyrl falls back to uz for interface strings that have not been translated yet.
+  let text = TRANSLATIONS[key]?.[lang] ?? TRANSLATIONS[key]?.["uz"] ?? TRANSLATIONS[key]?.["en"] ?? key;
   if (vars) {
     for (const [k, v] of Object.entries(vars)) {
       text = text.replace(new RegExp(`\\{${k}\\}`, "g"), v);
@@ -718,7 +727,8 @@ export function clearPendingAction(chatId: number): void {
 // Active processes
 // ---------------------------------------------------------------------------
 export interface ActiveProcess {
-  pid: number;
+  pid?: number;
+  abortController?: AbortController;
   startTime: number;
   statusMessageId?: number;
   type: "media" | "youtube" | "test";
@@ -962,7 +972,7 @@ export function createSettingsMenuKeyboard(lang: SupportedLanguage): { inline_ke
 }
 
 export function createInterfaceLanguageKeyboard(backAction = "action:settings"): { inline_keyboard: InlineKeyboardButton[][] } {
-  const buttons = SUPPORTED_LANGUAGES.map((lang) => ({
+  const buttons = INTERFACE_LANGUAGES.map((lang) => ({
     text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
     callback_data: `ui_lang:${lang}`,
   }));
@@ -975,7 +985,7 @@ export function createSourceLanguageKeyboard(
   action: "default" | `confirm:${string}`,
   backAction = "action:settings"
 ): { inline_keyboard: InlineKeyboardButton[][] } {
-  const languages: (SupportedLanguage | "auto")[] = ["auto", ...SUPPORTED_LANGUAGES];
+  const languages: (SupportedLanguage | "auto")[] = ["auto", ...SOURCE_LANGUAGES];
   const buttons = languages.map((lang) => ({
     text: lang === "auto" ? "🌍 Auto detect" : `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
     callback_data: lang === "auto" ? `source:auto:${action}` : `source:${lang}:${action}`,
@@ -996,7 +1006,7 @@ export function createTargetLanguageKeyboard(
   return {
     inline_keyboard: [
       buttons.slice(0, 3),
-      buttons.slice(3, 5),
+      buttons.slice(3, 6),
       [
         { text: "❌ No translation", callback_data: `target:none:${action}` },
       ],

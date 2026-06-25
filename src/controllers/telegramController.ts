@@ -482,16 +482,31 @@ async function processAudio(
   const removeKeyboard = { replyMarkup: { inline_keyboard: [] as InlineKeyboardButton[][] } };
   const stopKeyboard = createStopKeyboard(lang, String(chatId));
   const onProgress = createProgressUpdater(chatId, statusMsgId, lang, filename);
+  const abortController = new AbortController();
 
   try {
+    setActiveProcess(chatId, {
+      abortController,
+      startTime: Date.now(),
+      statusMessageId: statusMsgId,
+      type: "media",
+    });
+
     const result = await transcribeAudio(
       buffer,
       filename,
       language,
       (pid) => {
-        setActiveProcess(chatId, { pid, startTime: Date.now(), statusMessageId: statusMsgId, type: "media" });
+        setActiveProcess(chatId, {
+          pid,
+          abortController,
+          startTime: Date.now(),
+          statusMessageId: statusMsgId,
+          type: "media",
+        });
       },
-      onProgress
+      onProgress,
+      abortController.signal
     );
     clearActiveProcess(chatId);
 
@@ -573,12 +588,22 @@ async function downloadAndTranscribeYouTube(
 
   const removeKeyboard = { replyMarkup: { inline_keyboard: [] as InlineKeyboardButton[][] } };
   const stopKeyboard = createStopKeyboard(lang, String(chatId));
+  const abortController = new AbortController();
 
   try {
+    setActiveProcess(chatId, {
+      abortController,
+      startTime: Date.now(),
+      statusMessageId: statusMsgId,
+      type: "youtube",
+    });
+
     const downloadProgress = createProgressUpdater(chatId, statusMsgId, lang, url);
 
-    const downloadResult = await downloadYouTubeAudio(url, (progress) =>
-      downloadProgress({ percent: progress.percent, label: progress.label ?? t("stageDownload", lang) })
+    const downloadResult = await downloadYouTubeAudio(
+      url,
+      (progress) => downloadProgress({ percent: progress.percent, label: progress.label ?? t("stageDownload", lang) }),
+      abortController.signal
     );
     const audioBuffer = downloadResult.audioBuffer;
     tmpWav = downloadResult.tmpWav;
@@ -591,9 +616,16 @@ async function downloadAndTranscribeYouTube(
       "youtube_audio.wav",
       language,
       (pid) => {
-        setActiveProcess(chatId, { pid, startTime: Date.now(), statusMessageId: statusMsgId, type: "youtube" });
+        setActiveProcess(chatId, {
+          pid,
+          abortController,
+          startTime: Date.now(),
+          statusMessageId: statusMsgId,
+          type: "youtube",
+        });
       },
-      transcribeProgress
+      transcribeProgress,
+      abortController.signal
     );
     await unlink(tmpWav).catch(() => {});
     clearActiveProcess(chatId);
@@ -645,7 +677,7 @@ async function downloadAndTranscribeYouTube(
 }
 
 function getYouTubeErrorMessage(reason: string | undefined, lang: SupportedLanguage): string {
-  const messages: Record<string, Record<SupportedLanguage, string>> = {
+  const messages: Record<string, Partial<Record<SupportedLanguage, string>>> = {
     not_available: {
       ky: "❌ Видео жеткиликтүү эмес. Ал жок кылынган, жашырылган же регионго блоктолгон болушу мүмкүн.",
       tg: "❌ Видео дастрас нест. Эҳтимол нест шудааст, пинҳон шудааст ё аз минтақаа манъ шудааст.",
@@ -690,7 +722,8 @@ function getYouTubeErrorMessage(reason: string | undefined, lang: SupportedLangu
     },
   };
 
-  return messages[reason ?? "unknown"][lang];
+  const entry = messages[reason ?? "unknown"];
+  return entry[lang] ?? entry["uz"] ?? entry["ru"] ?? "Unknown error";
 }
 
 async function stopActiveProcess(chatId: number): Promise<void> {
@@ -704,7 +737,10 @@ async function stopActiveProcess(chatId: number): Promise<void> {
   }
 
   try {
-    process.kill(active.pid, "SIGTERM");
+    active.abortController?.abort();
+    if (active.pid) {
+      process.kill(active.pid, "SIGTERM");
+    }
   } catch (err) {
     logger.warn("Failed to kill process", { error: err, pid: active.pid, chatId });
   }
@@ -860,8 +896,16 @@ async function runAccuracyTest(chatId: number, language: string): Promise<void> 
   const removeKeyboard = { replyMarkup: { inline_keyboard: [] as InlineKeyboardButton[][] } };
   const stopKeyboard = createStopKeyboard(lang, String(chatId));
   const testProgress = createProgressUpdater(chatId, statusMsgId, lang, fixture.title);
+  const abortController = new AbortController();
 
   try {
+    setActiveProcess(chatId, {
+      abortController,
+      startTime: Date.now(),
+      statusMessageId: statusMsgId,
+      type: "test",
+    });
+
     await editMessageText(chatId, statusMsgId, renderLoadingStages(30, t("testDownloading", lang), fixture.title, testHeader), { replyMarkup: stopKeyboard });
 
     const { captionPromise } = await prepareTestAudio(fixture, tmpWav);
@@ -875,9 +919,16 @@ async function runAccuracyTest(chatId: number, language: string): Promise<void> 
       "test_audio.wav",
       language,
       (pid) => {
-        setActiveProcess(chatId, { pid, startTime: Date.now(), statusMessageId: statusMsgId, type: "test" });
+        setActiveProcess(chatId, {
+          pid,
+          abortController,
+          startTime: Date.now(),
+          statusMessageId: statusMsgId,
+          type: "test",
+        });
       },
-      (progress) => testProgress({ ...progress, label: `${progress.label} (${t("testRecognizing", lang)})` })
+      (progress) => testProgress({ ...progress, label: `${progress.label} (${t("testRecognizing", lang)})` }),
+      abortController.signal
     );
     await fs.unlink(tmpWav).catch(() => {});
 
@@ -1101,7 +1152,10 @@ async function handleCallbackQuery(callbackQuery: {
       const active = getActiveProcess(chatId);
       if (active) {
         try {
-          process.kill(active.pid, "SIGTERM");
+          active.abortController?.abort();
+          if (active.pid) {
+            process.kill(active.pid, "SIGTERM");
+          }
         } catch (err) {
           logger.warn("Failed to kill active process", { error: err, pid: active.pid, chatId });
         }

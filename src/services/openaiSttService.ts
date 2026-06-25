@@ -29,6 +29,7 @@ const LANGUAGE_MAP: Record<string, string | undefined> = {
   en: "en",
   ru: "ru",
   uz: "uz",
+  uz_cyrl: "uz", // source transcription is the same Uzbek audio
   tg: undefined, // Tajik is not supported; auto-detect tends to pick Persian/Arabic, so we omit it
   ky: undefined, // Kyrgyz is not supported
   auto: undefined,
@@ -100,7 +101,8 @@ async function callSttProvider(
   mappedLang: string | undefined,
   model: string,
   providerName: string,
-  onProgress?: (progress: OpenAiSttProgress) => void
+  onProgress?: (progress: OpenAiSttProgress) => void,
+  abortSignal?: AbortSignal
 ): Promise<TranscriptionResult> {
   logger.info(`Running ${providerName} Whisper transcription`, { filename, sizeBytes: audioBuffer.length, language: mappedLang });
 
@@ -116,6 +118,7 @@ async function callSttProvider(
       Authorization: `Bearer ${apiKey}`,
     },
     body: formData,
+    signal: abortSignal,
   });
 
   if (!res.ok) {
@@ -155,7 +158,8 @@ export async function transcribeWithOpenAI(
   audioBuffer: Buffer,
   filename: string,
   language?: string,
-  onProgress?: (progress: OpenAiSttProgress) => void
+  onProgress?: (progress: OpenAiSttProgress) => void,
+  abortSignal?: AbortSignal
 ): Promise<TranscriptionResult> {
   const openaiKey = config.OPENAI_API_KEY;
   const groqKey = config.GROQ_API_KEY;
@@ -177,7 +181,8 @@ export async function transcribeWithOpenAI(
         mappedLang,
         config.OPENAI_STT_MODEL || "whisper-1",
         "OpenAI",
-        onProgress
+        onProgress,
+        abortSignal
       );
     } catch (err) {
       openaiError = err instanceof Error ? err : new Error(String(err));
@@ -213,6 +218,7 @@ export async function transcribeWithOpenAI(
     mappedLang,
     "whisper-large-v3",
     "Groq",
-    onProgress
+    onProgress,
+    abortSignal
   );
 }

@@ -25,7 +25,8 @@ export async function transcribeAudio(
   filename: string,
   language?: string,
   onProcessStart?: (pid: number) => void,
-  onProgress?: (progress: TranscriptionProgress) => void
+  onProgress?: (progress: TranscriptionProgress) => void,
+  abortSignal?: AbortSignal
 ): Promise<TranscriptionResult> {
   const provider = config.TILTAB_STT_PROVIDER;
   const normalizedLang = language ? normalizeLanguageCodeOrKeep(language) : undefined;
@@ -33,7 +34,7 @@ export async function transcribeAudio(
   // Priority local models hosted on the remote STT server (ky/uz are too heavy for Render/Starter RAM).
   const remoteSupported = new Set(["ky", "uz"]);
   if (config.TILTAB_STT_SERVICE_URL && normalizedLang && remoteSupported.has(normalizedLang)) {
-    const result = await transcribeWithRemoteService(audioBuffer, filename, normalizedLang);
+    const result = await transcribeWithRemoteService(audioBuffer, filename, normalizedLang, abortSignal);
     return normalizeTranscriptionResult(result);
   }
 
@@ -52,17 +53,17 @@ export async function transcribeAudio(
   let result: TranscriptionResult;
 
   if (provider === "openai") {
-    result = await transcribeWithOpenAI(cloudBuffer, cloudFilename, language, onProgress);
+    result = await transcribeWithOpenAI(cloudBuffer, cloudFilename, language, onProgress, abortSignal);
     return normalizeTranscriptionResult(result);
   }
 
   if (provider === "elevenlabs") {
-    result = await transcribeWithElevenLabs(cloudBuffer, cloudFilename, language, onProgress);
+    result = await transcribeWithElevenLabs(cloudBuffer, cloudFilename, language, onProgress, abortSignal);
     return normalizeTranscriptionResult(result);
   }
 
   if (provider === "local") {
-    result = await runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress);
+    result = await runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress, abortSignal);
     return normalizeTranscriptionResult(result);
   }
 
@@ -73,7 +74,7 @@ export async function transcribeAudio(
 
   if (config.ELEVENLABS_API_KEY) {
     try {
-      result = await transcribeWithElevenLabs(cloudBuffer, cloudFilename, language, onProgress);
+      result = await transcribeWithElevenLabs(cloudBuffer, cloudFilename, language, onProgress, abortSignal);
       return normalizeTranscriptionResult(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -84,7 +85,7 @@ export async function transcribeAudio(
 
   if (config.OPENAI_API_KEY || config.GROQ_API_KEY) {
     try {
-      result = await transcribeWithOpenAI(cloudBuffer, cloudFilename, language, onProgress);
+      result = await transcribeWithOpenAI(cloudBuffer, cloudFilename, language, onProgress, abortSignal);
       return normalizeTranscriptionResult(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -97,7 +98,7 @@ export async function transcribeAudio(
     throw new Error(`All configured cloud STT providers failed:\n${cloudErrors.join("\n")}`);
   }
 
-  result = await runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress);
+  result = await runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress, abortSignal);
   return normalizeTranscriptionResult(result);
 }
 
@@ -151,7 +152,8 @@ async function runHybridTranscription(
   filename: string,
   language?: string,
   onProcessStart?: (pid: number) => void,
-  onProgress?: (progress: TranscriptionProgress) => void
+  onProgress?: (progress: TranscriptionProgress) => void,
+  abortSignal?: AbortSignal
 ): Promise<TranscriptionResult> {
   logger.info("Running hybrid transcription", { filename, sizeBytes: audioBuffer.length, language });
 
@@ -173,6 +175,12 @@ async function runHybridTranscription(
 
     if (onProcessStart && proc.pid) {
       onProcessStart(proc.pid);
+    }
+
+    if (abortSignal) {
+      abortSignal.addEventListener("abort", () => {
+        proc.kill("SIGTERM");
+      });
     }
 
     let stderr = "";

@@ -6,10 +6,9 @@ import sys
 import os
 import tempfile
 import subprocess
-import shutil
 import yt_dlp
 
-from youtube_common import write_cookies_from_env, get_extractor_args, DESKTOP_HEADERS
+from youtube_common import write_cookies_from_env, get_extractor_args, DESKTOP_HEADERS, is_youtube_bot_error
 from youtube_cobalt import download_audio_via_cobalt
 
 
@@ -89,22 +88,6 @@ def _find_audio_file(tmpdir: str):
     return None
 
 
-def _is_bot_or_auth_error(msg: str) -> bool:
-    lower = msg.lower()
-    return any(
-        phrase in lower
-        for phrase in [
-            "sign in",
-            "http error 403",
-            "bot",
-            "blocked",
-            "unable to extract",
-            "the provided youtube account cookies are no longer valid",
-            "this request was detected as a bot",
-        ]
-    )
-
-
 def _format_ytdlp_error(e: yt_dlp.utils.DownloadError) -> str:
     msg = str(e)
     if "This video is not available" in msg:
@@ -127,9 +110,6 @@ def main():
     ffmpeg_path = sys.argv[2]
     output_wav = sys.argv[3]
 
-    ytdlp_error = None
-    cobalt_error = None
-
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             cookies_path = write_cookies_from_env(tmpdir)
@@ -139,7 +119,7 @@ def main():
                 download_audio(url, mp3_base, ffmpeg_path, cookies_path)
             except yt_dlp.utils.DownloadError as e:
                 ytdlp_error = _format_ytdlp_error(e)
-                if _is_bot_or_auth_error(str(e)):
+                if is_youtube_bot_error(str(e)):
                     emit_progress(5, "YouTube заблокировал yt-dlp, пробую Cobalt...")
                     try:
                         download_audio_via_cobalt(
@@ -148,9 +128,8 @@ def main():
                             progress_cb=lambda p, l: emit_progress(int(p * 0.8 + 5), l),
                         )
                     except Exception as ce:
-                        cobalt_error = str(ce)
                         raise RuntimeError(
-                            f"yt-dlp: {ytdlp_error}; Cobalt fallback: {cobalt_error}"
+                            f"yt-dlp: {ytdlp_error}; Cobalt fallback: {ce}"
                         ) from ce
                 else:
                     raise

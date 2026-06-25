@@ -8,7 +8,7 @@
  * everywhere.
  */
 
-export type SupportedLanguage = "ky" | "tg" | "uz" | "ru" | "en";
+export type SupportedLanguage = "ky" | "tg" | "uz" | "ru" | "en" | "uz_cyrl";
 
 const ISO_639_3_TO_1: Record<string, SupportedLanguage> = {
   // Kyrgyz
@@ -34,7 +34,7 @@ const NAME_TO_CODE: Record<string, SupportedLanguage> = {
   english: "en",
 };
 
-const CANONICAL_CODES = new Set<string>(["ky", "tg", "uz", "ru", "en"]);
+const CANONICAL_CODES = new Set<string>(["ky", "tg", "uz", "ru", "en", "uz_cyrl"]);
 
 /**
  * Normalize a language code to our internal 2-letter canonical form.
@@ -68,6 +68,7 @@ export function getLanguageLabel(code: string | undefined): string {
     uz: "O'zbekcha",
     ru: "Русский",
     en: "English",
+    uz_cyrl: "Ўзбекча (Кирил)",
   };
   return labels[normalizeLanguageCode(code) ?? code ?? ""] ?? code ?? "auto";
 }
