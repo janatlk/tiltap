@@ -558,7 +558,11 @@ def transcribe_wav2vec2(wav_path: str, model_name: str, language: str, progress_
 def transcribe_kyrgyz(wav_path: str):
     large_path = "models/vosk-model-ky-0.42"
     small_path = "models/vosk-model-small-ky-0.42"
-    model_path = large_path if os.path.exists(large_path) else small_path
+    duration = get_audio_duration(wav_path)
+    # The large Kyrgyz model is ~1.9 GB. On a 4 GB VPS it OOMs when Rubai is also resident,
+    # so use large only for short clips and fall back to small for longer audio.
+    use_large = os.path.exists(large_path) and duration > 0 and duration < 60
+    model_path = large_path if use_large else small_path
 
     log_diagnostic(language="ky", primary_model="vosk", model_path=model_path)
 
