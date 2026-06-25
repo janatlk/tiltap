@@ -60,46 +60,46 @@ export const INTERFACE_LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
 // ---------------------------------------------------------------------------
 const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> = {
   welcome: {
-    ky: "👋 <b>TilTap</b>ке кош келиңиз!\n\n🎙 Аудио, видео жана YouTube шилтемелерин расмийлоңуз.\n🌐 Кыргызча, тоҷикӣ, ўзбекча, русча жана англисча иштеиет.\n\nТөмөнкү баскычтарды колдонуңуз же медиа файлды түз эле жибериңиз.",
-    tg: "👋 Хуш омадед ба <b>TilTap</b>!\n\n🎙 Ман аудио, видео ва пайвандҳои YouTube-ро транскрипция мекунам.\n🌐 Ба забонҳои қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ва англисӣ.\n\nАз тугмаҳои зерин истифода баред ё мустақиман файл фиристед.",
-    uz: "👋 <b>TilTap</b>ga xush kelibsiz!\n\n🎙 Men audio, video va YouTube havolalarini transkripsiya qilaman.\n🌐 Qirg'iz, tojik, o'zbek, rus va ingliz tillarida.\n\nQuyidagi tugmalardan foydalaning yoki media faylni to'g'ridan-to'g'ri yuboring.",
-    en: "👋 Welcome to <b>TilTap</b>!\n\n🎙 I transcribe audio, video, and YouTube links.\n🌐 In Kyrgyz, Tajik, Uzbek, Russian, and English.\n\nUse the buttons below or send media directly.",
-    ru: "👋 Добро пожаловать в <b>TilTap</b>!\n\n🎙 Я распознаю аудио, видео и ссылки YouTube.\n🌐 На кыргызском, таджикском, узбекском, русском и английском.\n\nИспользуйте кнопки ниже или отправьте файл напрямую.",
+    ky: "<b>TilTap</b>ке кош келиңиз!\n\nАудио, видео жана YouTube шилтемелерин расмийлоңуз.\nКыргызча, тоҷикӣ, ўзбекча, русча жана англисча иштеиет.\n\nМедиа файлды түз эле жибериңиз же YouTube шилтемесин жазыңыз.",
+    tg: "Хуш омадед ба <b>TilTap</b>!\n\nМан аудио, видео ва пайвандҳои YouTube-ро транскрипция мекунам.\nБа забонҳои қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ва англисӣ.\n\nМустақиман файл фиристед ё пайванди YouTube-ро нависед.",
+    uz: "<b>TilTap</b>ga xush kelibsiz!\n\nMen audio, video va YouTube havolalarini transkripsiya qilaman.\nQirg'iz, tojik, o'zbek, rus va ingliz tillarida.\n\nMedia faylni to'g'ridan-to'g'ri yuboring yoki YouTube havolasini yozing.",
+    en: "Welcome to <b>TilTap</b>!\n\nI transcribe audio, video, and YouTube links.\nIn Kyrgyz, Tajik, Uzbek, Russian, and English.\n\nSend media directly or paste a YouTube link.",
+    ru: "Добро пожаловать в <b>TilTap</b>!\n\nЯ распознаю аудио, видео и ссылки YouTube.\nНа кыргызском, таджикском, узбекском, русском и английском.\n\nОтправьте файл напрямую или вставьте ссылку на YouTube.",
   },
   help: {
-    ky: "<b>🆘 Жардам</b>\n\n<b>Файл жиберүү:</b> аудио, видео, үн каттуу же документ жибериңиз. Бот тилди сурайт, андан кийин иштей баштайт.\n\n<b>YouTube:</b> «🔗 YouTube шилтемеси» баскычын басыңыз же шилтемени түз эле жибериңиз.\n\n<b>Тил орнотуулар:</b> «⚙️ Орнотуулар» менен интерфейстин тилин жана которуу үчүн демейки тилди тандаңыз.\n\n<b>Командаалар:</b>\n/start — негизги меню\n/help — бул жардам\n/settings — тил орнотуулар\n/test — такырыкты текшерүү\n/stop — активдүү процессти токтотуу",
-    tg: "<b>🆘 Кӯмак</b>\n\n<b>Фиристодани файл:</b> аудио, видео ё файл фиристед. Бот забонро пурсонда, сипас корро оғоз мекунад.\n\n<b>YouTube:</b> тугмаи «🔗 Пайванди YouTube»-ро пахш кунед ё пайвандро мустақиман фиристед.\n\n<b>Танзимоти забон:</b> тавассути «⚙️ Танзимот» забони интерфейс ва забони пешфарзи тарҷумаро интихоб кунед.\n\n<b>Дастурҳо:</b>\n/start — менюи асосӣ\n/help — ин кӯмак\n/settings — танзимоти забон\n/test — санҷиши дақиқӣ\n/stop — қатъ кардани раванди фаъол",
-    uz: "<b>🆘 Yordam</b>\n\n<b>Fayl yuborish:</b> audio, video yoki hujjat yuboring. Bot tilni so'raydi, keyin ishlaydi.\n\n<b>YouTube:</b> «🔗 YouTube havolasi» tugmasini bosing yoki havolani to'g'ridan-to'g'ri yuboring.\n\n<b>Til sozlamalari:</b> «⚙️ Sozlamalar» orqali interfeys tilini va tarjima uchun standart tilni tanlang.\n\n<b>Buyruqlar:</b>\n/start — asosiy menyu\n/help — bu yordam\n/settings — til sozlamalari\n/test — aniqlik testi\n/stop — faol jarayonni to'xtatish",
-    en: "<b>🆘 Help</b>\n\n<b>Send a file:</b> send audio, video, voice, or a document. The bot will ask for the language, then start working.\n\n<b>YouTube:</b> tap «🔗 YouTube link» or send a link directly.\n\n<b>Language settings:</b> use «⚙️ Settings» to choose the interface language and default translation language.\n\n<b>Commands:</b>\n/start — main menu\n/help — this help\n/settings — language settings\n/test — accuracy test\n/stop — stop active process",
-    ru: "<b>🆘 Помощь</b>\n\n<b>Отправьте файл:</b> аудио, видео, голосовое или документ. Бот спросит язык, затем начнёт работу.\n\n<b>YouTube:</b> нажмите «🔗 Ссылка YouTube» или отправьте ссылку напрямую.\n\n<b>Настройки языка:</b> через «⚙️ Настройки» выберите язык интерфейса и язык перевода по умолчанию.\n\n<b>Команды:</b>\n/start — главное меню\n/help — эта помощь\n/settings — настройки языка\n/test — тест точности\n/stop — остановить активный процесс",
+    ky: "<b>Жардам</b>\n\n<b>Файл жиберүү:</b> аудио, видео, үн каттуу же документ жибериңиз. Бот тилди сурайт, андан кийин иштей баштайт.\n\n<b>YouTube:</b> шилтемени түз эле жибериңиз.\n\n<b>Тил орнотуулар:</b> «Орнотуулар» менен интерфейстин тилин жана которуу үчүн демейки тилди тандаңыз.\n\n<b>Командаалар:</b>\n/start — негизги меню\n/help — бул жардам\n/settings — тил орнотуулар\n/stop — активдүү процессти токтотуу",
+    tg: "<b>Кӯмак</b>\n\n<b>Фиристодани файл:</b> аудио, видео ё файл фиристед. Бот забонро пурсонда, сипас корро оғоз мекунад.\n\n<b>YouTube:</b> пайвандро мустақиман фиристед.\n\n<b>Танзимоти забон:</b> тавассути «Танзимот» забони интерфейс ва забони пешфарзи тарҷумаро интихоб кунед.\n\n<b>Дастурҳо:</b>\n/start — менюи асосӣ\n/help — ин кӯмак\n/settings — танзимоти забон\n/stop — қатъ кардани раванди фаъол",
+    uz: "<b>Yordam</b>\n\n<b>Fayl yuborish:</b> audio, video yoki hujjat yuboring. Bot tilni so'raydi, keyin ishlaydi.\n\n<b>YouTube:</b> havolani to'g'ridan-to'g'ri yuboring.\n\n<b>Til sozlamalari:</b> «Sozlamalar» orqali interfeys tilini va tarjima uchun standart tilni tanlang.\n\n<b>Buyruqlar:</b>\n/start — asosiy menyu\n/help — bu yordam\n/settings — til sozlamalari\n/stop — faol jarayonni to'xtatish",
+    en: "<b>Help</b>\n\n<b>Send a file:</b> send audio, video, voice, or a document. The bot will ask for the language, then start working.\n\n<b>YouTube:</b> send a link directly.\n\n<b>Language settings:</b> use Settings to choose the interface language and default translation language.\n\n<b>Commands:</b>\n/start — main menu\n/help — this help\n/settings — language settings\n/stop — stop active process",
+    ru: "<b>Помощь</b>\n\n<b>Отправьте файл:</b> аудио, видео, голосовое или документ. Бот спросит язык, затем начнёт работу.\n\n<b>YouTube:</b> отправьте ссылку напрямую.\n\n<b>Настройки языка:</b> через «Настройки» выберите язык интерфейса и язык перевода по умолчанию.\n\n<b>Команды:</b>\n/start — главное меню\n/help — эта помощь\n/settings — настройки языка\n/stop — остановить активный процесс",
   },
   chooseInterfaceLanguage: {
-    ky: "🌍 Интерфейстин тилин тандаңыз:",
-    tg: "🌍 Забони интерфейсро интихоб кунед:",
-    uz: "🌍 Interfeys tilini tanlang:",
-    en: "🌍 Choose interface language:",
-    ru: "🌍 Выберите язык интерфейса:",
+    ky: "Интерфейстин тилин тандаңыз:",
+    tg: "Забони интерфейсро интихоб кунед:",
+    uz: "Interfeys tilini tanlang:",
+    en: "Choose interface language:",
+    ru: "Выберите язык интерфейса:",
   },
   chooseSourceLanguage: {
-    ky: "🎙️ Распознаоо тилин тандаңыз:",
-    tg: "🎙️ Забони транскрипцияро интихоб кунед:",
-    uz: "🎙️ Transkripsiya tilini tanlang:",
-    en: "🎙️ Choose transcription language:",
-    ru: "🎙️ Выберите язык распознавания:",
+    ky: "Распознаоо тилин тандаңыз:",
+    tg: "Забони транскрипцияро интихоб кунед:",
+    uz: "Transkripsiya tilini tanlang:",
+    en: "Choose transcription language:",
+    ru: "Выберите язык распознавания:",
   },
   chooseTargetLanguage: {
-    ky: "🌐 Кайсы тилге которолосуңуз? (же «Которбоой» тандаңыз)",
-    tg: "🌐 Ба кадом забон тарҷума кунем? (ё «Бе тарҷума»-ро интихоб кунед)",
-    uz: "🌐 Qaysi tilga tarjima qilay? (yoki «Tarjimasiz» ni tanlang)",
-    en: "🌐 Which language should I translate to? (or choose No translation)",
-    ru: "🌐 На какой язык перевести? (или выберите Без перевода)",
+    ky: "Кайсы тилге которолосуңуз? (же «Которбоой» тандаңыз)",
+    tg: "Ба кадом забон тарҷума кунем? (ё «Бе тарҷума»-ро интихоб кунед)",
+    uz: "Qaysi tilga tarjima qilay? (yoki «Tarjimasiz» ni tanlang)",
+    en: "Which language should I translate to? (or choose No translation)",
+    ru: "На какой язык перевести? (или выберите Без перевода)",
   },
   sendYoutubeLink: {
-    ky: "🔗 YouTube шилтемесин жибериңиз:",
-    tg: "🔗 Пайванди YouTube-ро фиристед:",
-    uz: "🔗 YouTube havolasini yuboring:",
-    en: "🔗 Send me a YouTube link:",
-    ru: "🔗 Отправьте ссылку на YouTube:",
+    ky: "YouTube шилтемесин жибериңиз:",
+    tg: "Пайванди YouTube-ро фиристед:",
+    uz: "YouTube havolasini yuboring:",
+    en: "Send me a YouTube link:",
+    ru: "Отправьте ссылку на YouTube:",
   },
   transcribing: {
     ky: "⏳ Распознаоо жатат...",
@@ -107,13 +107,6 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     uz: "⏳ Transkripsiya qilinmoqda...",
     en: "⏳ Transcribing...",
     ru: "⏳ Распознаю...",
-  },
-  transcriptionComplete: {
-    ky: "✅ Распознаоо аяктады!",
-    tg: "✅ Транскрипция анҷом ёфт!",
-    uz: "✅ Transkripsiya tugadi!",
-    en: "✅ Transcription complete!",
-    ru: "✅ Распознавание завершено!",
   },
   translating: {
     ky: "⏳ Которулуп жатат...",
@@ -123,25 +116,25 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     ru: "⏳ Перевожу...",
   },
   improvingText: {
-    ky: "✨ Текстти тазалап жатам...",
-    tg: "✨ Тоза кардани матн...",
-    uz: "✨ Matnni tozalash...",
-    en: "✨ Improving text quality...",
-    ru: "✨ Улучшаю качество текста...",
+    ky: "Текстти тазалап жатам...",
+    tg: "Тоза кардани матн...",
+    uz: "Matnni tozalash...",
+    en: "Improving text quality...",
+    ru: "Улучшаю качество текста...",
   },
   sessionExpired: {
-    ky: "⚠️ Сессия аяктады. Файлды кайра жибериңиз.",
-    tg: "⚠️ Сессия ба охир расид. Лутфан файлро дубора фиристед.",
-    uz: "⚠️ Sessiya tugadi. Iltimos, faylni qayta yuboring.",
-    en: "⚠️ Session expired. Please send the media again.",
-    ru: "⚠️ Сессия истекла. Пожалуйста, отправьте файл заново.",
+    ky: "Сессия аяктады. Файлды кайра жибериңиз.",
+    tg: "Сессия ба охир расид. Лутфан файлро дубора фиристед.",
+    uz: "Sessiya tugadi. Iltimos, faylni qayta yuboring.",
+    en: "Session expired. Please send the media again.",
+    ru: "Сессия истекла. Пожалуйста, отправьте файл заново.",
   },
   fixtureNotFound: {
-    ky: "⚠️ Тест үчүн аудио табылган жок. Администраторго кайрылыңыз.",
-    tg: "⚠️ Барои тест аудио ёфт нашуд. Лутфан бо администратор тамос гиред.",
-    uz: "⚠️ Test uchun audio topilmadi. Iltimos, administratorga murojaat qiling.",
-    en: "⚠️ Test audio not found. Please contact the administrator.",
-    ru: "⚠️ Тестовое аудио не найдено. Обратитесь к администратору.",
+    ky: "Тест үчүн аудио табылган жок. Администраторго кайрылыңыз.",
+    tg: "Барои тест аудио ёфт нашуд. Лутфан бо администратор тамос гиред.",
+    uz: "Test uchun audio topilmadi. Iltimos, administratorga murojaat qiling.",
+    en: "Test audio not found. Please contact the administrator.",
+    ru: "Тестовое аудио не найдено. Обратитесь к администратору.",
   },
   stageStarting: {
     ky: "Баштап жатам...",
@@ -164,19 +157,12 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     en: "Transcribing...",
     ru: "Распознаю...",
   },
-  stageDone: {
-    ky: "Даяр!",
-    tg: "Тайёр!",
-    uz: "Tayyor!",
-    en: "Done!",
-    ru: "Готово!",
-  },
   testHeader: {
-    ky: "🧪 TilTap такырыкты текшерүү",
-    tg: "🧪 Санҷиши дақиқии TilTap",
-    uz: "🧪 TilTap aniqlik testi",
-    en: "🧪 TilTap Accuracy Test",
-    ru: "🧪 Тест точности TilTap",
+    ky: "TilTap такырыкты текшерүү",
+    tg: "Санҷиши дақиқии TilTap",
+    uz: "TilTap aniqlik testi",
+    en: "TilTap Accuracy Test",
+    ru: "Тест точности TilTap",
   },
   testPreparing: {
     ky: "Тестти даярдап жатам...",
@@ -207,109 +193,95 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     ru: "Подсчет точности...",
   },
   testCompleted: {
-    ky: "✅ Тест аяктады",
-    tg: "✅ Санҷиш анҷом ёфт",
-    uz: "✅ Test tugadi",
-    en: "✅ Test completed",
-    ru: "✅ Тест завершен",
+    ky: "Тест аяктады",
+    tg: "Санҷиш анҷом ёфт",
+    uz: "Test tugadi",
+    en: "Test completed",
+    ru: "Тест завершен",
   },
   recognizedText: {
-    ky: "📝 Распознанный текст",
-    tg: "📝 Матни садокашонишуда",
-    uz: "📝 Tanilgan matn",
-    en: "📝 Recognized text",
-    ru: "📝 Распознанный текст",
+    ky: "Распознанный текст",
+    tg: "Матни садокашонишуда",
+    uz: "Tanilgan matn",
+    en: "Recognized text",
+    ru: "Распознанный текст",
   },
   referenceText: {
-    ky: "📖 Эталондуу текст",
-    tg: "📖 Матни эталонӣ",
-    uz: "📖 Etalon matn",
-    en: "📖 Reference text",
-    ru: "📖 Эталонный текст",
-  },
-  wantTranslate: {
-    ky: "Текстти которгүңүз келеби? Тилди тандаңыз:",
-    tg: "Мехоҳед матнро тарҷума кунед? Забонро интихоб кунед:",
-    uz: "Matnni tarjima qilmoqchimisiz? Tilni tanlang:",
-    en: "Would you like to translate the text? Choose a language:",
-    ru: "Хотите перевести текст? Выберите язык:",
+    ky: "Эталондуу текст",
+    tg: "Матни эталонӣ",
+    uz: "Etalon matn",
+    en: "Reference text",
+    ru: "Эталонный текст",
   },
   noSpeech: {
-    ky: "🤷 Бул файлда сүйлөм табылган жок.",
-    tg: "🤷 Дар ин файл сухан ёфт нашуд.",
-    uz: "🤷 Ushbu faylda nutq topilmadi.",
-    en: "🤷 No speech detected in this file.",
-    ru: "🤷 В этом файле не удалось распознать речь.",
+    ky: "Бул файлда сүйлөм табылган жок.",
+    tg: "Дар ин файл сухан ёфт нашуд.",
+    uz: "Ushbu faylda nutq topilmadi.",
+    en: "No speech detected in this file.",
+    ru: "В этом файле не удалось распознать речь.",
   },
   transcriptionFailed: {
-    ky: "❌ Распознаоо ишке ашкан жок: {error}",
-    tg: "❌ Транскрипция иҷро нашуд: {error}",
-    uz: "❌ Transkripsiya amalga oshmadi: {error}",
-    en: "❌ Transcription failed: {error}",
-    ru: "❌ Распознавание не удалось: {error}",
+    ky: "Распознаоо ишке ашкан жок: {error}",
+    tg: "Транскрипция иҷро нашуд: {error}",
+    uz: "Transkripsiya amalga oshmadi: {error}",
+    en: "Transcription failed: {error}",
+    ru: "Распознавание не удалось: {error}",
   },
   translationFailed: {
-    ky: "❌ Которуу ишке ашкан жок: {error}",
-    tg: "❌ Тарҷума иҷро нашуд: {error}",
-    uz: "❌ Tarjima amalga oshmadi: {error}",
-    en: "❌ Translation failed: {error}",
-    ru: "❌ Перевод не удался: {error}",
+    ky: "Которуу ишке ашкан жок: {error}",
+    tg: "Тарҷума иҷро нашуд: {error}",
+    uz: "Tarjima amalga oshmadi: {error}",
+    en: "Translation failed: {error}",
+    ru: "Перевод не удался: {error}",
   },
   processingStopped: {
-    ky: "🛑 Процесс токтотулду.",
-    tg: "🛑 Процесс қатъ карда шуд.",
-    uz: "🛑 Jarayon to'xtatildi.",
-    en: "🛑 Processing stopped.",
-    ru: "🛑 Обработка остановлена.",
+    ky: "Процесс токтотулду.",
+    tg: "Процесс қатъ карда шуд.",
+    uz: "Jarayon to'xtatildi.",
+    en: "Processing stopped.",
+    ru: "Обработка остановлена.",
   },
   chooseTestLanguage: {
-    ky: "🧪 Кайсы тилде текшеребиз?",
-    tg: "🧪 Ба кадом забон санҷиш гузаронем?",
-    uz: "🧪 Qaysi tilda sinaymiz?",
-    en: "🧪 Which language should we test?",
-    ru: "🧪 На каком языке проверим?",
+    ky: "Кайсы тилде текшеребиз?",
+    tg: "Ба кадом забон санҷиш гузаронем?",
+    uz: "Qaysi tilda sinaymiz?",
+    en: "Which language should we test?",
+    ru: "На каком языке проверим?",
   },
   noTranslation: {
-    ky: "❌ Которбоой",
-    tg: "❌ Бе тарҷума",
-    uz: "❌ Tarjimasiz",
-    en: "❌ No translation",
-    ru: "❌ Без перевода",
+    ky: "Которбоой",
+    tg: "Бе тарҷума",
+    uz: "Tarjimasiz",
+    en: "No translation",
+    ru: "Без перевода",
   },
   testAllLanguages: {
-    ky: "🔁 Бардык тилдер",
-    tg: "🔁 Ҳамаи забонҳо",
-    uz: "🔁 Barcha tillar",
-    en: "🔁 All languages",
-    ru: "🔁 Все языки",
-  },
-  translationComplete: {
-    ky: "✅ Которуу аяктады!",
-    tg: "✅ Тарҷума анҷом ёфт!",
-    uz: "✅ Tarjima tugadi!",
-    en: "✅ Translation complete!",
-    ru: "✅ Перевод готов!",
+    ky: "Бардык тилдер",
+    tg: "Ҳамаи забонҳо",
+    uz: "Barcha tillar",
+    en: "All languages",
+    ru: "Все языки",
   },
   nothingToStop: {
-    ky: "ℹ️ Токтотуу үчүн активдүү процесс жок.",
-    tg: "ℹ️ Процесси фаъол барои қатъ кардан нест.",
-    uz: "ℹ️ To'xtatish uchun faol jarayon yo'q.",
-    en: "ℹ️ No active process to stop.",
-    ru: "ℹ️ Нет активного процесса для остановки.",
+    ky: "Токтотуу үчүн активдүү процесс жок.",
+    tg: "Процесси фаъол барои қатъ кардан нест.",
+    uz: "To'xtatish uchun faol jarayon yo'q.",
+    en: "No active process to stop.",
+    ru: "Нет активного процесса для остановки.",
   },
   processAlreadyRunning: {
-    ky: "⏳ Сизде активдүү процесс бар. Анын ордуна жаңыны баштайбызбы?",
-    tg: "⏳ Шумо раванди фаъол доред. Оё онро қатъ карда, навро оғоз мекунем?",
-    uz: "⏳ Sizda faol jarayon bor. Uning o'rniga yangisini boshlaymizmi?",
-    en: "⏳ You already have an active process. Stop it and start a new one?",
-    ru: "⏳ У вас уже идёт обработка. Остановить текущую и начать новую?",
+    ky: "Сизде активдүү процесс бар. Анын ордуна жаңыны баштайбызбы?",
+    tg: "Шумо раванди фаъол доред. Оё онро қатъ карда, навро оғоз мекунем?",
+    uz: "Sizda faol jarayon bor. Uning o'rniga yangisini boshlaymizmi?",
+    en: "You already have an active process. Stop it and start a new one?",
+    ru: "У вас уже идёт обработка. Остановить текущую и начать новую?",
   },
   startNew: {
-    ky: "▶️ Жаңыны баштоо",
-    tg: "▶️ Оғози нав",
-    uz: "▶️ Yangisini boshlash",
-    en: "▶️ Start new",
-    ru: "▶️ Начать новую",
+    ky: "Жаңыны баштоо",
+    tg: "Оғози нав",
+    uz: "Yangisini boshlash",
+    en: "Start new",
+    ru: "Начать новую",
   },
   mainMenuHint: {
     ky: "Төмөнкү баскычтарды колдонуңуз:",
@@ -319,60 +291,60 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     ru: "Используйте кнопки ниже:",
   },
   confirmStart: {
-    ky: "🎙️ Тил: {source} → {target}\n\nРаспознаоо башталсынбы?",
-    tg: "🎙️ Забон: {source} → {target}\n\nОёғози транскрипция кунем?",
-    uz: "🎙️ Til: {source} → {target}\n\nTranskripsiyani boshlaysizmi?",
-    en: "🎙️ Language: {source} → {target}\n\nStart transcription?",
-    ru: "🎙️ Язык: {source} → {target}\n\nНачать распознавание?",
+    ky: "Тил: {source} → {target}\n\nРаспознаоо башталсынбы?",
+    tg: "Забон: {source} → {target}\n\nОёғози транскрипция кунем?",
+    uz: "Til: {source} → {target}\n\nTranskripsiyani boshlaysizmi?",
+    en: "Language: {source} → {target}\n\nStart transcription?",
+    ru: "Язык: {source} → {target}\n\nНачать распознавание?",
   },
   confirmStartNoTranslation: {
-    ky: "🎙️ Тил: {source} (которуу жок)\n\nРаспознаоо башталсынбы?",
-    tg: "🎙️ Забон: {source} (бе тарҷума)\n\nОёғози транскрипция кунем?",
-    uz: "🎙️ Til: {source} (tarjimasiz)\n\nTranskripsiyani boshlaysizmi?",
-    en: "🎙️ Language: {source} (no translation)\n\nStart transcription?",
-    ru: "🎙️ Язык: {source} (без перевода)\n\nНачать распознавание?",
+    ky: "Тил: {source} (которуу жок)\n\nРаспознаоо башталсынбы?",
+    tg: "Забон: {source} (бе тарҷума)\n\nОёғози транскрипция кунем?",
+    uz: "Til: {source} (tarjimasiz)\n\nTranskripsiyani boshlaysizmi?",
+    en: "Language: {source} (no translation)\n\nStart transcription?",
+    ru: "Язык: {source} (без перевода)\n\nНачать распознавание?",
   },
   youtubePreview: {
-    ky: "📺 <b>{title}</b>\n<i>YouTube видеосу</i>\n\nТилди тандаңыз жана иштей баштаңыз.",
-    tg: "📺 <b>{title}</b>\n<i>Видеои YouTube</i>\n\nЗабонро интихоб кунед ва оғоз кунед.",
-    uz: "📺 <b>{title}</b>\n<i>YouTube videosi</i>\n\nTilni tanlang va ishni boshlang.",
-    en: "📺 <b>{title}</b>\n<i>YouTube video</i>\n\nChoose language and start.",
-    ru: "📺 <b>{title}</b>\n<i>Видео YouTube</i>\n\nВыберите язык и начните.",
+    ky: "<b>{title}</b>\n<i>YouTube видеосу</i>\n\nТилди тандаңыз жана иштей баштаңыз.",
+    tg: "<b>{title}</b>\n<i>Видеои YouTube</i>\n\nЗабонро интихоб кунед ва оғоз кунед.",
+    uz: "<b>{title}</b>\n<i>YouTube videosi</i>\n\nTilni tanlang va ishni boshlang.",
+    en: "<b>{title}</b>\n<i>YouTube video</i>\n\nChoose language and start.",
+    ru: "<b>{title}</b>\n<i>Видео YouTube</i>\n\nВыберите язык и начните.",
   },
   invalidYoutube: {
-    ky: "❌ Бул туура YouTube шилтемеси эмес. Кайра жибериңиз.",
-    tg: "❌ Ин пайванди дурусти YouTube нест. Дубора фиристед.",
-    uz: "❌ Bu to'g'ri YouTube havolasi emas. Qayta yuboring.",
-    en: "❌ This is not a valid YouTube link. Please send it again.",
-    ru: "❌ Это неправильная ссылка на YouTube. Отправьте ещё раз.",
+    ky: "Бул туура YouTube шилтемеси эмес. Кайра жибериңиз.",
+    tg: "Ин пайванди дурусти YouTube нест. Дубора фиристед.",
+    uz: "Bu to'g'ri YouTube havolasi emas. Qayta yuboring.",
+    en: "This is not a valid YouTube link. Please send it again.",
+    ru: "Это неправильная ссылка на YouTube. Отправьте ещё раз.",
   },
   settingsMenu: {
-    ky: "⚙️ Орнотуулар\n\nКайсы параметрди өзгөрткүңүз келет?",
-    tg: "⚙️ Танзимот\n\nКадом параметрро тағйир медиҳед?",
-    uz: "⚙️ Sozlamalar\n\nQaysi parametrni o'zgartirmoqchisiz?",
-    en: "⚙️ Settings\n\nWhich parameter would you like to change?",
-    ru: "⚙️ Настройки\n\nКакой параметр хотите изменить?",
+    ky: "Орнотуулар\n\nКайсы параметрди өзгөрткүңүз келет?",
+    tg: "Танзимот\n\nКадом параметрро тағйир медиҳед?",
+    uz: "Sozlamalar\n\nQaysi parametrni o'zgartirmoqchisiz?",
+    en: "Settings\n\nWhich parameter would you like to change?",
+    ru: "Настройки\n\nКакой параметр хотите изменить?",
   },
   sourceLanguageSet: {
-    ky: "✅ Распознаоо тили сакталды: {lang}",
-    tg: "✅ Забони транскрипция сабт шуд: {lang}",
-    uz: "✅ Transkripsiya tili saqlandi: {lang}",
-    en: "✅ Transcription language saved: {lang}",
-    ru: "✅ Язык распознавания сохранён: {lang}",
+    ky: "Распознаоо тили сакталды: {lang}",
+    tg: "Забони транскрипция сабт шуд: {lang}",
+    uz: "Transkripsiya tili saqlandi: {lang}",
+    en: "Transcription language saved: {lang}",
+    ru: "Язык распознавания сохранён: {lang}",
   },
   targetLanguageSet: {
-    ky: "✅ Которуу тили сакталды: {lang}",
-    tg: "✅ Забони тарҷума сабт шуд: {lang}",
-    uz: "✅ Tarjima tili saqlandi: {lang}",
-    en: "✅ Translation language saved: {lang}",
-    ru: "✅ Язык перевода сохранён: {lang}",
+    ky: "Которуу тили сакталды: {lang}",
+    tg: "Забони тарҷума сабт шуд: {lang}",
+    uz: "Tarjima tili saqlandi: {lang}",
+    en: "Translation language saved: {lang}",
+    ru: "Язык перевода сохранён: {lang}",
   },
   interfaceLanguageSet: {
-    ky: "✅ Интерфейстин тили сакталды: {lang}",
-    tg: "✅ Забони интерфейс сабт шуд: {lang}",
-    uz: "✅ Interfeys tili saqlandi: {lang}",
-    en: "✅ Interface language saved: {lang}",
-    ru: "✅ Язык интерфейса сохранён: {lang}",
+    ky: "Интерфейстин тили сакталды: {lang}",
+    tg: "Забони интерфейс сабт шуд: {lang}",
+    uz: "Interfeys tili saqlandi: {lang}",
+    en: "Interface language saved: {lang}",
+    ru: "Язык интерфейса сохранён: {lang}",
   },
   qualityWarning: {
     ky: "Транскрипция текшерилгенде эскертүүлөр бар",
@@ -382,88 +354,81 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     ru: "В транскрипции обнаружены предупреждения",
   },
   unsupportedFileType: {
-    ky: "❌ Бул файл түрү колдойбойт. Аудио же видео жибериңиз.",
-    tg: "❌ Ин навъи файл дастгирӣ намешавад. Аудио ё видео фиристед.",
-    uz: "❌ Bu fayl turi qo'llab-quvvatlanmaydi. Audio yoki video yuboring.",
-    en: "❌ Unsupported file type. Please send audio or video.",
-    ru: "❌ Неподдерживаемый тип файла. Отправьте аудио или видео.",
+    ky: "Бул файл түрү колдойбойт. Аудио же видео жибериңиз.",
+    tg: "Ин навъи файл дастгирӣ намешавад. Аудио ё видео фиристед.",
+    uz: "Bu fayl turi qo'llab-quvvatlanmaydi. Audio yoki video yuboring.",
+    en: "Unsupported file type. Please send audio or video.",
+    ru: "Неподдерживаемый тип файла. Отправьте аудио или видео.",
   },
   fileTooLarge: {
-    ky: "❌ Файл өтө чоң ({size} МБ). Максимум 25 МБ.",
-    tg: "❌ Файл хеле калон аст ({size} МБ). Ҳадди аксар 25 МБ.",
-    uz: "❌ Fayl juda katta ({size} MB). Maksimum 25 MB.",
-    en: "❌ File is too large ({size} MB). Max allowed is 25 MB.",
-    ru: "❌ Файл слишком большой ({size} МБ). Максимум 25 МБ.",
+    ky: "Файл өтө чоң ({size} МБ). Максимум 25 МБ.",
+    tg: "Файл хеле калон аст ({size} МБ). Ҳадди аксар 25 МБ.",
+    uz: "Fayl juda katta ({size} MB). Maksimum 25 MB.",
+    en: "File is too large ({size} MB). Max allowed is 25 MB.",
+    ru: "Файл слишком большой ({size} МБ). Максимум 25 МБ.",
   },
   back: {
-    ky: "🔙 Артка",
-    tg: "🔙 Бозгашт",
-    uz: "🔙 Orqaga",
-    en: "🔙 Back",
-    ru: "🔙 Назад",
+    ky: "Артка",
+    tg: "Бозгашт",
+    uz: "Orqaga",
+    en: "Back",
+    ru: "Назад",
+  },
+  backToMenu: {
+    ky: "Менюга",
+    tg: "Ба меню",
+    uz: "Menyuga",
+    en: "Back to menu",
+    ru: "В меню",
   },
   start: {
-    ky: "▶️ Баштоо",
-    tg: "▶️ Оғоз кардан",
-    uz: "▶️ Boshlash",
-    en: "▶️ Start",
-    ru: "▶️ Начать",
+    ky: "Баштоо",
+    tg: "Оғоз кардан",
+    uz: "Boshlash",
+    en: "Start",
+    ru: "Начать",
   },
   changeLanguage: {
-    ky: "🌐 Тилди өзгөртүү",
-    tg: "🌐 Тағйири забон",
-    uz: "🌐 Tilni o'zgartirish",
-    en: "🌐 Change language",
-    ru: "🌐 Изменить язык",
-  },
-  autoDetect: {
-    ky: "🌍 Авто аныктоо",
-    tg: "🌍 Авто муайянкунӣ",
-    uz: "🌍 Avto aniqlash",
-    en: "🌍 Auto detect",
-    ru: "🌍 Автоопределение",
-  },
-  multilingual: {
-    ky: "🌍 Auto / Көп тилдүү",
-    tg: "🌍 Auto / Бисёрзабона",
-    uz: "🌍 Auto / Ko'p tilli",
-    en: "🌍 Auto / Multilingual",
-    ru: "🌍 Auto / Мультиязычный",
+    ky: "Тилди өзгөртүү",
+    tg: "Тағйири забон",
+    uz: "Tilni o'zgartirish",
+    en: "Change language",
+    ru: "Изменить язык",
   },
   settingsSourceLanguage: {
-    ky: "🎙️ Распознаоо тили",
-    tg: "🎙️ Забони транскрипция",
-    uz: "🎙️ Transkripsiya tili",
-    en: "🎙️ Transcription language",
-    ru: "🎙️ Язык распознавания",
+    ky: "Распознаоо тили",
+    tg: "Забони транскрипция",
+    uz: "Transkripsiya tili",
+    en: "Transcription language",
+    ru: "Язык распознавания",
   },
   settingsTargetLanguage: {
-    ky: "🌐 Которуу тили",
-    tg: "🌐 Забони тарҷума",
-    uz: "🌐 Tarjima tili",
-    en: "🌐 Translation language",
-    ru: "🌐 Язык перевода",
+    ky: "Которуу тили",
+    tg: "Забони тарҷума",
+    uz: "Tarjima tili",
+    en: "Translation language",
+    ru: "Язык перевода",
   },
   helpButton: {
-    ky: "❓ Жардам",
-    tg: "❓ Кӯмак",
-    uz: "❓ Yordam",
-    en: "❓ Help",
-    ru: "❓ Помощь",
+    ky: "Жардам",
+    tg: "Кӯмак",
+    uz: "Yordam",
+    en: "Help",
+    ru: "Помощь",
   },
   settingsInterfaceLanguage: {
-    ky: "🌍 Интерфейс тили",
-    tg: "🌍 Забони интерфейс",
-    uz: "🌍 Interfeys tili",
-    en: "🌍 Interface language",
-    ru: "🌍 Язык интерфейса",
+    ky: "Интерфейс тили",
+    tg: "Забони интерфейс",
+    uz: "Interfeys tili",
+    en: "Interface language",
+    ru: "Язык интерфейса",
   },
   noDefaultTarget: {
-    ky: "❌ Которуу жок",
-    tg: "❌ Бе тарҷума",
-    uz: "❌ Tarjimasiz",
-    en: "❌ No translation",
-    ru: "❌ Без перевода",
+    ky: "Которуу жок",
+    tg: "Бе тарҷума",
+    uz: "Tarjimasiz",
+    en: "No translation",
+    ru: "Без перевода",
   },
 };
 
@@ -483,7 +448,7 @@ export function t(key: keyof typeof TRANSLATIONS, lang: SupportedLanguage, vars?
 // ---------------------------------------------------------------------------
 export interface UserPreferences {
   interfaceLanguage: SupportedLanguage;
-  sourceLanguage: SupportedLanguage | "auto" | "multi";
+  sourceLanguage: SupportedLanguage;
   targetLanguage: SupportedLanguage | "none";
 }
 
@@ -494,10 +459,9 @@ function normalizeInterfaceLanguage(lang: string | null | undefined): SupportedL
   return "ru";
 }
 
-function normalizeSourceLanguage(lang: string | null | undefined): SupportedLanguage | "auto" | "multi" {
-  if (lang === "multi" || lang === "auto") return lang;
+function normalizeSourceLanguage(lang: string | null | undefined): SupportedLanguage {
   if (lang && SUPPORTED_LANGUAGES.includes(lang as SupportedLanguage)) return lang as SupportedLanguage;
-  return "auto";
+  return "ru";
 }
 
 function normalizeTargetLanguage(lang: string | null | undefined): SupportedLanguage | "none" {
@@ -541,13 +505,13 @@ export async function ensureUserProfile(
   const target = detected === "ru" ? "en" : "ru";
   await ensureUser(chatId, {
     interface_language: detected,
-    preferred_language: "auto",
+    preferred_language: detected,
     target_language: target,
   });
   logger.info("New user profile created", { chatId, detectedLang: detected });
   return {
     interfaceLanguage: detected,
-    sourceLanguage: "auto",
+    sourceLanguage: detected,
     targetLanguage: target,
   };
 }
@@ -566,7 +530,7 @@ export async function setUserInterfaceLanguage(chatId: number, lang: SupportedLa
   logger.info("Interface language updated", { chatId, lang });
 }
 
-export async function setUserSourceLanguage(chatId: number, lang: SupportedLanguage | "auto" | "multi"): Promise<void> {
+export async function setUserSourceLanguage(chatId: number, lang: SupportedLanguage): Promise<void> {
   await updateUserPreferences(chatId, { preferred_language: lang });
   logger.info("Source language updated", { chatId, lang });
 }
@@ -583,7 +547,7 @@ export async function getUserLanguage(chatId: number): Promise<string | undefine
 }
 
 export async function setUserLanguage(chatId: number, lang: string): Promise<void> {
-  await setUserSourceLanguage(chatId, lang as SupportedLanguage | "auto" | "multi");
+  await setUserSourceLanguage(chatId, lang as SupportedLanguage);
 }
 
 export async function getInterfaceLanguage(chatId: number): Promise<SupportedLanguage> {
@@ -604,7 +568,7 @@ export interface PendingMedia {
   filename: string;
   messageId: number;
   dbMessageId: number;
-  sourceLanguage?: SupportedLanguage | "auto" | "multi";
+  sourceLanguage?: SupportedLanguage;
   targetLanguage?: SupportedLanguage | "none";
   createdAt: number;
 }
@@ -613,7 +577,7 @@ export interface PendingYouTube {
   type: "youtube";
   url: string;
   title?: string;
-  sourceLanguage?: SupportedLanguage | "auto" | "multi";
+  sourceLanguage?: SupportedLanguage;
   targetLanguage?: SupportedLanguage | "none";
   createdAt: number;
 }
@@ -633,7 +597,7 @@ function rowToPendingAction(row: PendingActionRow): PendingActionWithId {
       filename: String(payload.filename ?? "media.mp4"),
       messageId: Number(payload.messageId ?? 0),
       dbMessageId: Number(payload.dbMessageId ?? 0),
-      sourceLanguage: (payload.sourceLanguage as any) ?? "auto",
+      sourceLanguage: (payload.sourceLanguage as any) ?? "ru",
       targetLanguage: (payload.targetLanguage as any) ?? "none",
       buffer: row.buffer ?? Buffer.alloc(0),
       createdAt: new Date(row.created_at).getTime(),
@@ -644,7 +608,7 @@ function rowToPendingAction(row: PendingActionRow): PendingActionWithId {
     actionId: row.action_id,
     url: String(payload.url ?? ""),
     title: payload.title ? String(payload.title) : undefined,
-    sourceLanguage: (payload.sourceLanguage as any) ?? "auto",
+    sourceLanguage: (payload.sourceLanguage as any) ?? "ru",
     targetLanguage: (payload.targetLanguage as any) ?? "none",
     createdAt: new Date(row.created_at).getTime(),
   } as PendingActionWithId;
@@ -920,6 +884,22 @@ export async function editMessageText(
   }
 }
 
+export async function deleteMessage(chatId: number, messageId: number): Promise<void> {
+  const res = await fetch(`${TELEGRAM_API}/deleteMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    if (res.status === 400 && errText.includes("message can't be deleted")) {
+      return;
+    }
+    throw new Error(`Telegram deleteMessage failed: ${res.status} ${errText}`);
+  }
+}
+
 export async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
   const body: Record<string, unknown> = {
     callback_query_id: callbackQueryId,
@@ -948,13 +928,9 @@ export async function answerCallbackQuery(callbackQueryId: string, text?: string
 export function createMainKeyboard(lang: SupportedLanguage): { inline_keyboard: InlineKeyboardButton[][] } {
   return {
     inline_keyboard: [
-      [{ text: "🔗 YouTube", callback_data: "action:youtube" }],
       [
         { text: t("settingsMenu", lang).split("\n")[0], callback_data: "action:settings" },
         { text: t("helpButton", lang), callback_data: "action:help" },
-      ],
-      [
-        { text: "🧪 Test", callback_data: "action:test" },
       ],
     ],
   };
@@ -966,37 +942,41 @@ export function createSettingsMenuKeyboard(lang: SupportedLanguage): { inline_ke
       [{ text: t("settingsInterfaceLanguage", lang), callback_data: "action:settings:interface" }],
       [{ text: t("settingsSourceLanguage", lang), callback_data: "action:settings:source" }],
       [{ text: t("settingsTargetLanguage", lang), callback_data: "action:settings:target" }],
-      [{ text: t("back", lang), callback_data: "action:main" }],
+      [{ text: `← ${t("back", lang)}`, callback_data: "action:main" }],
     ],
   };
 }
 
-export function createInterfaceLanguageKeyboard(backAction = "action:settings"): { inline_keyboard: InlineKeyboardButton[][] } {
+export function createInterfaceLanguageKeyboard(
+  lang: SupportedLanguage,
+  backAction = "action:settings"
+): { inline_keyboard: InlineKeyboardButton[][] } {
   const buttons = INTERFACE_LANGUAGES.map((lang) => ({
     text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
     callback_data: `ui_lang:${lang}`,
   }));
   return {
-    inline_keyboard: [buttons.slice(0, 3), buttons.slice(3, 5), [{ text: "🔙 Back", callback_data: backAction }]],
+    inline_keyboard: [buttons.slice(0, 3), buttons.slice(3, 5), [{ text: `← ${t("back", lang)}`, callback_data: backAction }]],
   };
 }
 
 export function createSourceLanguageKeyboard(
   action: "default" | `confirm:${string}`,
+  lang: SupportedLanguage,
   backAction = "action:settings"
 ): { inline_keyboard: InlineKeyboardButton[][] } {
-  const languages: (SupportedLanguage | "auto")[] = ["auto", ...SOURCE_LANGUAGES];
-  const buttons = languages.map((lang) => ({
-    text: lang === "auto" ? "🌍 Auto detect" : `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
-    callback_data: lang === "auto" ? `source:auto:${action}` : `source:${lang}:${action}`,
+  const buttons = SOURCE_LANGUAGES.map((lang) => ({
+    text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
+    callback_data: `source:${lang}:${action}`,
   }));
   return {
-    inline_keyboard: [buttons.slice(0, 3), buttons.slice(3, 6), [{ text: "🔙 Back", callback_data: backAction }]],
+    inline_keyboard: [buttons.slice(0, 3), buttons.slice(3, 5), [{ text: `← ${t("back", lang)}`, callback_data: backAction }]],
   };
 }
 
 export function createTargetLanguageKeyboard(
   action: "default" | `confirm:${string}`,
+  lang: SupportedLanguage,
   backAction = "action:settings"
 ): { inline_keyboard: InlineKeyboardButton[][] } {
   const buttons = SUPPORTED_LANGUAGES.map((lang) => ({
@@ -1007,10 +987,8 @@ export function createTargetLanguageKeyboard(
     inline_keyboard: [
       buttons.slice(0, 3),
       buttons.slice(3, 6),
-      [
-        { text: "❌ No translation", callback_data: `target:none:${action}` },
-      ],
-      [{ text: "🔙 Back", callback_data: backAction }],
+      [{ text: t("noTranslation", lang), callback_data: `target:none:${action}` }],
+      [{ text: `← ${t("back", lang)}`, callback_data: backAction }],
     ],
   };
 }
@@ -1027,12 +1005,12 @@ export function createConfirmationKeyboard(
 
   return {
     inline_keyboard: [
-      [{ text: t("start", lang), callback_data: `confirm:start:${actionId}` }],
+      [{ text: `▶ ${t("start", lang)}`, callback_data: `confirm:start:${actionId}` }],
       [
-        { text: `🎙️ ${t("settingsSourceLanguage", lang)}`, callback_data: `confirm:lang:${actionId}` },
-        { text: `🌐 ${targetLabel}`, callback_data: `confirm:target:${actionId}` },
+        { text: t("settingsSourceLanguage", lang), callback_data: `confirm:lang:${actionId}` },
+        { text: targetLabel, callback_data: `confirm:target:${actionId}` },
       ],
-      [{ text: t("back", lang), callback_data: `confirm:cancel:${actionId}` }],
+      [{ text: `← ${t("back", lang)}`, callback_data: `confirm:cancel:${actionId}` }],
     ],
   };
 }
@@ -1046,33 +1024,26 @@ export function createTestLanguageKeyboard(): { inline_keyboard: InlineKeyboardB
     inline_keyboard: [
       buttons.slice(0, 3),
       buttons.slice(3, 5),
-      [{ text: "🔁 All languages", callback_data: "test_lang:all" }],
+      [{ text: "All languages", callback_data: "test_lang:all" }],
     ],
   };
 }
 
-export function createTranslationKeyboard(transcriptionId: number): { inline_keyboard: InlineKeyboardButton[][] } {
-  const buttons = SUPPORTED_LANGUAGES.map((lang) => ({
-    text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
-    callback_data: `translate:${lang}:${transcriptionId}`,
-  }));
+export function createStopKeyboard(_lang: SupportedLanguage, processId: string): { inline_keyboard: InlineKeyboardButton[][] } {
   return {
-    inline_keyboard: [buttons.slice(0, 3), buttons.slice(3, 5)],
-  };
-}
-
-export function createStopKeyboard(lang: SupportedLanguage, processId: string): { inline_keyboard: InlineKeyboardButton[][] } {
-  return {
-    inline_keyboard: [[{ text: "🛑 Stop", callback_data: `stop:${processId}` }]],
+    inline_keyboard: [[{ text: "Stop", callback_data: `stop:${processId}` }]],
   };
 }
 
 export function createQuickActionsKeyboard(lang: SupportedLanguage): { inline_keyboard: InlineKeyboardButton[][] } {
   return {
-    inline_keyboard: [
-      [{ text: "🔗 YouTube", callback_data: "action:youtube" }],
-      [{ text: t("back", lang), callback_data: "action:main" }],
-    ],
+    inline_keyboard: [[{ text: `← ${t("back", lang)}`, callback_data: "action:main" }]],
+  };
+}
+
+export function createBackToMenuKeyboard(lang: SupportedLanguage): { inline_keyboard: InlineKeyboardButton[][] } {
+  return {
+    inline_keyboard: [[{ text: `← ${t("backToMenu", lang)}`, callback_data: "action:main" }]],
   };
 }
 

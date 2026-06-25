@@ -23,6 +23,7 @@ import {
   sendTextMessage,
   sendDocument,
   editMessageText,
+  deleteMessage,
   answerCallbackQuery,
   createMainKeyboard,
   createSettingsMenuKeyboard,
@@ -33,6 +34,7 @@ import {
   createTestLanguageKeyboard,
   createStopKeyboard,
   createQuickActionsKeyboard,
+  createBackToMenuKeyboard,
   ensureUserProfile,
   getUserPreferences,
   setUserInterfaceLanguage,
@@ -145,9 +147,8 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
     return;
   }
 
-  // Check pending YouTube link request
-  const pending = getPendingAction(chatId);
-  if (pending?.type === "youtube" && !pending.url && text) {
+  // Auto-detect YouTube links in plain text
+  if (!media && text && isValidYouTubeUrl(text)) {
     await handleYouTubeUrl(chatId, text, prefs);
     return;
   }
@@ -191,8 +192,8 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
     return;
   }
 
-  // Store pending action and show confirmation
-  setPendingAction(chatId, {
+  // Store pending action and ask for source language first
+  const actionId = setPendingAction(chatId, {
     type: "media",
     buffer,
     filename,
@@ -202,7 +203,9 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
     targetLanguage: prefs.targetLanguage,
     createdAt: Date.now(),
   });
-  await sendConfirmationMessage(chatId, prefs);
+  await sendTextMessage(chatId, t("chooseSourceLanguage", lang), {
+    replyMarkup: createSourceLanguageKeyboard(`confirm:${actionId}`, lang, "action:main"),
+  });
 }
 
 async function handleCommand(
@@ -274,15 +277,13 @@ async function editMainMenu(chatId: number, messageId: number, prefs: UserPrefer
 
 function buildSettingsMenuText(prefs: UserPreferences): string {
   const lang = prefs.interfaceLanguage;
-  const sourceLabel = prefs.sourceLanguage === "auto" || prefs.sourceLanguage === "multi"
-    ? t("autoDetect", lang)
-    : `${LANGUAGE_FLAGS[prefs.sourceLanguage]} ${LANGUAGE_LABELS[prefs.sourceLanguage]}`;
+  const sourceLabel = `${LANGUAGE_FLAGS[prefs.sourceLanguage]} ${LANGUAGE_LABELS[prefs.sourceLanguage]}`;
   const targetLabel = prefs.targetLanguage === "none" ? t("noDefaultTarget", lang) : `${LANGUAGE_FLAGS[prefs.targetLanguage]} ${LANGUAGE_LABELS[prefs.targetLanguage]}`;
 
   return `${t("settingsMenu", lang)}\n\n` +
-    `🌍 ${t("settingsInterfaceLanguage", lang)}: ${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}\n` +
-    `🎙️ ${t("settingsSourceLanguage", lang)}: ${sourceLabel}\n` +
-    `🌐 ${t("settingsTargetLanguage", lang)}: ${targetLabel}`;
+    `${t("settingsInterfaceLanguage", lang)}: ${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}\n` +
+    `${t("settingsSourceLanguage", lang)}: ${sourceLabel}\n` +
+    `${t("settingsTargetLanguage", lang)}: ${targetLabel}`;
 }
 
 async function sendSettingsMenu(chatId: number, prefs: UserPreferences): Promise<void> {
@@ -335,10 +336,12 @@ async function handleYouTubeUrl(chatId: number, url: string, prefs: UserPreferen
 
   // Update existing pending YouTube action or create new one
   const pending = getPendingAction(chatId);
+  let actionId: string;
   if (pending?.type === "youtube") {
+    actionId = pending.actionId;
     updatePendingAction(chatId, { url, title: validation.title });
   } else {
-    setPendingAction(chatId, {
+    actionId = setPendingAction(chatId, {
       type: "youtube",
       url,
       title: validation.title,
@@ -348,13 +351,15 @@ async function handleYouTubeUrl(chatId: number, url: string, prefs: UserPreferen
     });
   }
 
-  await sendConfirmationMessage(chatId, prefs, validation.title);
+  await sendTextMessage(
+    chatId,
+    t("youtubePreview", lang, { title: escapeHtml(validation.title ?? "YouTube") }),
+    { replyMarkup: createSourceLanguageKeyboard(`confirm:${actionId}`, lang, "action:main") }
+  );
 }
 
-function buildConfirmationText(lang: SupportedLanguage, sourceLang: SupportedLanguage | "auto" | "multi", targetLang: SupportedLanguage | "none", title?: string): string {
-  const sourceLabel = sourceLang === "auto" || sourceLang === "multi"
-    ? t("autoDetect", lang)
-    : `${LANGUAGE_FLAGS[sourceLang]} ${LANGUAGE_LABELS[sourceLang]}`;
+function buildConfirmationText(lang: SupportedLanguage, sourceLang: SupportedLanguage, targetLang: SupportedLanguage | "none", title?: string): string {
+  const sourceLabel = `${LANGUAGE_FLAGS[sourceLang]} ${LANGUAGE_LABELS[sourceLang]}`;
   const targetLabel = targetLang === "none"
     ? t("noDefaultTarget", lang)
     : `${LANGUAGE_FLAGS[targetLang]} ${LANGUAGE_LABELS[targetLang]}`;
@@ -364,15 +369,6 @@ function buildConfirmationText(lang: SupportedLanguage, sourceLang: SupportedLan
     return t("youtubePreview", lang, { title: escapeHtml(title) }) + "\n\n" + confirmText;
   }
   return confirmText;
-}
-
-async function sendConfirmationMessage(chatId: number, prefs: UserPreferences, title?: string): Promise<void> {
-  const lang = prefs.interfaceLanguage;
-  const pending = getPendingAction(chatId);
-  if (!pending) return;
-
-  const text = buildConfirmationText(lang, pending.sourceLanguage ?? prefs.sourceLanguage, pending.targetLanguage ?? prefs.targetLanguage, title);
-  await sendTextMessage(chatId, text, { replyMarkup: createConfirmationKeyboard(pending.actionId, lang, pending.targetLanguage ?? prefs.targetLanguage) });
 }
 
 async function editConfirmationMessage(chatId: number, messageId: number, prefs: UserPreferences): Promise<void> {
@@ -408,8 +404,15 @@ async function startPendingAction(chatId: number, force = false): Promise<void> 
     return;
   }
 
+  if (!pending.sourceLanguage) {
+    await sendTextMessage(chatId, t("chooseSourceLanguage", lang), {
+      replyMarkup: createSourceLanguageKeyboard(`confirm:${pending.actionId}`, lang, "action:main"),
+    });
+    return;
+  }
+
   clearPendingAction(chatId);
-  const sourceLang = pending.sourceLanguage ?? "auto";
+  const sourceLang = pending.sourceLanguage;
   const targetLang = pending.targetLanguage === "none" ? undefined : pending.targetLanguage;
 
   if (pending.type === "media") {
@@ -544,8 +547,6 @@ async function processAudio(
       transcriptionId = 0;
     }
 
-    await editMessageText(chatId, statusMsgId, t("transcriptionComplete", lang), removeKeyboard);
-
     const qualityWarning = quality.isSuspicious ? quality.flags.join(", ") : undefined;
     await sendResultDocument(
       chatId,
@@ -558,6 +559,7 @@ async function processAudio(
       replyToMessageId,
       qualityWarning
     );
+    await deleteMessage(chatId, statusMsgId).catch(() => {});
 
     return { ...result, text: cleanedText };
   } catch (err) {
@@ -630,10 +632,9 @@ async function downloadAndTranscribeYouTube(
     await unlink(tmpWav).catch(() => {});
     clearActiveProcess(chatId);
 
-    await editMessageText(chatId, statusMsgId, renderLoadingStages(100, t("stageDone", lang), url), removeKeyboard);
-
     if (result.segments.length === 0) {
-      await sendTextMessage(chatId, t("noSpeech", lang), { replyMarkup: createMainKeyboard(lang) });
+      await deleteMessage(chatId, statusMsgId).catch(() => {});
+      await sendTextMessage(chatId, t("noSpeech", lang), { replyMarkup: createBackToMenuKeyboard(lang) });
       return;
     }
 
@@ -665,8 +666,9 @@ async function downloadAndTranscribeYouTube(
       lang,
       undefined,
       undefined,
-      "📝 YouTube"
+      "YouTube"
     );
+    await deleteMessage(chatId, statusMsgId).catch(() => {});
   } catch (err) {
     clearActiveProcess(chatId);
     await unlink(tmpWav).catch(() => {});
@@ -773,14 +775,11 @@ async function sendResultDocument(
 ): Promise<void> {
   const sourceLabel = LANGUAGE_LABELS[sourceLang as SupportedLanguage] ?? sourceLang;
 
+  const backToMenuKeyboard = createBackToMenuKeyboard(lang);
+
   // If a target language is chosen and differs from the source, send only the translated file.
   if (targetLang && targetLang !== "none" && targetLang !== sourceLang && cleanedText.trim()) {
     try {
-      const statusMsgId = await sendTextMessage(chatId, t("translating", lang), {
-        replyMarkup: { inline_keyboard: [] },
-        replyToMessageId,
-      });
-
       const translation = await translateText({ text: cleanedText, targetLang, sourceLang: sourceLang });
 
       if (transcriptionId > 0) {
@@ -793,17 +792,14 @@ async function sendResultDocument(
         }).catch((err) => logger.error("Failed to persist translation", { error: err, chatId }));
       }
 
-      await editMessageText(chatId, statusMsgId, t("translationComplete", lang), {
-        replyMarkup: { inline_keyboard: [] },
-      }).catch(() => {});
-
       const targetLabel = LANGUAGE_LABELS[targetLang as SupportedLanguage] ?? targetLang;
-      const title = `🌐 ${targetLabel}`;
+      const title = `${targetLabel}`;
       await sendDocument(
         chatId,
         Buffer.from(`${title}\n\n${translation.translatedText}`, "utf-8"),
         `translation_${Date.now()}.txt`,
-        title
+        title,
+        backToMenuKeyboard
       );
       return;
     } catch (err) {
@@ -815,21 +811,22 @@ async function sendResultDocument(
       await sendTextMessage(
         chatId,
         t("translationFailed", lang, { error: err instanceof Error ? err.message : String(err) }),
-        { replyMarkup: createMainKeyboard(lang) }
+        { replyMarkup: backToMenuKeyboard }
       ).catch(() => {});
       // Fall through to send the original transcription file.
     }
   }
 
-  const title = titlePrefix ? `${titlePrefix} — ${sourceLabel}` : `📝 ${sourceLabel}`;
+  const title = titlePrefix ? `${titlePrefix} — ${sourceLabel}` : `${sourceLabel}`;
   const subtitles = formatSubtitles(segments);
   const fileContent = `${title}\n\n${cleanedText}\n\n---\n\n${subtitles}`;
-  const caption = qualityWarning ? `⚠️ ${qualityWarning}` : title;
+  const caption = qualityWarning ? `${qualityWarning}` : title;
   await sendDocument(
     chatId,
     Buffer.from(fileContent, "utf-8"),
     `transcription_${Date.now()}.txt`,
-    caption
+    caption,
+    backToMenuKeyboard
   );
 }
 
@@ -1064,14 +1061,17 @@ async function handleCallbackQuery(callbackQuery: {
   // Source language selection
   if (data.startsWith("source:")) {
     const [, sourceLang, action, actionId] = data.split(":");
-    const normalized = sourceLang as SupportedLanguage | "auto" | "multi";
+    const normalized = sourceLang as SupportedLanguage;
 
     if (action === "default") {
       await setUserSourceLanguage(chatId, normalized);
       const updatedPrefs = await getUserPreferences(chatId);
       await editSettingsMenu(chatId, messageId, updatedPrefs);
     } else if (action === "confirm" && actionId) {
-      updatePendingAction(chatId, { sourceLanguage: normalized });
+      const pending = getPendingAction(chatId);
+      if (pending && pending.actionId === actionId) {
+        updatePendingAction(chatId, { sourceLanguage: normalized });
+      }
       await editConfirmationMessage(chatId, messageId, prefs);
     }
     return;
@@ -1087,7 +1087,10 @@ async function handleCallbackQuery(callbackQuery: {
       const updatedPrefs = await getUserPreferences(chatId);
       await editSettingsMenu(chatId, messageId, updatedPrefs);
     } else if (action === "confirm" && actionId) {
-      updatePendingAction(chatId, { targetLanguage: normalized });
+      const pending = getPendingAction(chatId);
+      if (pending && pending.actionId === actionId) {
+        updatePendingAction(chatId, { targetLanguage: normalized });
+      }
       await setUserTargetLanguage(chatId, normalized);
       await editConfirmationMessage(chatId, messageId, prefs);
     }
@@ -1111,14 +1114,14 @@ async function handleCallbackQuery(callbackQuery: {
         chatId,
         messageId,
         t("chooseSourceLanguage", lang),
-        { replyMarkup: createSourceLanguageKeyboard(`confirm:${actionId}`, `confirm:back:${actionId}`) }
+        { replyMarkup: createSourceLanguageKeyboard(`confirm:${actionId}`, lang, `confirm:back:${actionId}`) }
       );
     } else if (action === "target") {
       await editMessageText(
         chatId,
         messageId,
         t("chooseTargetLanguage", lang),
-        { replyMarkup: createTargetLanguageKeyboard(`confirm:${actionId}`, `confirm:back:${actionId}`) }
+        { replyMarkup: createTargetLanguageKeyboard(`confirm:${actionId}`, lang, `confirm:back:${actionId}`) }
       );
     } else if (action === "back") {
       await editConfirmationMessage(chatId, messageId, prefs);
@@ -1170,11 +1173,6 @@ async function handleCallbackQuery(callbackQuery: {
   }
 
   // Main menu actions
-  if (data === "action:youtube") {
-    await editYouTubeLinkPrompt(chatId, messageId, prefs);
-    return;
-  }
-
   if (data === "action:settings") {
     await editSettingsMenu(chatId, messageId, prefs);
     return;
@@ -1187,21 +1185,21 @@ async function handleCallbackQuery(callbackQuery: {
 
   if (data === "action:settings:interface") {
     await editMessageText(chatId, messageId, t("chooseInterfaceLanguage", lang), {
-      replyMarkup: createInterfaceLanguageKeyboard("action:settings"),
+      replyMarkup: createInterfaceLanguageKeyboard(lang, "action:settings"),
     });
     return;
   }
 
   if (data === "action:settings:source") {
     await editMessageText(chatId, messageId, t("chooseSourceLanguage", lang), {
-      replyMarkup: createSourceLanguageKeyboard("default", "action:settings"),
+      replyMarkup: createSourceLanguageKeyboard("default", lang, "action:settings"),
     });
     return;
   }
 
   if (data === "action:settings:target") {
     await editMessageText(chatId, messageId, t("chooseTargetLanguage", lang), {
-      replyMarkup: createTargetLanguageKeyboard("default", "action:settings"),
+      replyMarkup: createTargetLanguageKeyboard("default", lang, "action:settings"),
     });
     return;
   }

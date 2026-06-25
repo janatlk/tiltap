@@ -86,13 +86,13 @@ Telegram Update → routes/webhook.ts → controllers/telegramController.ts
 
 ### Telegram flow
 
-1. On first contact (`/start` or any message) the bot detects the user's Telegram `language_code` and creates a profile with a matching interface language, default source language (`auto`), and a sensible default target language.
-2. The user can send media (voice, audio, video, document) or a YouTube link directly, or use the main menu.
-3. The bot shows a confirmation card with the currently selected source → target languages and an **▶️ Start** button. Users can tap **🌐 Change language** to pick a different source/target for this request only, or **⚙️ Settings** to update their defaults.
+1. On first contact (`/start` or any message) the bot detects the user's Telegram `language_code` and creates a profile with a matching interface language, default source language (same as interface language), and a sensible default target language.
+2. The user can send media (voice, audio, video, document) or a YouTube link directly. The main menu only offers **Settings** and **Help**.
+3. After media or a YouTube link arrives, the bot first asks for the **source language**. The user picks it, then sees a confirmation card with the selected source → target languages and a **Start** button.
 4. YouTube links are validated before processing (title/duration/check availability). Invalid, private, age-restricted, or sign-in-required videos return a clear localized error.
-5. Processing starts with a real-time loading bar and a **Stop** inline button. The button is removed once processing completes.
-6. After transcription, a translate keyboard lets users translate the result into any supported language. The chosen target language is saved as the user's default for future requests.
-7. `/settings` opens a single **⚙️ Settings** screen where users change interface language, default transcription language, and default translation language independently. The inline main menu uses the same grouped Settings entry, and Back navigation returns to Settings rather than the main menu.
+5. Processing starts with a real-time loading bar and a **Stop** inline button. The loading message is deleted once the final document is sent.
+6. The final transcription or translation document is sent with a **Back to menu** button attached. The chosen target language is saved as the user's default for future requests.
+7. `/settings` opens a single **Settings** screen where users change interface language, default transcription language, and default translation language independently. Back navigation returns to Settings rather than the main menu.
 
 ## `/test` Accuracy Benchmark
 
@@ -129,7 +129,7 @@ Language codes sent to ElevenLabs:
 - `uz` → `uz`
 - `ky` → `ky`
 - `tg` → `tgk` (ISO 639-3)
-- `auto` / `multi` → no language hint; Scribe auto-detects.
+- For provider-level auto-detection (e.g., Scribe), pass no language hint.
 
 ## LLM Post-processing
 
