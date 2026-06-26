@@ -9,18 +9,27 @@ import type { TranscriptionResult } from "../types";
 const FFMPEG_PATH = require("ffmpeg-static");
 const PYTHON_PATH = process.platform === "win32" ? "python" : "python3";
 
-export interface YouTubeValidation {
+export interface MediaValidation {
   ok: boolean;
   title?: string;
   duration?: number;
   reason?: string;
 }
 
-export function isValidYouTubeUrl(url: string): boolean {
-  return /^(https?:\/\/)?(www\.|m\.)?(youtube\.com|youtu\.be)\/.+/.test(url);
+export function isSupportedMediaUrl(url: string): boolean {
+  return (
+    /^(https?:\/\/)?(www\.|m\.)?(youtube\.com|youtu\.be)\/.+/.test(url) ||
+    /^(https?:\/\/)?(www\.|m\.|vm\.|vt\.)?tiktok\.com\/.+/.test(url) ||
+    /^(https?:\/\/)?(www\.)?instagram\.com\/(reel|p|stories|tv)\/.+/.test(url)
+  );
 }
 
-export async function validateYouTubeUrl(url: string): Promise<YouTubeValidation> {
+/** @deprecated Use isSupportedMediaUrl instead. */
+export function isValidYouTubeUrl(url: string): boolean {
+  return isSupportedMediaUrl(url);
+}
+
+export async function validateMediaUrl(url: string): Promise<MediaValidation> {
   return new Promise((resolve) => {
     const proc = spawn(PYTHON_PATH, ["validate_youtube.py", url], {
       cwd: process.cwd(),
@@ -44,7 +53,7 @@ export async function validateYouTubeUrl(url: string): Promise<YouTubeValidation
         return;
       }
       try {
-        const data = JSON.parse(stdout.trim().split("\n").pop() || "{}") as YouTubeValidation;
+        const data = JSON.parse(stdout.trim().split("\n").pop() || "{}") as MediaValidation;
         resolve(data);
       } catch {
         resolve({ ok: false, reason: "unknown" });
@@ -57,17 +66,17 @@ export async function validateYouTubeUrl(url: string): Promise<YouTubeValidation
   });
 }
 
-export interface YouTubeDownloadResult {
+export interface MediaDownloadResult {
   audioBuffer: Buffer;
   tmpWav: string;
   pid: number;
 }
 
-export async function downloadYouTubeAudio(
+export async function downloadMediaAudio(
   url: string,
   onProgress?: (progress: TranscriptionProgress) => void,
   abortSignal?: AbortSignal
-): Promise<YouTubeDownloadResult> {
+): Promise<MediaDownloadResult> {
   const tmpWav = join(tmpdir(), `tiltab_yt_${Date.now()}.wav`);
 
   const pid = await new Promise<number>((resolve, reject) => {
@@ -134,14 +143,14 @@ export async function cleanupTempFile(tmpWav: string): Promise<void> {
   await fs.unlink(tmpWav).catch(() => {});
 }
 
-export async function transcribeYouTube(
+export async function transcribeMediaLink(
   url: string,
   language: string,
   onProgress?: (progress: TranscriptionProgress) => void,
   onProcessStart?: (pid: number) => void,
   abortSignal?: AbortSignal
 ): Promise<TranscriptionResult> {
-  const { audioBuffer, tmpWav, pid } = await downloadYouTubeAudio(url, onProgress, abortSignal);
+  const { audioBuffer, tmpWav, pid } = await downloadMediaAudio(url, onProgress, abortSignal);
   if (onProcessStart && pid) {
     onProcessStart(pid);
   }

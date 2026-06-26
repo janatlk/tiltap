@@ -73,23 +73,25 @@ def _download_media(media_url: str, output_path: str):
                     f.write(chunk)
 
 
-def download_audio_via_cobalt(
-    youtube_url: str,
+def download_media_via_cobalt(
+    url: str,
     output_dir: str,
     progress_cb=None,
+    download_mode: str = "audio",
     audio_format: str = "mp3",
 ):
-    """Download a YouTube video's audio track via a Cobalt API instance.
+    """Download media via a Cobalt API instance.
 
     Tries each configured Cobalt URL in order.  Returns the path to the
-    downloaded audio file.  Raises RuntimeError if all instances fail.
+    downloaded file.  Raises RuntimeError if all instances fail.
     """
     payload = {
-        "url": youtube_url,
-        "downloadMode": "audio",
-        "audioFormat": audio_format,
+        "url": url,
+        "downloadMode": download_mode,
         "filenameStyle": "basic",
     }
+    if download_mode == "audio":
+        payload["audioFormat"] = audio_format
 
     last_error = "No Cobalt API URLs configured"
     for api in _api_urls():
@@ -120,7 +122,7 @@ def download_audio_via_cobalt(
                 last_error = "Cobalt returned an empty audio file"
                 continue
 
-            _emit(progress_cb, 85, "Конвертирую аудио...")
+            _emit(progress_cb, 85, "Обрабатываю аудио...")
             return output_path
         except requests.RequestException as e:
             last_error = f"Cobalt API request failed ({api}): {e}"
@@ -130,17 +132,18 @@ def download_audio_via_cobalt(
     raise RuntimeError(last_error)
 
 
-def validate_via_cobalt(youtube_url: str) -> dict:
-    """Validate a YouTube URL by asking Cobalt to resolve it.
+def validate_via_cobalt(url: str, download_mode: str = "auto") -> dict:
+    """Validate a media URL by asking Cobalt to resolve it.
 
     Returns {"ok": True, ...} if any instance can produce a stream, otherwise
     {"ok": False, "reason": ..., "error": ...}.
     """
     payload = {
-        "url": youtube_url,
-        "downloadMode": "audio",
-        "audioFormat": "mp3",
+        "url": url,
+        "downloadMode": download_mode,
     }
+    if download_mode == "audio":
+        payload["audioFormat"] = "mp3"
 
     last_error = "No Cobalt API URLs configured"
     for api in _api_urls():
@@ -171,6 +174,18 @@ def validate_via_cobalt(youtube_url: str) -> dict:
             last_error = f"Cobalt error ({api}): {e}"
 
     return {"ok": False, "reason": "unknown", "error": last_error}
+
+
+def download_audio_via_cobalt(
+    youtube_url: str,
+    output_dir: str,
+    progress_cb=None,
+    audio_format: str = "mp3",
+):
+    """Backward-compatible wrapper for YouTube audio downloads."""
+    return download_media_via_cobalt(
+        youtube_url, output_dir, progress_cb, download_mode="audio", audio_format=audio_format
+    )
 
 
 if __name__ == "__main__":

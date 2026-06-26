@@ -8,12 +8,19 @@ import os
 import tempfile
 import yt_dlp
 
+from urllib.parse import urlparse
+
 from youtube_common import get_cookies_path, get_extractor_args, cleanup_temp_cookies, DESKTOP_HEADERS, is_youtube_bot_error
 from youtube_cobalt import validate_via_cobalt
 
 
 # Hard timeout so we never hang forever on slow/unreachable URLs
 socket.setdefaulttimeout(15)
+
+
+def _is_youtube_domain(url: str) -> bool:
+    host = urlparse(url).netloc.lower()
+    return any(d in host for d in ("youtube.com", "youtu.be", "youtube-nocookie.com"))
 
 
 def validate(url: str):
@@ -42,6 +49,13 @@ def validate(url: str):
         opts["cookies"] = cookies_path
 
     try:
+        # For non-YouTube platforms (TikTok, Instagram, etc.) go straight to Cobalt.
+        if not _is_youtube_domain(url):
+            cobalt = validate_via_cobalt(url, download_mode="auto")
+            if cobalt["ok"]:
+                return {"ok": True, "title": "", "duration": 0, "uploader": ""}
+            return {"ok": False, "reason": cobalt.get("reason", "unknown"), "error": cobalt.get("error", "unknown")}
+
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
             if not info:

@@ -60,18 +60,18 @@ export const INTERFACE_LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
 // ---------------------------------------------------------------------------
 const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> = {
   welcome: {
-    ky: "<b>TilTap</b>ке кош келиңиз!\n\nМен аудио, видео жана YouTube шилтемелериндеги сүйлөмдү текстке айлантам.\nКыргызча, тоҷикӣ, ўзбекча, русча жана англисча иштеиет.\n\nЖөн гана мага жибериңиз:\n• аудио же видео файл\n• үн кат\n• YouTube шилтемеси",
-    tg: "Хуш омадед ба <b>TilTap</b>!\n\nМан аудио, видео ва пайвандҳои YouTube-ро матн мекунам.\nБа забонҳои қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ва англисӣ.\n\nФақат ба ман фиристед:\n• аудио ё видео\n• садои шумо\n• пайванди YouTube",
-    uz: "<b>TilTap</b>ga xush kelibsiz!\n\nMen audio, video va YouTube havolalaridagi nutqni matnga aylantiraman.\nQirg'iz, tojik, o'zbek, rus va ingliz tillarida.\n\nShunchaki menga yuboring:\n• audio yoki video fayl\n• ovozli xabar\n• YouTube havolasi",
-    en: "Welcome to <b>TilTap</b>!\n\nI turn speech from audio, video, and YouTube links into text.\nIn Kyrgyz, Tajik, Uzbek, Russian, and English.\n\nJust send me:\n• an audio or video file\n• a voice message\n• a YouTube link",
-    ru: "Добро пожаловать в <b>TilTap</b>!\n\nЯ превращаю речь из аудио, видео и YouTube в текст.\nПоддерживаю кыргызский, таджикский, узбекский, русский и английский.\n\nПросто отправьте мне:\n• аудио или видео файл\n• голосовое сообщение\n• ссылку на YouTube",
+    ky: "<b>TilTap</b>ке кош келиңиз!\n\nМен аудио, видео жана төмөнкү шилтемелердеги сүйлөмдү текстке айлантам:\n• YouTube\n• TikTok\n• Instagram Reels\n\nКыргызча, тоҷикӣ, ўзбекча, русча жана англисча иштеиет.\n\nЖөн гана мага жибериңиз: файл, үн кат же шилтеме.",
+    tg: "Хуш омадед ба <b>TilTap</b>!\n\nМан аудио, видео ва пайвандҳои зеринро матн мекунам:\n• YouTube\n• TikTok\n• Instagram Reels\n\nБа забонҳои қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ва англисӣ.\n\nФақат ба ман фиристед: файл, садо ё пайванд.",
+    uz: "<b>TilTap</b>ga xush kelibsiz!\n\nMen audio, video va quyidagi havolalardagi nutqni matnga aylantiraman:\n• YouTube\n• TikTok\n• Instagram Reels\n\nQirg'iz, tojik, o'zbek, rus va ingliz tillarida.\n\nShunchaki menga yuboring: fayl, ovozli xabar yoki havola.",
+    en: "Welcome to <b>TilTap</b>!\n\nI turn speech from audio, video, and the following links into text:\n• YouTube\n• TikTok\n• Instagram Reels\n\nIn Kyrgyz, Tajik, Uzbek, Russian, and English.\n\nJust send me a file, voice message, or link.",
+    ru: "Добро пожаловать в <b>TilTap</b>!\n\nЯ превращаю речь из аудио, видео и следующих ссылок в текст:\n• YouTube\n• TikTok\n• Instagram Reels\n\nПоддерживаю кыргызский, таджикский, узбекский, русский и английский.\n\nПросто отправьте мне файл, голосовое сообщение или ссылку.",
   },
   help: {
-    ky: "<b>Жардам</b>\n\n<b>Файл жиберүү:</b> аудио, видео, үн каттуу же документ жибериңиз. Бот тилди сурайт, андан кийин иштей баштайт.\n\n<b>YouTube:</b> шилтемени түз эле жибериңиз.\n\n<b>Тил орнотуулар:</b> «Орнотуулар» менен интерфейстин тилин жана которуу үчүн демейки тилди тандаңыз.\n\n<b>Командаалар:</b>\n/start — негизги меню\n/help — бул жардам\n/settings — тил орнотуулар\n/stop — активдүү процессти токтотуу",
-    tg: "<b>Кӯмак</b>\n\n<b>Фиристодани файл:</b> аудио, видео ё файл фиристед. Бот забонро пурсонда, сипас корро оғоз мекунад.\n\n<b>YouTube:</b> пайвандро мустақиман фиристед.\n\n<b>Танзимоти забон:</b> тавассути «Танзимот» забони интерфейс ва забони пешфарзи тарҷумаро интихоб кунед.\n\n<b>Дастурҳо:</b>\n/start — менюи асосӣ\n/help — ин кӯмак\n/settings — танзимоти забон\n/stop — қатъ кардани раванди фаъол",
-    uz: "<b>Yordam</b>\n\n<b>Fayl yuborish:</b> audio, video yoki hujjat yuboring. Bot tilni so'raydi, keyin ishlaydi.\n\n<b>YouTube:</b> havolani to'g'ridan-to'g'ri yuboring.\n\n<b>Til sozlamalari:</b> «Sozlamalar» orqali interfeys tilini va tarjima uchun standart tilni tanlang.\n\n<b>Buyruqlar:</b>\n/start — asosiy menyu\n/help — bu yordam\n/settings — til sozlamalari\n/stop — faol jarayonni to'xtatish",
-    en: "<b>Help</b>\n\n<b>Send a file:</b> send audio, video, voice, or a document. The bot will ask for the language, then start working.\n\n<b>YouTube:</b> send a link directly.\n\n<b>Language settings:</b> use Settings to choose the interface language and default translation language.\n\n<b>Commands:</b>\n/start — main menu\n/help — this help\n/settings — language settings\n/stop — stop active process",
-    ru: "<b>Помощь</b>\n\n<b>Отправьте файл:</b> аудио, видео, голосовое или документ. Бот спросит язык, затем начнёт работу.\n\n<b>YouTube:</b> отправьте ссылку напрямую.\n\n<b>Настройки языка:</b> через «Настройки» выберите язык интерфейса и язык перевода по умолчанию.\n\n<b>Команды:</b>\n/start — главное меню\n/help — эта помощь\n/settings — настройки языка\n/stop — остановить активный процесс",
+    ky: "<b>Жардам</b>\n\n<b>Файл жиберүү:</b> аудио, видео, үн каттуу же документ жибериңиз. Бот тилди сурайт, андан кийин иштей баштайт.\n\n<b>Шилтемелер:</b> YouTube, TikTok, Instagram Reels шилтемелерин түз эле жибериңиз.\n\n<b>Тил орнотуулар:</b> «Орнотуулар» менен интерфейстин тилин жана которуу үчүн демейки тилди тандаңыз.\n\n<b>Командаалар:</b>\n/start — негизки меню\n/help — бул жардам\n/settings — тил орнотуулар\n/stop — активдүү процессти токтотуу",
+    tg: "<b>Кӯмак</b>\n\n<b>Фиристодани файл:</b> аудио, видео ё файл фиристед. Бот забонро пурсонда, сипас корро оғоз мекунад.\n\n<b>Пайвандҳо:</b> мустақиман YouTube, TikTok, Instagram Reels фиристед.\n\n<b>Танзимоти забон:</b> тавассути «Танзимот» забони интерфейс ва забони пешфарзи тарҷумаро интихоб кунед.\n\n<b>Дастурҳо:</b>\n/start — менюи асосӣ\n/help — ин кӯмак\n/settings — танзимоти забон\n/stop — қатъ кардани раванди фаъол",
+    uz: "<b>Yordam</b>\n\n<b>Fayl yuborish:</b> audio, video yoki hujjat yuboring. Bot tilni so'raydi, keyin ishlaydi.\n\n<b>Havolalar:</b> YouTube, TikTok, Instagram Reels havolalarini to'g'ridan-to'g'ri yuboring.\n\n<b>Til sozlamalari:</b> «Sozlamalar» orqali interfeys tilini va tarjima uchun standart tilni tanlang.\n\n<b>Buyruqlar:</b>\n/start — asosiy menyu\n/help — bu yordam\n/settings — til sozlamalari\n/stop — faol jarayonni to'xtatish",
+    en: "<b>Help</b>\n\n<b>Send a file:</b> send audio, video, voice, or a document. The bot will ask for the language, then start working.\n\n<b>Links:</b> send YouTube, TikTok, or Instagram Reels links directly.\n\n<b>Language settings:</b> use Settings to choose the interface language and default translation language.\n\n<b>Commands:</b>\n/start — main menu\n/help — this help\n/settings — language settings\n/stop — stop active process",
+    ru: "<b>Помощь</b>\n\n<b>Отправьте файл:</b> аудио, видео, голосовое или документ. Бот спросит язык, затем начнёт работу.\n\n<b>Ссылки:</b> отправляйте ссылки на YouTube, TikTok или Instagram Reels напрямую.\n\n<b>Настройки языка:</b> через «Настройки» выберите язык интерфейса и язык перевода по умолчанию.\n\n<b>Команды:</b>\n/start — главное меню\n/help — эта помощь\n/settings — настройки языка\n/stop — остановить активный процесс",
   },
   chooseInterfaceLanguage: {
     ky: "Интерфейстин тилин тандаңыз:",
@@ -95,11 +95,11 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     ru: "На какой язык перевести результат? Если перевод не нужен, нажмите «Без перевода».",
   },
   sendYoutubeLink: {
-    ky: "YouTube шилтемесин жибериңиз:",
-    tg: "Пайванди YouTube-ро фиристед:",
-    uz: "YouTube havolasini yuboring:",
-    en: "Send me a YouTube link:",
-    ru: "Отправьте ссылку на YouTube:",
+    ky: "YouTube, TikTok же Instagram Reels шилтемесин жибериңиз:",
+    tg: "Пайванди YouTube, TikTok ё Instagram Reels-ро фиристед:",
+    uz: "YouTube, TikTok yoki Instagram Reels havolasini yuboring:",
+    en: "Send me a YouTube, TikTok, or Instagram Reels link:",
+    ru: "Отправьте ссылку на YouTube, TikTok или Instagram Reels:",
   },
   transcribing: {
     ky: "⏳ Распознаоо жатат...",
@@ -284,11 +284,11 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     ru: "Да, начать новую",
   },
   mainMenuHint: {
-    ky: "Жөн гана аудио, видео же YouTube шилтемесин жибериңиз. Төмөнкү баскычтарды колдонуңуз:",
-    tg: "Фақат аудио, видео ё пайванди YouTube фиристед. Аз тугмаҳои зерин истифода баред:",
-    uz: "Shunchaki audio, video yoki YouTube havolasini yuboring. Quyidagi tugmalardan foydalaning:",
-    en: "Just send audio, video, or a YouTube link. Use the buttons below:",
-    ru: "Просто отправьте аудио, видео или ссылку на YouTube. Используйте кнопки ниже:",
+    ky: "Жөн гана аудио, видео же шилтеме жибериңиз.\nКолдойбуз: YouTube, TikTok, Instagram Reels.\n\nТөмөнкү баскычтарды колдонуңуз:",
+    tg: "Фақат аудио, видео ё пайванд фиристед.\nДастгирӣ мекунем: YouTube, TikTok, Instagram Reels.\n\nАз тугмаҳои зерин истифода баред:",
+    uz: "Shunchaki audio, video yoki havola yuboring.\nQo'llab-quvvatlaymiz: YouTube, TikTok, Instagram Reels.\n\nQuyidagi tugmalardan foydalaning:",
+    en: "Just send audio, video, or a link.\nSupported: YouTube, TikTok, Instagram Reels.\n\nUse the buttons below:",
+    ru: "Просто отправьте аудио, видео или ссылку.\nПоддерживаем: YouTube, TikTok, Instagram Reels.\n\nИспользуйте кнопки ниже:",
   },
   confirmStart: {
     ky: "Тил жазууда: {source}\nКоторуу: {target}\n\nБаары туурабы? Распознаоону баштоо үчүн ▶ Баштоо баскычын басыңыз.",
@@ -304,19 +304,19 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     en: "Language in recording: {source}\nTranslation: not needed\n\nEverything correct? Tap ▶ Start to begin transcription.",
     ru: "Язык в записи: {source}\nПеревод: не нужен\n\nВсё верно? Нажмите ▶ Начать, чтобы запустить распознавание.",
   },
-  youtubePreview: {
+  mediaPreview: {
     ky: "Видео табылды: <b>{title}</b>\n\nАлгач, видеодо кайсы тилде сүйлөнүп жатканын тандаңыз. Андан кийин ▶ Баштоо баскычын басыңыз.",
     tg: "Видео ёфт шуд: <b>{title}</b>\n\nАввал забони сабтро интихоб кунед, ки дар видео сухан меравад. Сипас ▶ Оғозро пахш кунед.",
     uz: "Video topildi: <b>{title}</b>\n\nAvval videoda qaysi tilda gapirilayotganini tanlang. Keyin ▶ Boshlash tugmasini bosing.",
     en: "Video found: <b>{title}</b>\n\nFirst, choose the language spoken in the video. Then tap ▶ Start.",
     ru: "Найдено видео: <b>{title}</b>\n\nСначала выберите язык, на котором говорят в видео. Затем нажмите ▶ Начать.",
   },
-  invalidYoutube: {
-    ky: "Бул YouTube шилтемесине окшобойт. Туура шилтеме жибериңиз (мисалы, youtube.com/watch?v=...).",
-    tg: "Ин пайванд ба YouTube монанд нест. Лутфан пайванди дуруст фиристед (масалан, youtube.com/watch?v=...).",
-    uz: "Bu YouTube havolasiga o'xshamaydi. Iltimos, to'g'ri havola yuboring (masalan, youtube.com/watch?v=...).",
-    en: "This doesn't look like a YouTube link. Please send a correct link (for example, youtube.com/watch?v=...).",
-    ru: "Это не похоже на ссылку YouTube. Отправьте правильную ссылку (например, youtube.com/watch?v=...).",
+  invalidMedia: {
+    ky: "Бул шилтемени колдойбойбуз. Азыр YouTube, TikTok жана Instagram Reels гана иштейт.",
+    tg: "Мо ин пайвандро дастгирӣ намекунем. Ҳоло танҳо YouTube, TikTok ва Instagram Reels кор мекунад.",
+    uz: "Biz bu havolani qo'llab-quvvatlamaymiz. Hozircha faqat YouTube, TikTok va Instagram Reels ishlaydi.",
+    en: "We don't support this link. Currently only YouTube, TikTok, and Instagram Reels work.",
+    ru: "Мы не поддерживаем эту ссылку. Сейчас работают только YouTube, TikTok и Instagram Reels.",
   },
   settingsMenu: {
     ky: "Орнотуулар\n\nКайсы параметрди өзгөрткүңүз келет?",

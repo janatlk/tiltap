@@ -11,9 +11,9 @@ import { cleanupTranscription, detectTranscriptionIssues } from "../services/cle
 import { translateText } from "../services/translationService";
 import { extractYouTubeCaptions } from "../services/youtubeCaptionService";
 import {
-  isValidYouTubeUrl,
-  validateYouTubeUrl,
-  downloadYouTubeAudio,
+  isSupportedMediaUrl,
+  validateMediaUrl,
+  downloadMediaAudio,
 } from "../services/youtubeService";
 import { renderLoadingStages } from "../utils/progressBar";
 
@@ -147,9 +147,9 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
     return;
   }
 
-  // Auto-detect YouTube links in plain text
-  if (!media && text && isValidYouTubeUrl(text)) {
-    await handleYouTubeUrl(chatId, text, prefs);
+  // Auto-detect supported media links in plain text
+  if (!media && text && isSupportedMediaUrl(text)) {
+    await handleMediaLink(chatId, text, prefs);
     return;
   }
 
@@ -244,7 +244,7 @@ async function handleCommand(
       if (!args) {
         await askYouTubeLink(chatId, userPrefs);
       } else {
-        await handleYouTubeUrl(chatId, args, userPrefs);
+        await handleMediaLink(chatId, args, userPrefs);
       }
       break;
 
@@ -319,15 +319,15 @@ async function editYouTubeLinkPrompt(chatId: number, messageId: number, prefs: U
   await editMessageText(chatId, messageId, t("sendYoutubeLink", lang), { replyMarkup: createMainKeyboard(lang) });
 }
 
-async function handleYouTubeUrl(chatId: number, url: string, prefs: UserPreferences): Promise<void> {
+async function handleMediaLink(chatId: number, url: string, prefs: UserPreferences): Promise<void> {
   const lang = prefs.interfaceLanguage;
 
-  if (!isValidYouTubeUrl(url)) {
-    await sendTextMessage(chatId, t("invalidYoutube", lang), { replyMarkup: createMainKeyboard(lang) });
+  if (!isSupportedMediaUrl(url)) {
+    await sendTextMessage(chatId, t("invalidMedia", lang), { replyMarkup: createMainKeyboard(lang) });
     return;
   }
 
-  const validation = await validateYouTubeUrl(url);
+  const validation = await validateMediaUrl(url);
   if (!validation.ok) {
     const msg = getYouTubeErrorMessage(validation.reason, lang);
     await sendTextMessage(chatId, msg, { replyMarkup: createMainKeyboard(lang) });
@@ -353,7 +353,7 @@ async function handleYouTubeUrl(chatId: number, url: string, prefs: UserPreferen
 
   await sendTextMessage(
     chatId,
-    t("youtubePreview", lang, { title: escapeHtml(validation.title ?? "YouTube") }),
+    t("mediaPreview", lang, { title: escapeHtml(validation.title || "") }),
     { replyMarkup: createSourceLanguageKeyboard(`confirm:${actionId}`, lang, "action:main") }
   );
 }
@@ -366,7 +366,7 @@ function buildConfirmationText(lang: SupportedLanguage, sourceLang: SupportedLan
 
   const confirmText = t(targetLang === "none" ? "confirmStartNoTranslation" : "confirmStart", lang, { source: sourceLabel, target: targetLabel });
   if (title) {
-    return t("youtubePreview", lang, { title: escapeHtml(title) }) + "\n\n" + confirmText;
+    return t("mediaPreview", lang, { title: escapeHtml(title) }) + "\n\n" + confirmText;
   }
   return confirmText;
 }
@@ -602,7 +602,7 @@ async function downloadAndTranscribeYouTube(
 
     const downloadProgress = createProgressUpdater(chatId, statusMsgId, lang, url);
 
-    const downloadResult = await downloadYouTubeAudio(
+    const downloadResult = await downloadMediaAudio(
       url,
       (progress) => downloadProgress({ percent: progress.percent, label: progress.label ?? t("stageDownload", lang) }),
       abortController.signal

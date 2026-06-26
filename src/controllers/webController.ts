@@ -4,7 +4,7 @@ import { transcribeAudio, type TranscriptionProgress } from "../services/transcr
 import type { TranscriptionResult } from "../types";
 import { translateText } from "../services/translationService";
 import { cleanupTranscription, detectTranscriptionIssues } from "../services/cleanupService";
-import { isValidYouTubeUrl, validateYouTubeUrl, transcribeYouTube } from "../services/youtubeService";
+import { isSupportedMediaUrl, validateMediaUrl, transcribeMediaLink } from "../services/youtubeService";
 import type { TranslateRequest } from "../types";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -111,12 +111,12 @@ export async function handleWebYouTube(req: Request, res: Response): Promise<voi
   try {
     const { url, sourceLang, targetLang } = req.body as { url?: string; sourceLang?: string; targetLang?: string };
 
-    if (!url || !isValidYouTubeUrl(url)) {
-      res.status(400).json({ error: "Missing or invalid YouTube URL" });
+    if (!url || !isSupportedMediaUrl(url)) {
+      res.status(400).json({ error: "Missing or invalid media URL. Supported: YouTube, TikTok, Instagram Reels" });
       return;
     }
 
-    const validation = await validateYouTubeUrl(url);
+    const validation = await validateMediaUrl(url);
     if (!validation.ok) {
       res.status(400).json({ error: validation.reason ?? "unknown", details: validation });
       return;
@@ -128,8 +128,8 @@ export async function handleWebYouTube(req: Request, res: Response): Promise<voi
     const job = createJob("youtube");
     res.status(202).json({ jobId: job.id, title: validation.title });
 
-    processYouTubeJob(job, url, language, target).catch((err) => {
-      logger.error("Web YouTube job failed", { error: err instanceof Error ? err.message : String(err), jobId: job.id });
+    processMediaLinkJob(job, url, language, target).catch((err) => {
+      logger.error("Web media link job failed", { error: err instanceof Error ? err.message : String(err), jobId: job.id });
       updateJob(job, { status: "failed", error: err instanceof Error ? err.message : String(err) });
     });
   } catch (err) {
@@ -236,7 +236,7 @@ async function processAudioJob(
   await finalizeTranscription(job, result, targetLanguage);
 }
 
-async function processYouTubeJob(
+async function processMediaLinkJob(
   job: WebJob,
   url: string,
   language: string,
@@ -244,7 +244,7 @@ async function processYouTubeJob(
 ): Promise<void> {
   updateJob(job, { status: "running", progress: { percent: 0, label: "Starting..." } });
 
-  const result = await transcribeYouTube(
+  const result = await transcribeMediaLink(
     url,
     language,
     (progress) => setJobProgress(job, progress),

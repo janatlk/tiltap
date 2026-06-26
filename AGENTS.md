@@ -87,9 +87,9 @@ Telegram Update → routes/webhook.ts → controllers/telegramController.ts
 ### Telegram flow
 
 1. On first contact (`/start` or any message) the bot detects the user's Telegram `language_code` and creates a profile with a matching interface language, default source language (same as interface language), and a sensible default target language.
-2. The user can send media (voice, audio, video, document) or a YouTube link directly. The main menu only offers **Settings** and **Help**.
-3. After media or a YouTube link arrives, the bot first asks for the **source language**. The user picks it, then sees a confirmation card with the selected source → target languages and a **Start** button.
-4. YouTube links are validated before processing (title/duration/check availability). Invalid, private, age-restricted, or sign-in-required videos return a clear localized error.
+2. The user can send media (voice, audio, video, document) or a supported link directly. The main menu only offers **Settings** and **Help**, plus a list of supported platforms.
+3. After media or a link arrives, the bot first asks for the **source language**. The user picks it, then sees a confirmation card with the selected source → target languages and a **Start** button.
+4. Supported links: **YouTube**, **TikTok**, **Instagram Reels**. YouTube is validated via yt-dlp (with Cobalt fallback); TikTok and Instagram are downloaded directly through Cobalt. Invalid, private, age-restricted, or sign-in-required videos return a clear localized error.
 5. Processing starts with a real-time loading bar and a **Stop** inline button. The loading message is deleted once the final document is sent.
 6. The final transcription or translation document is sent with a **Back to menu** button attached. The chosen target language is saved as the user's default for future requests.
 7. `/settings` opens a single **Settings** screen where users change interface language, default transcription language, and default translation language independently. Back navigation returns to Settings rather than the main menu.

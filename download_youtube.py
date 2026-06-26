@@ -7,9 +7,10 @@ import os
 import tempfile
 import subprocess
 import yt_dlp
+from urllib.parse import urlparse
 
 from youtube_common import write_cookies_from_env, get_extractor_args, DESKTOP_HEADERS, is_youtube_bot_error
-from youtube_cobalt import download_audio_via_cobalt
+from youtube_cobalt import download_audio_via_cobalt, download_media_via_cobalt
 
 
 
@@ -80,8 +81,8 @@ def convert_to_wav(input_path: str, output_path: str, ffmpeg_path: str):
 
 
 def _find_audio_file(tmpdir: str):
-    """Return the first audio file Cobalt/yt-dlp may have written."""
-    for ext in (".mp3", ".m4a", ".webm", ".ogg", ".opus"):
+    """Return the first media file Cobalt/yt-dlp may have written."""
+    for ext in (".mp3", ".m4a", ".webm", ".ogg", ".opus", ".mp4", ".mov", ".mkv", ".flv"):
         for f in os.listdir(tmpdir):
             if f.lower().endswith(ext):
                 return os.path.join(tmpdir, f)
@@ -101,9 +102,14 @@ def _format_ytdlp_error(e: yt_dlp.utils.DownloadError) -> str:
     return msg
 
 
+def _is_youtube_domain(url: str) -> bool:
+    host = urlparse(url).netloc.lower()
+    return any(d in host for d in ("youtube.com", "youtu.be", "youtube-nocookie.com"))
+
+
 def main():
     if len(sys.argv) < 4:
-        print("Usage: download_youtube.py <youtube_url> <ffmpeg_path> <output_wav_path>", file=sys.stderr)
+        print("Usage: download_youtube.py <media_url> <ffmpeg_path> <output_wav_path>", file=sys.stderr)
         sys.exit(1)
 
     url = sys.argv[1]
@@ -115,24 +121,36 @@ def main():
             cookies_path = write_cookies_from_env(tmpdir)
             mp3_base = os.path.join(tmpdir, "audio")
 
-            try:
-                download_audio(url, mp3_base, ffmpeg_path, cookies_path)
-            except yt_dlp.utils.DownloadError as e:
-                ytdlp_error = _format_ytdlp_error(e)
-                if is_youtube_bot_error(str(e)):
-                    emit_progress(5, "YouTube заблокировал yt-dlp, пробую Cobalt...")
-                    try:
-                        download_audio_via_cobalt(
-                            url,
-                            tmpdir,
-                            progress_cb=lambda p, l: emit_progress(int(p * 0.8 + 5), l),
-                        )
-                    except Exception as ce:
-                        raise RuntimeError(
-                            f"yt-dlp: {ytdlp_error}; Cobalt fallback: {ce}"
-                        ) from ce
-                else:
-                    raise
+            if _is_youtube_domain(url):
+                try:
+                    download_audio(url, mp3_base, ffmpeg_path, cookies_path)
+                except yt_dlp.utils.DownloadError as e:
+                    ytdlp_error = _format_ytdlp_error(e)
+                    if is_youtube_bot_error(str(e)):
+                        emit_progress(5, "YouTube заблокировал yt-dlp, пробую Cobalt...")
+                        try:
+                            download_audio_via_cobalt(
+                                url,
+                                tmpdir,
+                                progress_cb=lambda p, l: emit_progress(int(p * 0.8 + 5), l),
+                            )
+                        except Exception as ce:
+                            raise RuntimeError(
+                                f"yt-dlp: {ytdlp_error}; Cobalt fallback: {ce}"
+                            ) from ce
+                    else:
+                        raise
+            else:
+                emit_progress(5, "Скачиваю через Cobalt...")
+                try:
+                    download_media_via_cobalt(
+                        url,
+                        tmpdir,
+                        progress_cb=lambda p, l: emit_progress(int(p * 0.8 + 5), l),
+                        download_mode="auto",
+                    )
+                except Exception as ce:
+                    raise RuntimeError(f"Cobalt download failed: {ce}") from ce
 
             audio_file = _find_audio_file(tmpdir)
             if not audio_file:
