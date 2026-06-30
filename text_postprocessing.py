@@ -569,6 +569,8 @@ def mark_noise(text: str, language: str) -> str:
         return "[аплодисменты]" if language == "tg" else UNINTELLIGIBLE
     if _looks_like_music(text):
         return "[музыка]" if language == "tg" else UNINTELLIGIBLE
+    if _looks_like_singing(text):
+        return "[музыка]" if language == "tg" else UNINTELLIGIBLE
     if _looks_like_crying_or_noise(text):
         return "[плач]" if language == "tg" else UNINTELLIGIBLE
     return text
@@ -1334,6 +1336,12 @@ def _apply_tajik_rules_early(text: str) -> str:
     return text
 
 
+def _split_sentences(text: str) -> List[str]:
+    """Split text on sentence boundaries while preserving trailing punctuation."""
+    parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    return [p for p in parts if p]
+
+
 def postprocess_segment(text: str, language: str, confidence: Optional[float] = None) -> Tuple[str, float]:
     """Run a single segment through scorer and cleaner. Returns (text, score)."""
     text = text.strip()
@@ -1352,10 +1360,21 @@ def postprocess_segment(text: str, language: str, confidence: Optional[float] = 
     else:
         text = fix_mixed_script_typos(text)
 
-    # Noise markers should win over the garbage detector.
-    noisy = mark_noise(text, language)
-    if noisy != text:
-        return noisy, 0.0
+    # Process each sentence independently: this lets us drop music/humming
+    # that is mixed into a longer segment without losing the valid speech.
+    kept_sentences: List[str] = []
+    for sentence in _split_sentences(text):
+        noisy = mark_noise(sentence, language)
+        if noisy != sentence:
+            kept_sentences.append(noisy)
+            continue
+        if is_garbage(sentence, language):
+            continue
+        kept_sentences.append(sentence)
+
+    if not kept_sentences:
+        return UNINTELLIGIBLE, 0.0
+    text = " ".join(kept_sentences)
 
     score = score_segment(text, language)
     if is_garbage(text, language):
