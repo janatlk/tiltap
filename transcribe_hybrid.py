@@ -453,7 +453,7 @@ def transcribe_vosk_chunked(wav_path: str, model_path: str, chunk_seconds: float
 # ---------------------------------------------------------------------------
 # Whisper transcription (faster-whisper)
 # ---------------------------------------------------------------------------
-def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "distil-large-v3", progress_label: str = "Распознаю", initial_prompt: str | None = None, conservative: bool = False, vad_parameters: Optional[dict] = None):
+def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "distil-large-v3", progress_label: str = "Распознаю", initial_prompt: str | None = None, conservative: bool = False, vad_parameters: dict | None = None):
     model = get_whisper_model(model_path)
     duration = get_audio_duration(wav_path)
     emit_progress(0, f"{progress_label}: загрузка модели...")
