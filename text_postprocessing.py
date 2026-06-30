@@ -1319,7 +1319,7 @@ def _apply_tajik_rules_early(text: str) -> str:
     return text
 
 
-def postprocess_segment(text: str, language: str, confidence: Optional[float] = None) -> Tuple[str, float]:
+def postprocess_segment(text: str, language: str, confidence: Optional[float] = None, duration: Optional[float] = None) -> Tuple[str, float]:
     """Run a single segment through scorer and cleaner. Returns (text, score)."""
     text = text.strip()
     if not text:
@@ -1328,6 +1328,11 @@ def postprocess_segment(text: str, language: str, confidence: Optional[float] = 
     # Whisper sometimes emits low-confidence hallucinations on music/noise.
     # avg_logprob is negative; values below -1.5 are usually unreliable.
     if confidence is not None and confidence < -1.5:
+        return UNINTELLIGIBLE, 0.0
+
+    # Whisper can collapse long hallucinated text into a single timestamp.
+    # Natural speech rarely packs >40 characters into <0.5 seconds.
+    if duration is not None and duration < 0.5 and len(text) > 40:
         return UNINTELLIGIBLE, 0.0
 
     # Language-specific rule-based cleanup first so that names, dates, and
@@ -1384,7 +1389,8 @@ def postprocess_transcription(result: Dict, language: Optional[str] = None) -> D
     kept_texts = []
     for seg in result.get("segments", []):
         raw_text = seg.get("text", "")
-        cleaned_text, score = postprocess_segment(raw_text, lang, seg.get("confidence"))
+        seg_duration = seg.get("end", 0.0) - seg.get("start", 0.0)
+        cleaned_text, score = postprocess_segment(raw_text, lang, seg.get("confidence"), seg_duration)
         new_seg = dict(seg)
         new_seg["text"] = cleaned_text
         new_seg["quality_score"] = round(score, 3)
