@@ -569,8 +569,6 @@ def mark_noise(text: str, language: str) -> str:
         return "[аплодисменты]" if language == "tg" else UNINTELLIGIBLE
     if _looks_like_music(text):
         return "[музыка]" if language == "tg" else UNINTELLIGIBLE
-    if _looks_like_singing(text):
-        return "[музыка]" if language == "tg" else UNINTELLIGIBLE
     if _looks_like_crying_or_noise(text):
         return "[плач]" if language == "tg" else UNINTELLIGIBLE
     return text
