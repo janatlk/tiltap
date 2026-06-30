@@ -43,7 +43,7 @@ This document records the deployment of the standalone STT microservice on Hetzn
 - Container name: `tiltab-stt`
 - Port: `8000`
 - Compose: `stt-service/docker-compose.yml`
-- Memory limit: `3.5G`
+- Memory limit: `2.5G`
 
 ### Dockerfile Fixes Applied
 1. Removed an invalid `COPY ... 2>/dev/null || true` line that Docker cannot parse.
@@ -121,6 +121,13 @@ Response:
 | `uz` | `test_audio/uz.wav` | backend → Hetzner | ✅ completed |
 | `ky` | `test_audio/ky.wav` | backend → Hetzner (small Vosk) | ✅ completed, no OOM |
 | `uz` | YouTube URL via web UI | backend → Hetzner | ✅ completed |
+| `en` | YouTube URL via web UI (`/api/web/youtube`) | backend → cloud Whisper | ✅ completed |
+
+### Telegram Bot
+- The bot runs as part of the backend on Hetzner.
+- Telegram webhooks require HTTPS, which is not available on a bare IP.
+- Workaround: run `tiltab-telegram-poll.service`, which polls `getUpdates` and forwards them to `http://localhost:3000/webhook/telegram`.
+- Bot token updated in `/opt/tiltap/.env` and verified via `getWebhookInfo` (webhook empty, polling active).
 
 ---
 
@@ -140,6 +147,17 @@ Response:
 - 4 GB is tight when Rubai + large Kyrgyz Vosk are loaded together.
 - The current workaround uses small Kyrgyz Vosk for clips ≥ 60 s.
 - For full large-model Kyrgyz on long audio, upgrade to CPX32 (8 GB RAM).
+
+### YouTube on Hetzner backend
+- The Node backend needs `yt-dlp` on the host OS for `validate_youtube.py` and `download_youtube.py`.
+- The base Ubuntu 22.04 image does **not** include `python3-pip` or `yt-dlp`.
+- Fix: `apt-get install -y python3-pip && pip3 install -U yt-dlp`.
+- After installing yt-dlp, `POST /api/web/youtube` validates, downloads, and transcribes YouTube links end-to-end.
+- **Datacenter IP block**: most videos return "Sign in to confirm". The free fix is fresh browser cookies + PO token/visitor_data (see `docs/YOUTUBE_COOKIES.md`). Cloudflare WARP was tested and **broke SSH access** — not recommended.
+
+### STT queue & memory safety
+- Added a Promise-based queue in `src/services/remoteSttService.ts` so only one remote STT request runs at a time.
+- The STT service now drops cached Whisper models after every request (`transcribe_hybrid.release_whisper_models()`), preventing Rubai + Vosk large ky from coexisting in the 2.5 GB Docker limit.
 
 ### Deploy Script Caveat
 - `deploy.sh` clones to `/opt/tiltap` and runs `git pull`.

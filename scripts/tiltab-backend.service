@@ -1,0 +1,16 @@
+[Unit]
+Description=Tiltab Node.js Backend
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/tiltap
+ExecStart=/usr/bin/node dist/server.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/tiltap/.env
+
+[Install]
+WantedBy=multi-user.target

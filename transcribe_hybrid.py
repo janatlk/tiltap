@@ -369,6 +369,87 @@ def build_vosk_segments(results):
     return segments
 
 
+def transcribe_vosk_chunked(wav_path: str, model_path: str, chunk_seconds: float = 25.0, overlap_seconds: float = 5.0, progress_label: str = "Распознаю"):
+    """Transcribe long audio with Vosk by sliding-window chunks.
+
+    Each chunk is processed independently and word timestamps are adjusted back
+    to the original audio timeline. Overlapping words are deduplicated.
+    """
+    from vosk import Model, KaldiRecognizer
+
+    emit_progress(0, f"{progress_label}: загрузка модели...")
+    model = Model(model_path)
+
+    wf = wave.open(wav_path, "rb")
+    nchannels = wf.getnchannels()
+    sampwidth = wf.getsampwidth()
+    framerate = wf.getframerate()
+    nframes = wf.getnframes()
+    total_duration = nframes / framerate
+
+    # Short files do not benefit from chunking.
+    if total_duration <= chunk_seconds + overlap_seconds:
+        wf.close()
+        return transcribe_vosk(wav_path, model_path, progress_label=progress_label)
+
+    frame_size = nchannels * sampwidth
+    chunk_frames = int(chunk_seconds * framerate)
+    overlap_frames = int(overlap_seconds * framerate)
+    step_frames = chunk_frames - overlap_frames
+    chunk_count = max(1, (nframes - overlap_frames + step_frames - 1) // step_frames)
+
+    all_words = []
+    start_frame = 0
+    chunk_index = 0
+
+    while start_frame < nframes:
+        end_frame = min(start_frame + chunk_frames, nframes)
+        chunk_duration_frames = end_frame - start_frame
+
+        wf.setpos(start_frame)
+        data = wf.readframes(chunk_duration_frames)
+
+        rec = KaldiRecognizer(model, framerate)
+        rec.SetWords(True)
+        pos = 0
+        frame_bytes = 4000 * frame_size
+        while pos < len(data):
+            chunk = data[pos:pos + frame_bytes]
+            rec.AcceptWaveform(chunk)
+            pos += len(chunk)
+        part = json.loads(rec.FinalResult())
+        offset = start_frame / framerate
+        for w in part.get("result", []):
+            all_words.append({
+                "word": w["word"],
+                "start": round(w["start"] + offset, 3),
+                "end": round(w["end"] + offset, 3),
+                "conf": w.get("conf", 0.0),
+            })
+
+        chunk_index += 1
+        progress = int(10 + 80 * chunk_index / chunk_count) if chunk_count else 10
+        emit_progress(progress, f"{progress_label}: чанк {chunk_index}/{chunk_count}")
+        start_frame += step_frames
+
+    wf.close()
+
+    # Deduplicate words that appeared in overlapping regions.
+    unique_words = []
+    for w in sorted(all_words, key=lambda x: x["start"]):
+        if (
+            unique_words
+            and w["word"] == unique_words[-1]["word"]
+            and abs(w["start"] - unique_words[-1]["start"]) < 0.7
+        ):
+            continue
+        unique_words.append(w)
+
+    full_text = " ".join(w["word"] for w in unique_words)
+    emit_progress(100, progress_label)
+    return [{"text": full_text, "result": unique_words}]
+
+
 # ---------------------------------------------------------------------------
 # Whisper transcription (faster-whisper)
 # ---------------------------------------------------------------------------
@@ -558,17 +639,33 @@ def transcribe_wav2vec2(wav_path: str, model_name: str, language: str, progress_
 def transcribe_kyrgyz(wav_path: str):
     large_path = "models/vosk-model-ky-0.42"
     small_path = "models/vosk-model-small-ky-0.42"
-    duration = get_audio_duration(wav_path)
     # The large Kyrgyz model is ~1.9 GB. On a 4 GB VPS it OOMs when Rubai is also resident,
-    # so use large only for short clips and fall back to small for longer audio.
-    use_large = os.path.exists(large_path) and duration > 0 and duration < 60
+    # so release cached Whisper models before loading large Vosk to free RAM.
+    use_large = os.path.exists(large_path)
+    if use_large:
+        release_whisper_models()
     model_path = large_path if use_large else small_path
 
     log_diagnostic(language="ky", primary_model="vosk", model_path=model_path)
 
-    results = transcribe_vosk(wav_path, model_path, progress_label="Кыргызча распознаю")
+    results = transcribe_vosk_chunked(wav_path, model_path, progress_label="Кыргызча распознаю")
     segments = build_vosk_segments(results)
     full_text = normalize_repeated_punctuation(" ".join(s["text"] for s in segments))
+
+    # If the large model produced too little speech (e.g. missed a quiet intro),
+    # fall back to the small model which is more sensitive to weak audio.
+    duration = get_audio_duration(wav_path)
+    min_expected_words = max(3, int(duration / 2.5))
+    if use_large and len(full_text.split()) < min_expected_words and os.path.exists(small_path):
+        log_diagnostic(
+            language="ky",
+            fallback_reason="large_model_produced_too_few_words",
+            large_word_count=len(full_text.split()),
+            min_expected_words=min_expected_words,
+        )
+        results = transcribe_vosk_chunked(wav_path, small_path, progress_label="Кыргызча распознаю (small fallback)")
+        segments = build_vosk_segments(results)
+        full_text = normalize_repeated_punctuation(" ".join(s["text"] for s in segments))
 
     output = {"text": full_text, "language": "ky", "segments": segments}
     quality = detect_hallucination(full_text, segments, "ky")
@@ -583,183 +680,13 @@ def transcribe_kyrgyz(wav_path: str):
     return output
 
 
-def transcribe_elevenlabs(
-    wav_path: str,
-    language_code: str = "tgk",
-    model_id: str = "scribe_v2",
-    time_offset: float = 0.0,
-    progress_start: int = 5,
-    progress_end: int = 100,
-):
-    """Transcribe audio using ElevenLabs Scribe API. Returns None if no API key."""
-    api_key = os.environ.get("ELEVENLABS_API_KEY")
-    if not api_key:
-        return None
-
-    try:
-        import requests
-    except ImportError:
-        log_diagnostic(provider="elevenlabs", error="requests not installed")
-        return None
-
-    url = "https://api.elevenlabs.io/v1/speech-to-text"
-    emit_progress(progress_start, "ElevenLabs: uploading audio...")
-    try:
-        with open(wav_path, "rb") as f:
-            files = {"file": (os.path.basename(wav_path), f, "audio/wav")}
-            data = {
-                "model_id": model_id,
-                "tag_audio_events": "true",
-                "num_speakers": "1",
-                "diarize": "false",
-                "timestamps_granularity": "word",
-            }
-            headers = {"xi-api-key": api_key}
-            resp = requests.post(url, files=files, data=data, headers=headers, timeout=600)
-
-        if resp.status_code != 200:
-            log_diagnostic(provider="elevenlabs", status=resp.status_code, error=resp.text[:500])
-            return None
-
-        data = resp.json()
-        text = data.get("text", "").strip()
-        language = data.get("language_code", language_code)
-        words = data.get("words", [])
-
-        # Build segments by grouping words into ~10s chunks
-        segments = []
-        seg_id = 0
-        current_words = []
-        current_start = None
-        current_end = None
-        chunk_start = 0.0
-
-        for w in words:
-            if w.get("type") != "word":
-                continue
-            w_text = w.get("text", "").strip()
-            if not w_text:
-                continue
-            start = w.get("start", 0.0) + time_offset
-            end = w.get("end", 0.0) + time_offset
-
-            if current_start is None:
-                current_start = start
-                chunk_start = start
-            current_end = end
-            current_words.append(w_text)
-
-            if end - chunk_start >= 10.0:
-                segments.append({
-                    "id": seg_id,
-                    "start": current_start,
-                    "end": current_end,
-                    "text": " ".join(current_words),
-                    "confidence": w.get("logprob", 0.0),
-                })
-                seg_id += 1
-                current_words = []
-                current_start = None
-                current_end = None
-                chunk_start = end
-
-        if current_words:
-            segments.append({
-                "id": seg_id,
-                "start": current_start,
-                "end": current_end,
-                "text": " ".join(current_words),
-                "confidence": 0.0,
-            })
-
-        emit_progress(progress_end, "ElevenLabs: done")
-        return {
-            "text": text,
-            "language": "tg" if language_code == "tgk" else language_code,
-            "segments": segments,
-        }
-    except Exception as e:
-        log_diagnostic(provider="elevenlabs", error=str(e))
-        return None
-
-
-def transcribe_elevenlabs_with_vad(wav_path: str, language_code: str = "tgk", model_id: str = "scribe_v1"):
-    """Transcribe only speech regions using Silero VAD + ElevenLabs Scribe.
-
-    This avoids sending long non-speech sections (intro/outro music, title
-    cards, silence) to ElevenLabs, which dramatically reduces hallucinations.
-    Timestamps are preserved relative to the original audio.
-    """
-    log_diagnostic(provider="elevenlabs", vad="segmenting speech")
-    segments = vad_utils.get_speech_segments(wav_path)
-    if not segments:
-        log_diagnostic(provider="elevenlabs", vad="no speech segments, falling back to whole file")
-        return transcribe_elevenlabs(wav_path, language_code=language_code, model_id=model_id)
-
-    chunks = vad_utils.merge_speech_segments(segments, max_gap=0.3, max_duration=30.0)
-    log_diagnostic(provider="elevenlabs", vad_chunks=len(chunks), total_speech_duration=sum(c["end"] - c["start"] for c in chunks))
-
-    all_segments = []
-    all_texts = []
-    global_seg_id = 0
-    total = len(chunks)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        for i, chunk in enumerate(chunks):
-            chunk_wav = os.path.join(tmpdir, f"chunk_{i:04d}.wav")
-            vad_utils.slice_wav_chunk(wav_path, chunk_wav, chunk["start"], chunk["end"])
-
-            p_start = 5 + int((i / total) * 90)
-            p_end = 5 + int(((i + 1) / total) * 90)
-            result = transcribe_elevenlabs(
-                chunk_wav,
-                language_code=language_code,
-                model_id=model_id,
-                time_offset=chunk["start"],
-                progress_start=p_start,
-                progress_end=p_end,
-            )
-            if result is None:
-                log_diagnostic(provider="elevenlabs", chunk=i, error="chunk transcription returned None")
-                continue
-
-            for seg in result.get("segments", []):
-                seg["id"] = global_seg_id
-                global_seg_id += 1
-                all_segments.append(seg)
-            if result.get("text"):
-                all_texts.append(result["text"])
-
-    full_text = normalize_repeated_punctuation(" ".join(all_texts))
-    return {
-        "text": full_text,
-        "language": "tg" if language_code == "tgk" else language_code,
-        "segments": all_segments,
-    }
-
-
 def transcribe_tajik(wav_path: str):
     fine_tuned_path = "models/whisper-tajik-finetuned-ct2"
     has_fine_tuned = os.path.exists(fine_tuned_path)
 
     candidates = []
 
-    # Try ElevenLabs Scribe first if an API key is configured.
-    eleven = transcribe_elevenlabs_with_vad(wav_path, language_code="tgk")
-    if eleven and eleven["text"]:
-        # Post-process before quality checks so that Persian-script garbage is
-        # filtered/normalized before we decide whether to trust the result.
-        eleven = text_postprocessing.postprocess_transcription(eleven, "tg")
-        # ElevenLabs generally returns high-quality output; only reject completely
-        # empty or leading-repetition artifacts, not legitimate repeated names.
-        eleven_quality = detect_hallucination(eleven["text"], eleven["segments"], "tg")
-        eleven["quality"] = eleven_quality
-        log_diagnostic(language="tg", primary_model="elevenlabs", quality=eleven_quality)
-        serious_flags = [f for f in eleven_quality["flags"] if f in ("empty_output", "leading_repetition")]
-        if not serious_flags:
-            return eleven
-        candidates.append(eleven)
-
+    # Primary: local open-source fine-tuned Whisper Tajik model (CTranslate2).
     if has_fine_tuned:
         log_diagnostic(language="tg", primary_model="whisper-tajik-finetuned-ct2")
         try:

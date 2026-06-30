@@ -43,6 +43,7 @@ const envSchema = z.object({
     ),
   TILTAB_CLEANUP_PROVIDER: z.enum(["openai", "groq", "none"]).optional(),
   TILTAB_CLEANUP_MODEL: z.string().optional().or(z.literal("")),
+  TILTAB_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("gpt-4o-mini"),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
   DATABASE_URL: isTest
     ? z.string().default("")

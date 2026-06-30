@@ -484,7 +484,8 @@ def _looks_like_crying_or_noise(text: str) -> bool:
         return True
     # Known cry/sob/interjection patterns
     noise_patterns = [
-        r"\b(ой|вой|вох|ух|ах|ох|эх|ай|эй|ӯй|ҳай|ҳой|ҳуҳ)\s*(\1|\w{1,3}){1,4}\b",
+        # Repeated interjection as separate words or with a hyphen, e.g. "ой ой", "ой-ой".
+        r"\b(ой|вой|вох|ух|ах|ох|эх|ай|эй|ӯй|ҳай|ҳой|ҳуҳ)\b(\s*[-–—]?\s*\1\b){1,4}",
         r"\b(а|о|у|и|э)аа+\b",
         r"\b(плач|гиря|зор|озор|нуҳа|нуҳаҳ)\b",
     ]
@@ -1249,10 +1250,12 @@ def _contains_arabic(text: str) -> bool:
 def _needs_llm_cleanup(text: str, score: float, language: str) -> bool:
     """Only spend LLM credits when the segment is clearly dirty or grammar may be off."""
     if language == "tg":
-        # Tajik gets priority processing: always run through the LLM so that
-        # Persian/Arabic script leaks, Latin/Russian insertions, and grammar
-        # issues are normalized to clean Tajik Cyrillic.
-        return True
+        # Tajik: run LLM cleanup only when there is real work to do (Arabic script
+        # leaks, Latin leakage, or low segment score). Clean Cyrillic text is
+        # handled by the rule-based Tajik normalizer to minimize API spend.
+        if _contains_arabic(text) or _latin_ratio(text) > 0.1 or score < 0.7:
+            return True
+        return False
     # For other languages, run LLM cleanup conservatively on low-scoring or short text.
     return score < 0.75 or _non_linguistic_ratio(text) > 0.1
 

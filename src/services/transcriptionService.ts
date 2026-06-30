@@ -31,6 +31,13 @@ export async function transcribeAudio(
   const provider = config.TILTAB_STT_PROVIDER;
   const normalizedLang = language ? normalizeLanguageCodeOrKeep(language) : undefined;
 
+  // Tajik always runs the local open-source fine-tuned Whisper model. This avoids
+  // ElevenLabs/OpenAI STT spend and uses the model selected during benchmarking.
+  if (normalizedLang === "tg") {
+    const result = await runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress, abortSignal);
+    return normalizeTranscriptionResult(result);
+  }
+
   // Priority local models hosted on the remote STT server (ky/uz are too heavy for Render/Starter RAM).
   const remoteSupported = new Set(["ky", "uz"]);
   if (config.TILTAB_STT_SERVICE_URL && normalizedLang && remoteSupported.has(normalizedLang)) {

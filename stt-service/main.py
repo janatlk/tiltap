@@ -9,6 +9,7 @@ Supported languages:
   multi -> Whisper dual-pass
 """
 
+import gc
 import json
 import os
 import sys
@@ -172,6 +173,13 @@ async def transcribe(
                     os.unlink(p)
             except Exception:
                 pass
+        # Drop cached Whisper models after every request so CPX22 never keeps
+        # Rubai/Uzbek and a Vosk model in memory at the same time.
+        try:
+            th.release_whisper_models()
+            gc.collect()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

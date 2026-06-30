@@ -3,6 +3,8 @@ import { config } from "../config";
 import type { TranslateRequest, TranslateResponse } from "../types";
 import { normalizeLanguageCodeOrKeep } from "../utils/languageCodes";
 import { latinToCyrillic } from "../utils/uzbekTransliteration";
+import { createHash } from "crypto";
+import * as translationRepo from "../db/repos/translationRepo";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -155,9 +157,25 @@ async function callTranslationProvider(
 
   const data = (await res.json()) as {
     choices: Array<{ message: { content: string } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+    model?: string;
   };
 
+  const model = (payload as { model?: string }).model ?? data.model ?? "unknown";
+  logTranslationCost(providerName.toLowerCase(), model, data.usage?.prompt_tokens ?? 0, data.usage?.completion_tokens ?? 0);
+
   return data.choices[0]?.message?.content?.trim() ?? "";
+}
+
+function logTranslationCost(provider: string, model: string, promptTokens: number, completionTokens: number) {
+  const prices: Record<string, { prompt: number; completion: number }> = {
+    "gpt-4o-mini": { prompt: 0.15, completion: 0.6 },
+    "gpt-4o": { prompt: 2.5, completion: 10.0 },
+    "llama-3.3-70b-versatile": { prompt: 0, completion: 0 },
+  };
+  const price = prices[model] ?? { prompt: 0, completion: 0 };
+  const costUsd = (promptTokens * price.prompt + completionTokens * price.completion) / 1_000_000;
+  logger.info("Translation cost", { provider, model, promptTokens, completionTokens, costUsd: Math.round(costUsd * 1e6) / 1e6 });
 }
 
 function isRetryableError(status: number, body: string): boolean {
@@ -171,25 +189,48 @@ function isRetryableError(status: number, body: string): boolean {
   return false;
 }
 
-async function translateWithOpenAI(req: TranslateRequest): Promise<TranslateResponse> {
+async function translateWithOpenAI(
+  req: TranslateRequest,
+  options: { skipCache?: boolean } = {}
+): Promise<TranslateResponse> {
   const openaiKey = config.OPENAI_API_KEY;
   const groqKey = config.GROQ_API_KEY;
   const targetName = languageNames[req.targetLang] ?? req.targetLang;
+  const sourceLang = normalizeLanguageCodeOrKeep(req.sourceLang) ?? "auto";
+  const hash = createHash("sha256").update(req.text).digest("hex");
 
   if (!openaiKey && !groqKey) {
     throw new Error("Neither OPENAI_API_KEY nor GROQ_API_KEY is configured for translation");
   }
+
+  if (!options.skipCache) {
+    const cached = await translationRepo.getTranslationCache(hash, req.targetLang);
+    if (cached) {
+      logger.info("Translation cache hit", { targetLang: req.targetLang, sourceLang });
+      return { translatedText: cached.translated_text, detectedLang: sourceLang };
+    }
+  }
+
+  const model = config.TILTAB_TRANSLATION_MODEL || "gpt-4o-mini";
 
   if (openaiKey) {
     try {
       const translatedText = await callTranslationProvider(
         OPENAI_API_URL,
         openaiKey,
-        buildPayload(targetName, req.text, "gpt-4o-mini"),
+        buildPayload(targetName, req.text, model),
         "OpenAI"
       );
-      logger.info("Translated with OpenAI", { targetLang: req.targetLang });
-      return { translatedText, detectedLang: "auto" };
+      logger.info("Translated with OpenAI", { targetLang: req.targetLang, model });
+      await translationRepo.saveTranslationCache({
+        sourceHash: hash,
+        sourceText: req.text,
+        targetLang: req.targetLang,
+        translatedText,
+        provider: "openai",
+        model,
+      });
+      return { translatedText, detectedLang: sourceLang };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       const isRetryable = isRetryableError(0, errorMessage);
@@ -205,14 +246,23 @@ async function translateWithOpenAI(req: TranslateRequest): Promise<TranslateResp
     throw new Error("OpenAI translation failed and no GROQ_API_KEY is configured");
   }
 
+  const groqModel = "llama-3.3-70b-versatile";
   const translatedText = await callTranslationProvider(
     GROQ_API_URL,
     groqKey,
-    buildPayload(targetName, req.text, "llama-3.3-70b-versatile"),
+    buildPayload(targetName, req.text, groqModel),
     "Groq"
   );
-  logger.info("Translated with Groq fallback", { targetLang: req.targetLang });
-  return { translatedText, detectedLang: "auto" };
+  logger.info("Translated with Groq fallback", { targetLang: req.targetLang, model: groqModel });
+  await translationRepo.saveTranslationCache({
+    sourceHash: hash,
+    sourceText: req.text,
+    targetLang: req.targetLang,
+    translatedText,
+    provider: "groq",
+    model: groqModel,
+  });
+  return { translatedText, detectedLang: sourceLang };
 }
 
 async function translateWithGroq(req: TranslateRequest): Promise<TranslateResponse> {
@@ -256,6 +306,20 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
     ? { ...req, targetLang: "uz" }
     : req;
 
+  const sourceLang = normalizeLanguageCodeOrKeep(translateReq.sourceLang) ?? "auto";
+  const hash = createHash("sha256").update(translateReq.text).digest("hex");
+  const cached = await translationRepo.getTranslationCache(hash, translateReq.targetLang);
+  if (cached) {
+    logger.info("Translation cache hit (public)", { targetLang: translateReq.targetLang, sourceLang });
+    let text = cached.translated_text;
+    if (isUzbekCyrillic) text = latinToCyrillic(text);
+    return { translatedText: text, detectedLang: sourceLang };
+  }
+
+  // Tajik texts need accurate handling of Arabic/Cyrillic script and named entities.
+  // Use OpenAI first; Lingva is not good enough for Tajik.
+  const isTajikTranslation = translateReq.targetLang === "tg" || translateReq.sourceLang === "tg";
+
   let result: TranslateResponse;
 
   // If Daniel's module URL is configured, proxy to it.
@@ -275,7 +339,7 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
   } else {
     const provider = config.TILTAB_TRANSLATION_PROVIDER;
 
-    if (provider === "lingva") {
+    if (provider === "lingva" && !isTajikTranslation) {
       result = await translateWithLingva(translateReq);
     } else if (provider === "openai") {
       result = await translateWithOpenAI(translateReq);
@@ -283,6 +347,8 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
       result = await translateWithGroq(translateReq);
     } else if (provider === "mock") {
       result = mockTranslation(translateReq);
+    } else if (isTajikTranslation && (config.OPENAI_API_KEY || config.GROQ_API_KEY)) {
+      result = await translateWithOpenAI(translateReq);
     } else if (config.LINGVA_TRANSLATE_URL) {
       try {
         result = await translateWithLingva(translateReq);

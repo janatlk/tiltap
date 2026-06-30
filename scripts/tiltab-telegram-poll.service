@@ -1,0 +1,17 @@
+[Unit]
+Description=Tiltab Telegram Poll Forwarder
+After=network.target tiltab-backend.service
+Requires=tiltab-backend.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/tiltap
+ExecStart=/usr/bin/npx tsx scripts/telegram_poll_forwarder.ts
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/tiltap/.env
+
+[Install]
+WantedBy=multi-user.target

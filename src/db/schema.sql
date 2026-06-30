@@ -46,10 +46,40 @@ CREATE TABLE IF NOT EXISTS translations (
   telegram_chat_id BIGINT NOT NULL,
   transcription_id INTEGER REFERENCES transcriptions(id) ON DELETE CASCADE,
   source_text TEXT NOT NULL,
+  source_hash VARCHAR(64) NOT NULL,
   target_lang VARCHAR(10) NOT NULL,
   translated_text TEXT NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_translations_hash_lang ON translations(source_hash, target_lang);
+
+CREATE TABLE IF NOT EXISTS translation_cache (
+  id SERIAL PRIMARY KEY,
+  source_hash VARCHAR(64) NOT NULL,
+  source_text TEXT NOT NULL,
+  target_lang VARCHAR(10) NOT NULL,
+  translated_text TEXT NOT NULL,
+  provider VARCHAR(20) NOT NULL,
+  model VARCHAR(50) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(source_hash, target_lang)
+);
+
+CREATE INDEX IF NOT EXISTS idx_translation_cache_hash_lang ON translation_cache(source_hash, target_lang);
+
+CREATE TABLE IF NOT EXISTS cleanup_cache (
+  id SERIAL PRIMARY KEY,
+  source_hash VARCHAR(64) UNIQUE NOT NULL,
+  source_text TEXT NOT NULL,
+  cleaned_text TEXT NOT NULL,
+  language VARCHAR(10) NOT NULL,
+  provider VARCHAR(20) NOT NULL,
+  model VARCHAR(50) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cleanup_cache_hash ON cleanup_cache(source_hash);
 
 CREATE TABLE IF NOT EXISTS pending_actions (
   id SERIAL PRIMARY KEY,

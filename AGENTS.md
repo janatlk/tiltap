@@ -7,8 +7,8 @@
 Важные договорённости:
 - Текущий фокус: довести транскрипцию ky/tg/uz до максимального качества.
 - Озвучку и перевод пока НЕ трогаем.
-- **Подход: облачный STT + LLM-постобработка.** Локальные STT-модели больше не используются в production.
-- Перед запуском бота проверять `.env` и наличие API-ключей (ElevenLabs, Groq, Gemini, OpenAI).
+- **Подход: локальные open-source STT-модели + инженерия.** Облачные STT API (ElevenLabs, OpenAI Whisper API и т.п.) не используются для транскрипции.
+- Перед запуском бота проверять `.env` и наличие локальных моделей в `models/`.
 
 
 ## Sprint 1 Deliverables Checklist
@@ -30,7 +30,7 @@
 
 ```bash
 cp .env.example .env
-# Edit .env and fill in TELEGRAM_BOT_TOKEN, DATABASE_URL, and cloud STT keys
+# Edit .env and fill in TELEGRAM_BOT_TOKEN, DATABASE_URL, and OPENAI_API_KEY (used for Tajik cleanup / translation)
 ```
 
 ### 2. PostgreSQL
@@ -63,8 +63,8 @@ The server will auto-run migrations on startup.
 
 ### 4. Verify
 
-- Health: `curl http://localhost:3000/health` — includes `elevenlabsConfigured` so you can confirm the key is loaded.
-- Provider status & billing: `curl http://localhost:3000/health/providers` — returns quota, remaining credits, amount due, and next billing date for ElevenLabs/OpenAI and key validity for Groq/Gemini/Lingva.
+- Health: `curl http://localhost:3000/health` — returns basic service health.
+- Provider status is not used for STT; transcription runs locally via `transcribe_hybrid.py`.
 - Swagger: `http://localhost:3000/api-docs`
 - Translate: `curl -X POST http://localhost:3000/api/translate -H "Content-Type: application/json" -d '{"text":"hello","targetLang":"ru"}'`
 - Telegram bot: Send `/test` to run the built-in accuracy benchmark
@@ -76,9 +76,7 @@ Telegram Update → routes/webhook.ts → controllers/telegramController.ts
                                                 ↓
                                     services/fileDownloadService.ts
                                     services/transcriptionService.ts
-                                      → elevenlabsSttService.ts (primary)
-                                      → openaiSttService.ts (fallback)
-                                    services/cleanupService.ts (LLM post-processing)
+                                      → transcribe_hybrid.py (local open-source models)
                                     services/translationService.ts
                                                 ↓
                                     src/db/repos/*  ←  PostgreSQL
@@ -102,7 +100,7 @@ The bot includes a self-test that works for all five supported languages:
 2. For the selected language the bot temporarily switches the user's transcription language, then restores it after the test.
 3. Shows a visual loading bar: 30% → 60% → 100% with the correct test header.
 4. Transcribes the audio with the configured STT engine.
-5. Runs LLM cleanup on the recognized text.
+5. Applies conservative local post-processing (`text_postprocessing.py`) for Tajik script normalization and noise filtering.
 6. Compares the cleaned text with a hand-curated reference transcript.
 7. Computes character + word similarity (Levenshtein + Jaccard) and reports a percentage with color-coded emoji:
    - 🟢 ≥ 90%
@@ -112,46 +110,37 @@ The bot includes a self-test that works for all five supported languages:
 
 Local audio fixtures live in `test_audio/` and are described by `test_audio/manifest.json` and `test_audio/hard_manifest.json`.
 
-## Cloud STT Routing
+## Local STT Routing (`transcribe_hybrid.py`)
 
-The primary STT provider is **ElevenLabs Scribe v2**. Fallbacks are used only when ElevenLabs fails or is not configured.
+All transcription runs locally with open-source models. The routing per language is based on a hard benchmark of real YouTube clips (`test_audio/hard_manifest.json`) run by `scripts/benchmark_models.py`:
 
-| Provider | When used | Notes |
-|----------|-----------|-------|
-| **ElevenLabs Scribe v2** | Primary in `auto` when `ELEVENLABS_API_KEY` is set; always when `TILTAB_STT_PROVIDER=elevenlabs` | Best quality for `en/ru/tg/uz/ky`. No local models required. |
-| **OpenAI Whisper API** | Fallback when ElevenLabs fails and `OPENAI_API_KEY` is set | Used when `TILTAB_STT_PROVIDER=openai`. |
-| **Groq Whisper** | Fallback inside `openaiSttService` for English only | Controlled by `TILTAB_GROQ_WHISPER_LANGUAGES` (default `en`). |
-| **Local hybrid (`transcribe_hybrid.py`)** | When `TILTAB_STT_PROVIDER=local` or no cloud keys are configured | Deprecated for production; kept for offline development. |
+| Language | Primary model | Fallback chain | Hard char/word | Notes |
+|----------|---------------|----------------|----------------|-------|
+| `ky` | Vosk `vosk-model-ky-0.42` (chunked, 25 s windows / 5 s overlap) | Vosk small | 84.5% / 75.5% | Generic Whisper does not support Kyrgyz. |
+| `tg` | Whisper fine-tuned `models/whisper-tajik-finetuned-ct2` | Generic Whisper `distil-large-v3` → Vosk small tg | 93.8% / 92.7% | `burhon97`, `abduaziz`, and generic `whisper-large-v3-turbo` all scored < 25% char on the hard fixture. |
+| `uz` | Whisper fine-tuned Rubai `models/rubai-ct2-int8` (files < 180 s) | Vosk small uz → generic Whisper | 91.5% / 91.5% | `Kotib/uzbek_stt_v1` reached only ~51% char and is 2× slower than Rubai. |
+| `ru` | Vosk `vosk-model-small-ru-0.22` if present, else Whisper medium | — | — | — |
+| `en` | Whisper `distil-large-v3` | — | — | — |
+| `auto` / `multi` | Whisper dual-pass (auto-detect + Russian forced) | — | — | For Turkic/Russian code-switching. |
 
-Language codes sent to ElevenLabs:
-- `en` → `en`
-- `ru` → `ru`
-- `uz` → `uz`
-- `ky` → `ky`
-- `tg` → `tgk` (ISO 639-3)
-- For provider-level auto-detection (e.g., Scribe), pass no language hint.
+Long Kyrgyz audio is processed in sliding 25-second chunks with 5-second overlap to avoid the large Vosk model missing context on clips longer than ~60 s. Timestamps and deduplication are applied across chunks.
 
-## LLM Post-processing
+### Known gaps
 
-Every successful transcription is passed through `cleanupService.ts`:
+- **Short phrasebook clips** (`test_audio/manifest.json`) still score poorly (~20–30% char) for all models. The leading hypothesis is that the long silences between isolated phrases and Whisper's previous-text conditioning cause insertions/repetitions. A dedicated short-audio strategy (VAD split + per-phrase transcription without conditioning) is the next step.
 
-1. Provider chain (unless `TILTAB_CLEANUP_PROVIDER` overrides):
-   - **Gemini** (default)
-   - **Groq**
-   - **OpenAI**
-2. Set `TILTAB_CLEANUP_PROVIDER=none` to skip cleanup entirely.
-3. Provider-specific model can be set via `TILTAB_CLEANUP_MODEL`.
+## Local STT Post-processing
 
-For Tajik, the prompt includes guardrails for:
-- Cyrillic output and Arabic/Persian script normalization.
-- Date ordinals (`1-ум`, `2-юм`, `3-юм`, `12-ум`, `13-ум`, `22-юм`, `23-юм`).
-- Direct-object clitic `ро` attachment (`мо ро` → `моро`).
-- Common Tajik names/places normalization.
-- Preserving Russian/Uzbek/English code-switching.
+After local STT, `text_postprocessing.py` runs language-aware cleanup:
+
+- Segment-level garbage detection (repetition, Latin/Arabic leakage, non-speech markers).
+- Tajik-specific rules:
+  - Arabic/Persian script normalization to Tajik Cyrillic.
+  - Named-entity dictionary matching (`data/tajik_entities.json` or defaults).
+  - Mixed-script typo correction (`муfассал` → `муфассал`).
+  - Date ordinals and `ро` clitic normalization.
 - Noise markers (`[плач]`, `[кулол]`, `[аплодисменты]`, `[музыка]`, `[неразборчиво]`).
-- No changes to verb tenses, names, or word order.
-
-Other languages get a conservative punctuation/capitalization cleanup prompt.
+- Tajik transcripts are passed through an LLM cleanup step by default. Provider chain: **OpenAI `gpt-4o-mini`** (primary) → **Groq** (fallback). Set `TILTAB_CLEANUP_PROVIDER=none` to keep only rule-based processing, or `=openai`/`=groq` to force a specific provider. Results are cached in `cleanup_cache` to avoid repeated API calls.
 
 ## Web Mini-Service
 
@@ -195,10 +184,12 @@ Translation is available both in the Telegram bot (after transcription, if a tar
 
 Provider priority (unless overridden by `TILTAB_TRANSLATION_PROVIDER`):
 
-1. **Lingva Translate** — free, open-source front-end for Google Translate. No API key required for public instances. Supports all Tiltap languages (`en/ru/tg/uz/ky`). Long texts are automatically split into chunks.
-2. **OpenAI GPT-4o-mini** — high-quality LLM translation (requires `OPENAI_API_KEY`).
-3. **Groq llama-3.3-70b** — LLM fallback (requires `GROQ_API_KEY`).
+1. **OpenAI `gpt-4o-mini`** — primary for Tajik (`tg`) source or target, and for `TILTAB_TRANSLATION_PROVIDER=openai`.
+2. **Lingva Translate** — free, open-source front-end for Google Translate. No API key required for public instances. Supports all Tiltap languages (`en/ru/tg/uz/ky`). Long texts are automatically split into chunks. Used by default for non-Tajik pairs.
+3. **Groq `llama-3.3-70b-versatile`** — LLM fallback (requires `GROQ_API_KEY`).
 4. **Mock** — returns a placeholder translation if nothing else is available.
+
+Translation results are cached in `translation_cache` keyed by SHA-256 of the source text and target language, minimizing repeat API costs.
 
 If Daniel's module URL is configured (`TRANSLATION_MODULE_URL`), all translation requests are proxied to it instead.
 
@@ -208,14 +199,9 @@ If Daniel's module URL is configured (`TRANSLATION_MODULE_URL`), all translation
 |----------|----------|-------------|
 | `DATABASE_URL` | yes | PostgreSQL connection string |
 | `TELEGRAM_BOT_TOKEN` | yes | From @BotFather |
-| `ELEVENLABS_API_KEY` | yes (production) | Primary STT provider |
-| `ELEVENLABS_MODEL_ID` | no | Defaults to `scribe_v2` |
-| `OPENAI_API_KEY` | no | Fallback STT and translator |
-| `GROQ_API_KEY` | no | Fallback STT (English only), translation, and LLM cleanup |
-| `GEMINI_API_KEY` | no | Primary LLM cleanup provider |
-| `TILTAB_STT_PROVIDER` | no | `elevenlabs` (default primary in auto), `openai`, `local`, `auto` |
-| `TILTAB_GROQ_WHISPER_LANGUAGES` | no | Comma-separated list of languages allowed for Groq Whisper fallback (default `en`) |
-| `TILTAB_CLEANUP_PROVIDER` | no | Override cleanup provider: `gemini`, `openai`, `groq`, or `none` |
+| `OPENAI_API_KEY` | no | Tajik cleanup and Tajik translation primary; also general translation fallback |
+| `GROQ_API_KEY` | no | Cleanup and translation fallback |
+| `TILTAB_CLEANUP_PROVIDER` | no | `openai` (default), `groq`, or `none` |
 | `TILTAB_CLEANUP_MODEL` | no | Override the default model for the chosen cleanup provider |
 | `LINGVA_TRANSLATE_URL` | no | Free Lingva instance, default `https://lingva.ml` |
 | `LINGVA_TRANSLATE_CHUNK_SIZE` | no | Max characters per Lingva chunk (default `2000`) |
@@ -232,39 +218,40 @@ If Daniel's module URL is configured (`TRANSLATION_MODULE_URL`), all translation
 | `TELEGRAM_WEBHOOK_SECRET` | no | Future webhook validation |
 | `LOG_LEVEL` | no | `error`, `warn`, `info`, `debug` |
 
-## Deployment (Render.com free tier)
+## Deployment (Hetzner CPX22)
 
-Free-tier containers do not have enough disk/memory for local Vosk/Whisper models, so production uses **cloud STT providers**.
+Production runs on a Hetzner CPX22 (4 vCPU / 8 GB RAM / 160 GB NVMe) with local open-source models. Models live in `/opt/tiltab/models` and are part of the deployment artifact.
 
-### Required Render secrets
+### Required server secrets
 
 - `TELEGRAM_BOT_TOKEN`
 - `DATABASE_URL`
-- `ELEVENLABS_API_KEY` (primary STT)
-- `GROQ_API_KEY` (fallback + LLM cleanup)
-- `GEMINI_API_KEY` (primary LLM cleanup)
 
 Optional:
-- `OPENAI_API_KEY` (fallback STT/translation)
+- `OPENAI_API_KEY` (Tajik cleanup / translation primary)
+- `GROQ_API_KEY` (cleanup / translation fallback)
 - `TILTAB_CLEANUP_PROVIDER` / `TILTAB_CLEANUP_MODEL`
 - `LINGVA_TRANSLATE_URL` / `TILTAB_TRANSLATION_PROVIDER`
-- `YOUTUBE_COOKIES_BASE64` or `YOUTUBE_COOKIES_PATH` — if YouTube returns "Sign in to confirm" from Render's datacenter IP
-- `YOUTUBE_PO_TOKEN` / `YOUTUBE_VISITOR_DATA` — if YouTube still blocks with HTTP 403 or "Sign in" even with cookies
-- `YOUTUBE_PROXY` — route YouTube requests through a residential/proxy IP if datacenter IP is heavily flagged
-- `COBALT_API_URL` / `COBALT_API_URLS` — override or extend the list of public Cobalt instances used when yt-dlp is blocked
-- `YOUTUBE_AUTO_UPDATE_YTDLP=true` — keep `yt-dlp` up to date on Render
+- `YOUTUBE_COOKIES_BASE64` or `YOUTUBE_COOKIES_PATH`
+- `YOUTUBE_PO_TOKEN` / `YOUTUBE_VISITOR_DATA`
+- `YOUTUBE_PROXY`
+- `COBALT_API_URL` / `COBALT_API_URLS`
+- `YOUTUBE_AUTO_UPDATE_YTDLP=true`
 
-### Deploy to Render
+### Deploy
 
-1. Push to `main`.
-2. In Render dashboard, create a **Blueprint** from `render.yaml` or create a Docker web service from the GitHub repo.
-3. Set required secrets in Render dashboard.
-4. Set the Telegram webhook:
-   ```bash
-   curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
-     -H "Content-Type: application/json" \
-     -d '{"url":"https://<render-service-name>.onrender.com/webhook/telegram"}'
-   ```
+```bash
+ssh root@46.225.238.161
+cd /opt/tiltab
+git fetch origin
+git reset --hard origin/main
+npm ci
+npm run build
+systemctl restart tiltab-backend.service
+systemctl status tiltab-backend.service --no-pager
+```
+
+New models must be downloaded to `/opt/tiltab/models` and added to the server provisioning/automation so they persist across rebuilds.
 
 ### CI/CD
 
@@ -272,10 +259,9 @@ Optional:
 
 ## Notes
 
-- The bot runs on Windows locally and in Docker on Render.
-- Python is still required for YouTube download (`yt-dlp`) and validation scripts.
+- The bot runs on Windows locally and on Ubuntu 22.04 on Hetzner.
+- Python is required for local STT (`transcribe_hybrid.py`, Vosk, CTranslate2 Whisper), YouTube download (`yt-dlp`), and validation scripts.
 - Cyrillic output safety: `PYTHONIOENCODING=utf-8` + `sys.stdout.reconfigure(encoding="utf-8")`.
-- Real-time progress for cloud STT is simulated from the Node service because the APIs do not stream per-word progress.
-- Local STT models (`models/`, `transcribe_hybrid.py`, Vosk, CTranslate2 Whisper) are deprecated and will be removed from the Docker image in a future cleanup pass.
+- Real-time progress is emitted as JSON lines from `transcribe_hybrid.py` and consumed by the Node controller.
 - **YouTube on Render:** if all videos return "Sign in to confirm" or HTTP 403, set `YOUTUBE_AUTO_UPDATE_YTDLP=true`, add fresh browser cookies via `YOUTUBE_COOKIES_BASE64`, and (if still blocked) provide a PO token via `YOUTUBE_PO_TOKEN`. The Docker startup script now updates `yt-dlp` automatically when this flag is enabled, and `download_youtube.py`/`validate_youtube.py` prefer mobile/TV player clients to reduce bot detection.
 - **YouTube Cobalt fallback:** when yt-dlp fails with bot detection or sign-in requirements, `download_youtube.py` and `validate_youtube.py` automatically fall back to public Cobalt API instances (`COBALT_API_URL` or `COBALT_API_URLS`). The downloader rotates through the list until one succeeds. This is the current workaround for datacenter IPs (including Hetzner) where YouTube blocks direct yt-dlp downloads. For production load, deploy a private Cobalt instance and point `COBALT_API_URL` at it.

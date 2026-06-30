@@ -1,9 +1,12 @@
 import { logger } from "../utils/logger";
 import { config } from "../config";
+import { createHash } from "crypto";
+import * as cleanupRepo from "../db/repos/cleanupRepo";
 
 export interface CleanupResult {
   cleanedText: string;
   provider: string;
+  model: string;
 }
 
 export interface CleanupOptions {
@@ -15,8 +18,8 @@ export interface CleanupOptions {
  * Post-process an STT transcript via an LLM chain.
  *
  * Provider priority (unless overridden by TILTAB_CLEANUP_PROVIDER):
- *   1. Groq
- *   2. OpenAI
+ *   - OpenAI primary for Tajik.
+ *   - Fallback chain otherwise.
  *
  * Set TILTAB_CLEANUP_PROVIDER=none to disable.
  */
@@ -27,27 +30,45 @@ export async function cleanupTranscription(
 ): Promise<CleanupResult> {
   const enabled = options.enableCleanup ?? true;
   if (!enabled || config.TILTAB_CLEANUP_PROVIDER === "none") {
-    return { cleanedText: text, provider: "disabled" };
+    return { cleanedText: text, provider: "disabled", model: "" };
   }
 
   if (!text.trim()) {
-    return { cleanedText: text, provider: "none" };
+    return { cleanedText: text, provider: "none", model: "" };
+  }
+
+  const lang = language.split("+")[0];
+  const hash = createHash("sha256").update(text).digest("hex");
+
+  // Check DB cache first.
+  const cached = await cleanupRepo.getCleanupByHash(hash, lang);
+  if (cached) {
+    logger.info("STT cleanup cache hit", { language: lang, provider: cached.provider });
+    return { cleanedText: cached.cleaned_text, provider: `cached:${cached.provider}`, model: cached.model };
   }
 
   const systemPrompt = buildSystemPrompt(language);
   const userPrompt = text;
 
-  const providers = buildProviderChain();
+  const providers = buildProviderChain(lang);
   if (providers.length === 0) {
     logger.warn("No LLM cleanup providers configured; returning raw transcript");
-    return { cleanedText: text, provider: "none" };
+    return { cleanedText: text, provider: "none", model: "" };
   }
 
   for (const provider of providers) {
     try {
       const result = await callProvider(provider, systemPrompt, userPrompt);
       if (result && isCleanupSane(text, result.cleanedText)) {
-        logger.info("STT cleanup complete", { provider: result.provider, language });
+        logger.info("STT cleanup complete", { provider: result.provider, model: result.model, language: lang });
+        await cleanupRepo.saveCleanup({
+          sourceHash: hash,
+          sourceText: text,
+          cleanedText: result.cleanedText,
+          language: lang,
+          provider: result.provider,
+          model: result.model,
+        });
         return result;
       }
     } catch (err) {
@@ -57,7 +78,7 @@ export async function cleanupTranscription(
   }
 
   logger.warn("All LLM cleanup providers failed; returning raw transcript");
-  return { cleanedText: text, provider: "fallback" };
+  return { cleanedText: text, provider: "fallback", model: "" };
 }
 
 // ---------------------------------------------------------------------------
@@ -68,7 +89,7 @@ interface ProviderSpec {
   name: "groq" | "openai";
 }
 
-function buildProviderChain(): ProviderSpec[] {
+function buildProviderChain(language: string): ProviderSpec[] {
   const forced = config.TILTAB_CLEANUP_PROVIDER;
   if (forced && forced !== "none") {
     if (hasProviderKey(forced)) {
@@ -78,6 +99,14 @@ function buildProviderChain(): ProviderSpec[] {
   }
 
   const chain: ProviderSpec[] = [];
+
+  // Tajik uses OpenAI primary to minimize quality/cost surprises with gpt-4o-mini.
+  if (language === "tg") {
+    if (config.OPENAI_API_KEY) chain.push({ name: "openai" });
+    if (config.GROQ_API_KEY) chain.push({ name: "groq" });
+    return chain;
+  }
+
   if (config.GROQ_API_KEY) chain.push({ name: "groq" });
   if (config.OPENAI_API_KEY) chain.push({ name: "openai" });
   return chain;
@@ -116,6 +145,7 @@ async function callProvider(
 async function callGroq(systemPrompt: string, userPrompt: string): Promise<CleanupResult | null> {
   if (!config.GROQ_API_KEY) return null;
 
+  const model = config.TILTAB_CLEANUP_MODEL || "llama-3.3-70b-versatile";
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -123,7 +153,7 @@ async function callGroq(systemPrompt: string, userPrompt: string): Promise<Clean
       Authorization: `Bearer ${config.GROQ_API_KEY}`,
     },
     body: JSON.stringify({
-      model: config.TILTAB_CLEANUP_MODEL || "llama-3.3-70b-versatile",
+      model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -140,9 +170,11 @@ async function callGroq(systemPrompt: string, userPrompt: string): Promise<Clean
 
   const data = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
   const cleaned = data.choices?.[0]?.message?.content?.trim() ?? userPrompt;
-  return { cleanedText: stripMarkdownCodeBlock(cleaned), provider: "groq" };
+  logCleanupCost("groq", model, data.usage?.prompt_tokens ?? 0, data.usage?.completion_tokens ?? 0);
+  return { cleanedText: stripMarkdownCodeBlock(cleaned), provider: "groq", model };
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +184,7 @@ async function callGroq(systemPrompt: string, userPrompt: string): Promise<Clean
 async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<CleanupResult | null> {
   if (!config.OPENAI_API_KEY) return null;
 
+  const model = config.TILTAB_CLEANUP_MODEL || "gpt-4o-mini";
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -159,7 +192,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<Cle
       Authorization: `Bearer ${config.OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: config.TILTAB_CLEANUP_MODEL || "gpt-4o-mini",
+      model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -176,14 +209,27 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<Cle
 
   const data = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
   const cleaned = data.choices?.[0]?.message?.content?.trim() ?? userPrompt;
-  return { cleanedText: stripMarkdownCodeBlock(cleaned), provider: "openai" };
+  logCleanupCost("openai", model, data.usage?.prompt_tokens ?? 0, data.usage?.completion_tokens ?? 0);
+  return { cleanedText: stripMarkdownCodeBlock(cleaned), provider: "openai", model };
 }
 
 // ---------------------------------------------------------------------------
 // Prompts
 // ---------------------------------------------------------------------------
+
+function logCleanupCost(provider: string, model: string, promptTokens: number, completionTokens: number) {
+  const prices: Record<string, { prompt: number; completion: number }> = {
+    "gpt-4o-mini": { prompt: 0.15, completion: 0.6 }, // per 1M tokens in USD
+    "gpt-4o": { prompt: 2.5, completion: 10.0 },
+    "llama-3.3-70b-versatile": { prompt: 0.0, completion: 0.0 }, // Groq pricing varies; log tokens only
+  };
+  const price = prices[model] ?? { prompt: 0, completion: 0 };
+  const costUsd = (promptTokens * price.prompt + completionTokens * price.completion) / 1_000_000;
+  logger.info("STT cleanup cost", { provider, model, promptTokens, completionTokens, costUsd: Math.round(costUsd * 1e6) / 1e6 });
+}
 
 function stripMarkdownCodeBlock(text: string): string {
   return text.replace(/^```(?:\w+)?\n?/, "").replace(/\n?```$/, "").trim();
