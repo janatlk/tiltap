@@ -1319,10 +1319,15 @@ def _apply_tajik_rules_early(text: str) -> str:
     return text
 
 
-def postprocess_segment(text: str, language: str) -> Tuple[str, float]:
+def postprocess_segment(text: str, language: str, confidence: Optional[float] = None) -> Tuple[str, float]:
     """Run a single segment through scorer and cleaner. Returns (text, score)."""
     text = text.strip()
     if not text:
+        return UNINTELLIGIBLE, 0.0
+
+    # Whisper sometimes emits low-confidence hallucinations on music/noise.
+    # avg_logprob is negative; values below -1.5 are usually unreliable.
+    if confidence is not None and confidence < -1.5:
         return UNINTELLIGIBLE, 0.0
 
     # Language-specific rule-based cleanup first so that names, dates, and
@@ -1379,7 +1384,7 @@ def postprocess_transcription(result: Dict, language: Optional[str] = None) -> D
     kept_texts = []
     for seg in result.get("segments", []):
         raw_text = seg.get("text", "")
-        cleaned_text, score = postprocess_segment(raw_text, lang)
+        cleaned_text, score = postprocess_segment(raw_text, lang, seg.get("confidence"))
         new_seg = dict(seg)
         new_seg["text"] = cleaned_text
         new_seg["quality_score"] = round(score, 3)
