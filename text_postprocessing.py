@@ -544,6 +544,21 @@ def _looks_like_music(text: str) -> bool:
     return False
 
 
+def _looks_like_singing(text: str) -> bool:
+    """Detect sung/hummed pseudo-words by repeated syllables/rhymes."""
+    words = [w.strip(".,!?;:\"'()[]") for w in text.lower().split()]
+    words = [w for w in words if len(w) >= 4]
+    if len(words) < 4:
+        return False
+    suffixes = Counter(w[-3:] for w in words)
+    if suffixes.most_common(1)[0][1] >= 3:
+        return True
+    prefixes = Counter(w[:3] for w in words)
+    if prefixes.most_common(1)[0][1] >= 3:
+        return True
+    return False
+
+
 def mark_noise(text: str, language: str) -> str:
     """Replace crying/noise segments with a localized marker."""
     # Laughter/applause/music are more specific than the generic cry detector,
@@ -553,6 +568,8 @@ def mark_noise(text: str, language: str) -> str:
     if _looks_like_applause(text):
         return "[аплодисменты]" if language == "tg" else UNINTELLIGIBLE
     if _looks_like_music(text):
+        return "[музыка]" if language == "tg" else UNINTELLIGIBLE
+    if _looks_like_singing(text):
         return "[музыка]" if language == "tg" else UNINTELLIGIBLE
     if _looks_like_crying_or_noise(text):
         return "[плач]" if language == "tg" else UNINTELLIGIBLE
@@ -1319,7 +1336,7 @@ def _apply_tajik_rules_early(text: str) -> str:
     return text
 
 
-def postprocess_segment(text: str, language: str, confidence: Optional[float] = None, duration: Optional[float] = None) -> Tuple[str, float]:
+def postprocess_segment(text: str, language: str, confidence: Optional[float] = None) -> Tuple[str, float]:
     """Run a single segment through scorer and cleaner. Returns (text, score)."""
     text = text.strip()
     if not text:
@@ -1328,11 +1345,6 @@ def postprocess_segment(text: str, language: str, confidence: Optional[float] = 
     # Whisper sometimes emits low-confidence hallucinations on music/noise.
     # avg_logprob is negative; values below -1.5 are usually unreliable.
     if confidence is not None and confidence < -1.5:
-        return UNINTELLIGIBLE, 0.0
-
-    # Whisper can collapse long hallucinated text into a single timestamp.
-    # Natural speech rarely packs >40 characters into <0.25 seconds.
-    if duration is not None and duration < 0.25 and len(text) > 40:
         return UNINTELLIGIBLE, 0.0
 
     # Language-specific rule-based cleanup first so that names, dates, and
@@ -1389,8 +1401,7 @@ def postprocess_transcription(result: Dict, language: Optional[str] = None) -> D
     kept_texts = []
     for seg in result.get("segments", []):
         raw_text = seg.get("text", "")
-        seg_duration = seg.get("end", 0.0) - seg.get("start", 0.0)
-        cleaned_text, score = postprocess_segment(raw_text, lang, seg.get("confidence"), seg_duration)
+        cleaned_text, score = postprocess_segment(raw_text, lang, seg.get("confidence"))
         new_seg = dict(seg)
         new_seg["text"] = cleaned_text
         new_seg["quality_score"] = round(score, 3)

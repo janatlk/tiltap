@@ -699,7 +699,6 @@ def transcribe_tajik(wav_path: str):
                 fine_tuned_path,
                 progress_label="Тоҷикӣ распознаю",
                 conservative=True,
-                condition_on_previous_text=False,
             )
             fine_quality = detect_hallucination(fine["text"], fine["segments"], "tg")
             fine["quality"] = fine_quality
