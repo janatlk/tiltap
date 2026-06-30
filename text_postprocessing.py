@@ -1331,8 +1331,8 @@ def postprocess_segment(text: str, language: str, confidence: Optional[float] = 
         return UNINTELLIGIBLE, 0.0
 
     # Whisper can collapse long hallucinated text into a single timestamp.
-    # Natural speech rarely packs >40 characters into <0.5 seconds.
-    if duration is not None and duration < 0.5 and len(text) > 40:
+    # Natural speech rarely packs >40 characters into <0.25 seconds.
+    if duration is not None and duration < 0.25 and len(text) > 40:
         return UNINTELLIGIBLE, 0.0
 
     # Language-specific rule-based cleanup first so that names, dates, and
