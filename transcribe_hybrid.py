@@ -453,7 +453,7 @@ def transcribe_vosk_chunked(wav_path: str, model_path: str, chunk_seconds: float
 # ---------------------------------------------------------------------------
 # Whisper transcription (faster-whisper)
 # ---------------------------------------------------------------------------
-def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "distil-large-v3", progress_label: str = "Распознаю", initial_prompt: str | None = None, conservative: bool = False, vad_filter: bool = True, vad_parameters: dict | None = None):
+def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "distil-large-v3", progress_label: str = "Распознаю", initial_prompt: str | None = None, conservative: bool = False, condition_on_previous_text: bool = True, vad_parameters: dict | None = None):
     model = get_whisper_model(model_path)
     duration = get_audio_duration(wav_path)
     emit_progress(0, f"{progress_label}: загрузка модели...")
@@ -469,8 +469,8 @@ def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "d
     transcribe_kwargs = dict(
         language=language if language else None,
         word_timestamps=word_timestamps,
-        condition_on_previous_text=True,
-        vad_filter=vad_filter,
+        condition_on_previous_text=condition_on_previous_text,
+        vad_filter=True,
         beam_size=beam_size,
         best_of=best_of,
         initial_prompt=prompt,
@@ -699,7 +699,7 @@ def transcribe_tajik(wav_path: str):
                 fine_tuned_path,
                 progress_label="Тоҷикӣ распознаю",
                 conservative=True,
-                vad_filter=False,
+                condition_on_previous_text=False,
             )
             fine_quality = detect_hallucination(fine["text"], fine["segments"], "tg")
             fine["quality"] = fine_quality
