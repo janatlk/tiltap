@@ -453,7 +453,7 @@ def transcribe_vosk_chunked(wav_path: str, model_path: str, chunk_seconds: float
 # ---------------------------------------------------------------------------
 # Whisper transcription (faster-whisper)
 # ---------------------------------------------------------------------------
-def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "distil-large-v3", progress_label: str = "Распознаю", initial_prompt: str | None = None, conservative: bool = False):
+def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "distil-large-v3", progress_label: str = "Распознаю", initial_prompt: str | None = None, conservative: bool = False, vad_parameters: Optional[dict] = None):
     model = get_whisper_model(model_path)
     duration = get_audio_duration(wav_path)
     emit_progress(0, f"{progress_label}: загрузка модели...")
@@ -466,8 +466,7 @@ def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "d
     best_of = 1 if conservative else 5
     word_timestamps = False if conservative else True
 
-    segments_iter, info = model.transcribe(
-        wav_path,
+    transcribe_kwargs = dict(
         language=language if language else None,
         word_timestamps=word_timestamps,
         condition_on_previous_text=True,
@@ -476,6 +475,10 @@ def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "d
         best_of=best_of,
         initial_prompt=prompt,
     )
+    if vad_parameters:
+        transcribe_kwargs["vad_parameters"] = vad_parameters
+
+    segments_iter, info = model.transcribe(wav_path, **transcribe_kwargs)
 
     emit_progress(5, progress_label)
 
@@ -696,6 +699,7 @@ def transcribe_tajik(wav_path: str):
                 fine_tuned_path,
                 progress_label="Тоҷикӣ распознаю",
                 conservative=True,
+                vad_parameters={"threshold": 0.6, "min_silence_duration_ms": 300, "speech_pad_ms": 80},
             )
             fine_quality = detect_hallucination(fine["text"], fine["segments"], "tg")
             fine["quality"] = fine_quality

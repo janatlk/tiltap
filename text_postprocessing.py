@@ -559,6 +559,36 @@ def mark_noise(text: str, language: str) -> str:
     return text
 
 
+def _has_suspicious_consonant_clusters(text: str) -> bool:
+    """Detect pseudo-Cyrillic hallucinations with unusual consonant clusters.
+
+    Natural Tajik/Russian words very rarely contain several long consonant runs;
+    Whisper hallucinations on music/noise often do.
+    """
+    consonants = set(
+        "бвгджзйклмнпрстфхцчшщБВГДЖЗЙКЛМНПРСТФХЦЧШЩҒғҚқҲҳҶҷ"
+    )
+    runs: List[int] = []
+    cur = 0
+    for ch in text:
+        if ch in consonants:
+            cur += 1
+        else:
+            if cur:
+                runs.append(cur)
+            cur = 0
+    if cur:
+        runs.append(cur)
+
+    # A single extremely long run is a clear hallucination.
+    if any(r >= 5 for r in runs):
+        return True
+    # Multiple 3+ consonant clusters in one segment are also suspicious.
+    if sum(1 for r in runs if r >= 3) >= 3:
+        return True
+    return False
+
+
 def is_garbage(text: str, language: str, threshold: float = GARBAGE_THRESHOLD) -> bool:
     """True if segment looks like noise/hallucination for the target language."""
     text = text.strip()
@@ -578,6 +608,8 @@ def is_garbage(text: str, language: str, threshold: float = GARBAGE_THRESHOLD) -
         if language != "tg" and _latin_ratio(text) > 0.5:
             return True
         if language != "tg" and _arabic_ratio(text) > 0.3:
+            return True
+        if _has_suspicious_consonant_clusters(text):
             return True
     elif script == "latin":
         if _cyrillic_ratio(text) > 0.3 or _arabic_ratio(text) > 0.3:
