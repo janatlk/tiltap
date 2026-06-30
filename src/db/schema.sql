@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS translations (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Migration safety net: ensure source_hash exists for databases created before this schema version
+ALTER TABLE translations ADD COLUMN IF NOT EXISTS source_hash VARCHAR(64);
+UPDATE translations SET source_hash = COALESCE(source_hash, '') WHERE source_hash IS NULL;
+ALTER TABLE translations ALTER COLUMN source_hash SET NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_translations_hash_lang ON translations(source_hash, target_lang);
 
 CREATE TABLE IF NOT EXISTS translation_cache (
