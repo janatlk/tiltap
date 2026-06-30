@@ -752,6 +752,9 @@ def transcribe_tajik(wav_path: str):
 
     best = select_best_output(candidates)
 
+    if best is None:
+        raise RuntimeError("All Tajik transcription models failed")
+
     return best
 
 
@@ -944,6 +947,9 @@ def main():
 
         else:
             output = transcribe_whisper(wav_path, None, "base", progress_label="Определяю язык")
+
+        if output is None:
+            raise RuntimeError(f"Transcription returned no output for language {language}")
 
         # Add quality metadata for downstream logging
         quality = output.get("quality") or detect_hallucination(output["text"], output["segments"], language or "auto")

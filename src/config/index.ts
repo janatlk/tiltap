@@ -22,6 +22,7 @@ const envSchema = z.object({
   YOUTUBE_VISITOR_DATA: z.string().optional().or(z.literal("")),
   YOUTUBE_AUTO_UPDATE_YTDLP: z.enum(["true", "false", "1", "0", ""]).optional().or(z.literal("")).default("false"),
   GROQ_API_KEY: z.string().optional().or(z.literal("")),
+  GEMINI_API_KEY: z.string().optional().or(z.literal("")),
 
 
   ELEVENLABS_API_KEY: z.string().optional().or(z.literal("")),
@@ -41,7 +42,7 @@ const envSchema = z.object({
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean) ?? ["en"]
     ),
-  TILTAB_CLEANUP_PROVIDER: z.enum(["openai", "groq", "none"]).optional(),
+  TILTAB_CLEANUP_PROVIDER: z.enum(["openai", "groq", "gemini", "none"]).optional(),
   TILTAB_CLEANUP_MODEL: z.string().optional().or(z.literal("")),
   TILTAB_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("gpt-4o-mini"),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),

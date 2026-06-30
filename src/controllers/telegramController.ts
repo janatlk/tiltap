@@ -568,7 +568,7 @@ async function processAudio(
       error: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,
     });
-    const msg = t("transcriptionFailed", lang, { error: err instanceof Error ? err.message : String(err) });
+    const msg = t("transcriptionFailed", lang, { error: escapeHtml(err instanceof Error ? err.message : String(err)) });
     await editMessageText(chatId, statusMsgId, msg, removeKeyboard);
   }
 }
@@ -672,7 +672,7 @@ async function downloadAndTranscribeYouTube(
   } catch (err) {
     clearActiveProcess(chatId);
     await unlink(tmpWav).catch(() => {});
-    const msg = `❌ ${err instanceof Error ? err.message : String(err)}`;
+    const msg = `❌ ${escapeHtml(err instanceof Error ? err.message : String(err))}`;
     await editMessageText(chatId, statusMsgId, msg, removeKeyboard);
     throw err;
   }
@@ -979,7 +979,7 @@ async function runAccuracyTest(chatId: number, language: string): Promise<void> 
   } catch (err) {
     const fs = await import("fs/promises");
     await fs.unlink(tmpWav).catch(() => {});
-    const msg = `❌ ${t("transcriptionFailed", lang, { error: err instanceof Error ? err.message : String(err) })}`;
+    const msg = `❌ ${t("transcriptionFailed", lang, { error: escapeHtml(err instanceof Error ? err.message : String(err)) })}`;
     await editMessageText(chatId, statusMsgId, msg, removeKeyboard);
     throw err;
   }

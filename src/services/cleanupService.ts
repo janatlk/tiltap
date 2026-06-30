@@ -18,8 +18,7 @@ export interface CleanupOptions {
  * Post-process an STT transcript via an LLM chain.
  *
  * Provider priority (unless overridden by TILTAB_CLEANUP_PROVIDER):
- *   - OpenAI primary for Tajik.
- *   - Fallback chain otherwise.
+ *   - Gemini primary when available, then OpenAI, then Groq.
  *
  * Set TILTAB_CLEANUP_PROVIDER=none to disable.
  */
@@ -86,7 +85,7 @@ export async function cleanupTranscription(
 // ---------------------------------------------------------------------------
 
 interface ProviderSpec {
-  name: "groq" | "openai";
+  name: "groq" | "openai" | "gemini";
 }
 
 function buildProviderChain(language: string): ProviderSpec[] {
@@ -100,13 +99,15 @@ function buildProviderChain(language: string): ProviderSpec[] {
 
   const chain: ProviderSpec[] = [];
 
-  // Tajik uses OpenAI primary to minimize quality/cost surprises with gpt-4o-mini.
+  // Tajik uses Gemini primary when available, then OpenAI, then Groq.
   if (language === "tg") {
+    if (config.GEMINI_API_KEY) chain.push({ name: "gemini" });
     if (config.OPENAI_API_KEY) chain.push({ name: "openai" });
     if (config.GROQ_API_KEY) chain.push({ name: "groq" });
     return chain;
   }
 
+  if (config.GEMINI_API_KEY) chain.push({ name: "gemini" });
   if (config.GROQ_API_KEY) chain.push({ name: "groq" });
   if (config.OPENAI_API_KEY) chain.push({ name: "openai" });
   return chain;
@@ -118,6 +119,8 @@ function hasProviderKey(name: string): boolean {
       return Boolean(config.GROQ_API_KEY);
     case "openai":
       return Boolean(config.OPENAI_API_KEY);
+    case "gemini":
+      return Boolean(config.GEMINI_API_KEY);
     default:
       return false;
   }
@@ -133,6 +136,8 @@ async function callProvider(
       return callGroq(systemPrompt, userPrompt);
     case "openai":
       return callOpenAI(systemPrompt, userPrompt);
+    case "gemini":
+      return callGemini(systemPrompt, userPrompt);
     default:
       return null;
   }
@@ -214,6 +219,45 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<Cle
   const cleaned = data.choices?.[0]?.message?.content?.trim() ?? userPrompt;
   logCleanupCost("openai", model, data.usage?.prompt_tokens ?? 0, data.usage?.completion_tokens ?? 0);
   return { cleanedText: stripMarkdownCodeBlock(cleaned), provider: "openai", model };
+}
+
+// ---------------------------------------------------------------------------
+// Gemini
+// ---------------------------------------------------------------------------
+
+async function callGemini(systemPrompt: string, userPrompt: string): Promise<CleanupResult | null> {
+  if (!config.GEMINI_API_KEY) return null;
+
+  const model = config.TILTAB_CLEANUP_MODEL || "gemini-1.5-flash";
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${config.GEMINI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.1,
+      max_tokens: 4096,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gemini API error: ${res.status} ${errText}`);
+  }
+
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+  const cleaned = data.choices?.[0]?.message?.content?.trim() ?? userPrompt;
+  logCleanupCost("gemini", model, data.usage?.prompt_tokens ?? 0, data.usage?.completion_tokens ?? 0);
+  return { cleanedText: stripMarkdownCodeBlock(cleaned), provider: "gemini", model };
 }
 
 // ---------------------------------------------------------------------------
