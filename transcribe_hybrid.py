@@ -453,7 +453,7 @@ def transcribe_vosk_chunked(wav_path: str, model_path: str, chunk_seconds: float
 # ---------------------------------------------------------------------------
 # Whisper transcription (faster-whisper)
 # ---------------------------------------------------------------------------
-def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "distil-large-v3", progress_label: str = "Распознаю", initial_prompt: str | None = None, conservative: bool = False, word_timestamps: bool | None = None, vad_parameters: dict | None = None):
+def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "distil-large-v3", progress_label: str = "Распознаю", initial_prompt: str | None = None, conservative: bool = False, vad_parameters: dict | None = None):
     model = get_whisper_model(model_path)
     duration = get_audio_duration(wav_path)
     emit_progress(0, f"{progress_label}: загрузка модели...")
@@ -464,8 +464,7 @@ def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "d
     # Fine-tuned models are often more stable with greedy decoding
     beam_size = 1 if conservative else 5
     best_of = 1 if conservative else 5
-    if word_timestamps is None:
-        word_timestamps = False if conservative else True
+    word_timestamps = False if conservative else True
 
     transcribe_kwargs = dict(
         language=language if language else None,
@@ -700,7 +699,6 @@ def transcribe_tajik(wav_path: str):
                 fine_tuned_path,
                 progress_label="Тоҷикӣ распознаю",
                 conservative=True,
-                word_timestamps=True,
             )
             fine_quality = detect_hallucination(fine["text"], fine["segments"], "tg")
             fine["quality"] = fine_quality
