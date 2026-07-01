@@ -121,9 +121,17 @@ function buildSystemPrompt(targetName: string, sourceName?: string): string {
     ? `Translate the user's text from ${sourceName} into ${targetName}.`
     : `Translate the user's text into ${targetName}.`;
   return (
-    `${sourceHint} ` +
-    "Preserve meaning, tone, and context. " +
-    "Do not translate names of people, places, organizations, or loanwords that are commonly left in the original language. " +
+    "You are a professional translator.\n\n" +
+    `${sourceHint}\n\n` +
+    "Rules:\n" +
+    "- Preserve the original meaning exactly.\n" +
+    "- Do not add, remove, summarize, or infer information.\n" +
+    "- Translate every sentence in order.\n" +
+    "- Do not merge or split unrelated sentences.\n" +
+    "- Preserve names of people, places, organizations, brands, and abbreviations unless there is a well-established translation.\n" +
+    "- If a word or phrase is unclear, translate it as literally as possible instead of guessing.\n" +
+    "- Keep numbers, dates, and proper nouns accurate.\n" +
+    "- Maintain paragraph structure whenever possible.\n\n" +
     "Respond with ONLY the translated text, no explanations."
   );
 }
@@ -135,7 +143,7 @@ function buildPayload(targetName: string, sourceName: string | undefined, text: 
       { role: "system", content: buildSystemPrompt(targetName, sourceName) },
       { role: "user", content: text },
     ],
-    temperature: 0.3,
+    temperature: 0.0,
   };
 }
 

@@ -170,7 +170,7 @@ async function callGroq(systemPrompt: string, userPrompt: string): Promise<Clean
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.1,
+      temperature: 0.0,
       max_tokens: 4096,
     }),
   });
@@ -209,7 +209,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<Cle
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.1,
+      temperature: 0.0,
       max_tokens: 4096,
     }),
   });
@@ -248,7 +248,7 @@ async function callGemini(systemPrompt: string, userPrompt: string): Promise<Cle
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.1,
+      temperature: 0.0,
       max_tokens: 4096,
     }),
   });
@@ -339,59 +339,69 @@ function buildSystemPrompt(language: string): string {
     "Do NOT translate. Do NOT change the meaning. Do NOT rephrase. Do NOT add explanations. " +
     "Do NOT add markdown. Return ONLY the cleaned text.";
 
+  const strictRules =
+    "\n\nUniversal constraints (apply to every edit):\n" +
+    "- Preserve the original meaning exactly. Do not add, remove, summarize, or infer information.\n" +
+    "- Keep every sentence in its original order. Do not merge or split sentences.\n" +
+    "- Maintain paragraph structure whenever possible.\n" +
+    "- If a word or phrase is unclear, keep it as-is instead of guessing.\n" +
+    "- Do not change names, verb tenses, numbers, dates, or word order.\n" +
+    "- Do not translate code-switched words; keep them exactly as they appear.";
+
   const lang = language.split("+")[0];
 
   if (lang === "tg") {
     return (
       `${base}\n\n` +
-      "Language: Tajik (Cyrillic script).\n\n" +
-      "Rules:\n" +
+      "Language: Tajik (Cyrillic script)." +
+      `${strictRules}\n\n` +
+      "Tajic-specific rules:\n" +
       "1. Output must be clean Tajik Cyrillic.\n" +
       "2. Convert any Arabic/Persian script leaks to Tajik Cyrillic.\n" +
       "3. Fix dates: use ordinal suffixes -ум/-юm. Examples: '1-ум', '2-юм', '3-юм', '12-ум', '13-ум', '22-юм', '23-юм'. '23 май' → '23-юми май'; '23.05.2024' → '23-юми майи соли 2024'.\n" +
       "4. Attach the object clitic 'ро' to the preceding word: 'мо ро' → 'моро', 'Аллоҳи меҳрабон ро' → 'Аллоҳи меҳрабонро'.\n" +
       "5. Normalize common names/places to standard Tajik spellings: Конибодом, Душанбе, Хуҷанд, Маҳбуба Ахмедова, Нозанин Ахмедова, Абдуфаттоҳ Иброҳимов, Қурбонгул Иброҳимова, Радиои Озоди, Хонаи муқаддас.\n" +
-      "6. Preserve Russian, Uzbek, or English code-switching insertions exactly as they appear. Do not translate them.\n" +
-      "7. If a segment is crying, laughter, applause, music, or unintelligible, replace it with [плач], [кулол], [аплодисменты], [музыка], or [неразборчиво] respectively.\n" +
-      "8. Do NOT change verb tenses, names, or word order."
+      "6. If a segment is crying, laughter, applause, music, or unintelligible, replace it with [плач], [кулол], [аплодисменты], [музыка], or [неразборчиво] respectively.\n" +
+      "7. Do NOT change verb tenses, names, or word order."
     );
   }
 
   if (lang === "ky") {
     return (
       `${base}\n\n` +
-      "Language: Kyrgyz (Cyrillic script).\n\n" +
-      "Rules:\n" +
+      "Language: Kyrgyz (Cyrillic script)." +
+      `${strictRules}\n\n` +
+      "Kyrgyz-specific rules:\n" +
       "1. Add punctuation and fix capitalization only.\n" +
       "2. Fix obvious spelling typos (one or two letters) if they are clearly wrong.\n" +
       "3. Capitalize proper nouns (country names, cities, people, organizations).\n" +
-      "4. Preserve Russian/English code-switching exactly as it appears.\n" +
-      "5. Mark obvious noise/garbage as [неразборчиво].\n" +
-      "6. Do NOT change words, verb forms, names, or word order.\n" +
-      "7. Do NOT rephrase sentences."
+      "4. Mark obvious noise/garbage as [неразборчиво].\n" +
+      "5. Do NOT change words, verb forms, names, or word order.\n" +
+      "6. Do NOT rephrase sentences."
     );
   }
 
   if (lang === "uz" || lang === "uz_cyrl") {
     return (
       `${base}\n\n` +
-      "Language: Uzbek (Latin script).\n\n" +
-      "Rules:\n" +
+      "Language: Uzbek (Latin script)." +
+      `${strictRules}\n\n` +
+      "Uzbek-specific rules:\n" +
       "1. Add punctuation and fix capitalization only.\n" +
       "2. Fix obvious spelling typos (one or two letters) if they are clearly wrong.\n" +
       "3. Capitalize proper nouns.\n" +
-      "4. Preserve Russian/English code-switching exactly as it appears.\n" +
-      "5. Mark obvious noise/garbage as [неразборчиво].\n" +
-      "6. Do NOT change words, verb forms, names, or word order.\n" +
-      "7. Do NOT rephrase sentences."
+      "4. Mark obvious noise/garbage as [неразборчиво].\n" +
+      "5. Do NOT change words, verb forms, names, or word order.\n" +
+      "6. Do NOT rephrase sentences."
     );
   }
 
   if (lang === "ru") {
     return (
       `${base}\n\n` +
-      "Language: Russian.\n\n" +
-      "Rules:\n" +
+      "Language: Russian." +
+      `${strictRules}\n\n` +
+      "Russian-specific rules:\n" +
       "1. Add punctuation and fix capitalization only.\n" +
       "2. Fix obvious spelling typos (one or two letters) if they are clearly wrong.\n" +
       "3. Preserve any Kyrgyz/Uzbek/English code-switching exactly as it appears.\n" +
@@ -403,8 +413,9 @@ function buildSystemPrompt(language: string): string {
 
   return (
     `${base}\n\n` +
-    `Language: ${languageName(language)}.\n\n` +
-    "Rules:\n" +
+    `Language: ${languageName(language)}.` +
+    `${strictRules}\n\n` +
+    "Generic rules:\n" +
     "1. Add proper punctuation and fix capitalization.\n" +
     "2. Fix obvious spelling typos only if they are clearly wrong.\n" +
     "3. Preserve any code-switching or loanwords exactly as they appear.\n" +
