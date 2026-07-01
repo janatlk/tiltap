@@ -23,6 +23,7 @@ import subprocess
 import tempfile
 import math
 from collections import Counter
+from difflib import SequenceMatcher
 
 import vad_utils
 import text_postprocessing
@@ -488,21 +489,35 @@ def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "d
     # Fine-tuned models are often more stable with greedy decoding, but allow override.
     beam_size = _whisper_beam_size(conservative)
     best_of = 1 if conservative else 5
-    word_timestamps = False if conservative else True
 
-    # For very short clips, conditioning on previous text can theoretically cause
-    # repetition artifacts, but our fine-tuned models rely on context for Turkic
-    # morphology. Keep it on by default; set TILTAB_WHISPER_CONDITION_SHORT=false
-    # to disable for noisy phrasebook clips.
+    # Word timestamps give per-word confidence and cleaner segment boundaries.
+    # Some fine-tuned CTranslate2 models produce garbage when word timestamps are
+    # requested, so keep the original conservative/non-conservative split unless
+    # explicitly overridden via TILTAB_WHISPER_WORD_TIMESTAMPS.
+    env_wts = os.environ.get("TILTAB_WHISPER_WORD_TIMESTAMPS", "").strip().lower()
+    if env_wts in ("0", "false", "off"):
+        word_timestamps = False
+    elif env_wts in ("1", "true", "on"):
+        word_timestamps = True
+    else:
+        word_timestamps = False if conservative else True
+
+    # Conditioning on previous text helps short clips but often causes drift and
+    # repetition on longer audio. Short clips keep it on by default; long clips
+    # (>30 s) turn it off by default.
     condition_on_previous_text = True
     if duration > 0 and duration <= 30:
         condition_on_previous_text = os.environ.get("TILTAB_WHISPER_CONDITION_SHORT", "true").lower() not in ("0", "false", "off")
+    else:
+        condition_on_previous_text = os.environ.get("TILTAB_WHISPER_CONDITION_LONG", "true").lower() not in ("0", "false", "off")
+
+    use_vad_filter = os.environ.get("TILTAB_WHISPER_VAD_FILTER", "true").lower() not in ("0", "false", "off")
 
     transcribe_kwargs = dict(
         language=language if language else None,
         word_timestamps=word_timestamps,
         condition_on_previous_text=condition_on_previous_text,
-        vad_filter=True,
+        vad_filter=use_vad_filter,
         beam_size=beam_size,
         best_of=best_of,
         initial_prompt=prompt,
@@ -591,12 +606,16 @@ def transcribe_whisper_with_vad(
         )
 
     duration = get_audio_duration(wav_path)
-    threshold = _vad_float_env("TILTAB_VAD_THRESHOLD", 0.5)
-    min_speech_ms = _vad_int_env("TILTAB_VAD_MIN_SPEECH_MS", 250)
+    # Conservative defaults: keep more speech, merge across longer pauses.
+    # VAD chunking is opt-in, so these only apply when TILTAB_VAD_ENABLED=true.
+    threshold = _vad_float_env("TILTAB_VAD_THRESHOLD", 0.3)
+    min_speech_ms = _vad_int_env("TILTAB_VAD_MIN_SPEECH_MS", 150)
     min_silence_ms = _vad_int_env("TILTAB_VAD_MIN_SILENCE_MS", 100)
-    speech_pad_ms = _vad_int_env("TILTAB_VAD_SPEECH_PAD_MS", 100)
-    max_gap = _vad_float_env("TILTAB_VAD_MAX_GAP", 1.5)
+    speech_pad_ms = _vad_int_env("TILTAB_VAD_SPEECH_PAD_MS", 200)
+    max_gap = _vad_float_env("TILTAB_VAD_MAX_GAP", 2.5)
     max_duration = _vad_float_env("TILTAB_VAD_MAX_DURATION", 60.0)
+    overlap_ms = _vad_float_env("TILTAB_VAD_OVERLAP_MS", 400)
+    overlap_sec = overlap_ms / 1000.0
 
     emit_progress(2, f"{progress_label}: VAD segmentation...")
     speech_segments = vad_utils.get_speech_segments(
@@ -632,7 +651,10 @@ def transcribe_whisper_with_vad(
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             chunk_path = tmp.name
         try:
-            vad_utils.slice_wav_chunk(wav_path, chunk_path, chunk["start"], chunk["end"])
+            # Slice with overlap so Whisper has acoustic context at chunk boundaries.
+            slice_start = max(0.0, chunk["start"] - overlap_sec)
+            slice_end = min(duration, chunk["end"] + overlap_sec)
+            vad_utils.slice_wav_chunk(wav_path, chunk_path, slice_start, slice_end)
             result = transcribe_whisper(
                 chunk_path,
                 language,
@@ -642,10 +664,15 @@ def transcribe_whisper_with_vad(
                 conservative=conservative,
                 vad_parameters=vad_parameters,
             )
-            offset = chunk["start"]
+            offset = slice_start
             for seg in result.get("segments", []):
-                seg["start"] = round(seg["start"] + offset, 3)
-                seg["end"] = round(seg["end"] + offset, 3)
+                seg_start = seg["start"] + offset
+                seg_end = seg["end"] + offset
+                # Keep segments that overlap the original chunk region.
+                if seg_end <= chunk["start"] or seg_start >= chunk["end"]:
+                    continue
+                seg["start"] = round(seg_start, 3)
+                seg["end"] = round(seg_end, 3)
                 all_segments.append(seg)
             if result.get("text", "").strip():
                 full_text_parts.append(result["text"].strip())
@@ -657,6 +684,21 @@ def transcribe_whisper_with_vad(
                 pass
 
     all_segments.sort(key=lambda s: s["start"])
+    # Deduplicate overlapping boundary segments (same text within ~1 s).
+    deduped = []
+    for seg in all_segments:
+        if deduped:
+            last = deduped[-1]
+            time_overlap = max(0.0, min(seg["end"], last["end"]) - max(seg["start"], last["start"]))
+            text_similarity = SequenceMatcher(None, seg["text"], last["text"]).ratio()
+            if time_overlap > 0.5 and text_similarity > 0.85:
+                # Keep the longer segment.
+                if len(seg["text"]) > len(last["text"]):
+                    deduped[-1] = seg
+                continue
+        deduped.append(seg)
+    all_segments = deduped
+
     for new_id, seg in enumerate(all_segments):
         seg["id"] = new_id
 
@@ -843,21 +885,26 @@ def transcribe_tajik(wav_path: str):
     fine_tuned_path = "models/whisper-tajik-finetuned-ct2"
     has_fine_tuned = os.path.exists(fine_tuned_path)
 
+    # Conservative decoding is safer for clean speech; disable it for hard
+    # multi-speaker/noisy audio if TILTAB_TAJIK_CONSERVATIVE=false.
+    conservative_tg = os.environ.get("TILTAB_TAJIK_CONSERVATIVE", "true").lower() not in ("0", "false", "off")
+
     candidates = []
 
     # Primary: local open-source fine-tuned Whisper Tajik model (CTranslate2).
     if has_fine_tuned:
-        log_diagnostic(language="tg", primary_model="whisper-tajik-finetuned-ct2")
+        log_diagnostic(language="tg", primary_model="whisper-tajik-finetuned-ct2", conservative=conservative_tg)
         try:
             fine = transcribe_whisper_with_vad(
                 wav_path,
                 "tg",
                 fine_tuned_path,
                 progress_label="Тоҷикӣ распознаю",
-                conservative=True,
+                conservative=conservative_tg,
             )
             fine_quality = detect_hallucination(fine["text"], fine["segments"], "tg")
             fine["quality"] = fine_quality
+            fine["model"] = "whisper-tajik-finetuned-ct2"
             log_diagnostic(language="tg", fine_tuned_quality=fine_quality)
 
             # Trust the fine-tuned model unless it shows obvious hallucination artifacts.
@@ -866,6 +913,7 @@ def transcribe_tajik(wav_path: str):
             fine = text_postprocessing.postprocess_transcription(fine, "tg")
             serious_flags = [f for f in fine_quality["flags"] if f not in ("low_confidence",)]
             if not serious_flags:
+                log_diagnostic(language="tg", selected_model=fine["model"], selected_quality=fine_quality)
                 return fine
             candidates.append(fine)
         except Exception as e:
@@ -887,6 +935,7 @@ def transcribe_tajik(wav_path: str):
             )
             fallback_quality = detect_hallucination(fallback["text"], fallback["segments"], "tg")
             fallback["quality"] = fallback_quality
+            fallback["model"] = "distil-large-v3"
             candidates.append(fallback)
         except Exception as e:
             log_diagnostic(language="tg", whisper_error=str(e))
@@ -905,6 +954,7 @@ def transcribe_tajik(wav_path: str):
                 vosk_result = {"text": full_text, "language": "tg", "segments": segments}
                 vosk_quality = detect_hallucination(full_text, segments, "tg")
                 vosk_result["quality"] = vosk_quality
+                vosk_result["model"] = "vosk-small-tg"
                 candidates.append(vosk_result)
             except Exception as e:
                 log_diagnostic(language="tg", vosk_error=str(e))
@@ -913,6 +963,13 @@ def transcribe_tajik(wav_path: str):
 
     if best is None:
         raise RuntimeError("All Tajik transcription models failed")
+
+    log_diagnostic(
+        language="tg",
+        selected_model=best.get("model", "unknown"),
+        selected_flags=best.get("quality", {}).get("flags", []),
+        selected_char_count=len(best.get("text", "")),
+    )
 
     return best
 

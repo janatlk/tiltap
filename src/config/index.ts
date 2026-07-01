@@ -50,7 +50,7 @@ const envSchema = z.object({
     .optional()
     .or(z.literal(""))
     .default("1")
-    .transform((v) => !v || ["0", "false", "no", "off"].includes(v.toLowerCase())),
+    .transform((v) => !v || ["1", "true", "yes", "on"].includes(v.toLowerCase())),
   TILTAB_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("gpt-4o-mini"),
   TILTAB_GROQ_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("llama-3.3-70b-versatile"),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
