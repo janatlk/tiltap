@@ -344,9 +344,14 @@ function buildSystemPrompt(language: string): string {
     "- Preserve the original meaning exactly. Do not add, remove, summarize, or infer information.\n" +
     "- Keep every sentence in its original order. Do not merge or split sentences.\n" +
     "- Maintain paragraph structure whenever possible.\n" +
-    "- If a word or phrase is unclear, keep it as-is instead of guessing.\n" +
-    "- Do not change names, verb tenses, numbers, dates, or word order.\n" +
-    "- Do not translate code-switched words; keep them exactly as they appear.";
+    "- Add only minimal punctuation necessary for readability.\n" +
+    "- Remove only obvious duplicated words caused by transcription errors.\n" +
+    "- If you are not highly confident that a word is incorrect, leave it unchanged.\n" +
+    "- Do not correct factual errors unless they are obvious transcription mistakes.\n" +
+    "- Do not change names, verb tenses, numbers, or dates.\n" +
+    "- Do not reorder words unless necessary to fix obvious STT errors.\n" +
+    "- Do not translate code-switched words; keep them exactly as they appear.\n" +
+    "- When in doubt, prefer leaving an error unchanged over introducing a new one."
 
   const lang = language.split("+")[0];
 
@@ -362,7 +367,7 @@ function buildSystemPrompt(language: string): string {
       "4. Attach the object clitic 'ро' to the preceding word: 'мо ро' → 'моро', 'Аллоҳи меҳрабон ро' → 'Аллоҳи меҳрабонро'.\n" +
       "5. Normalize common names/places to standard Tajik spellings: Конибодом, Душанбе, Хуҷанд, Маҳбуба Ахмедова, Нозанин Ахмедова, Абдуфаттоҳ Иброҳимов, Қурбонгул Иброҳимова, Радиои Озоди, Хонаи муқаддас.\n" +
       "6. If a segment is crying, laughter, applause, music, or unintelligible, replace it with [плач], [кулол], [аплодисменты], [музыка], or [неразборчиво] respectively.\n" +
-      "7. Do NOT change verb tenses, names, or word order."
+      "7. Do NOT rephrase sentences or change the intended meaning."
     );
   }
 
@@ -376,8 +381,7 @@ function buildSystemPrompt(language: string): string {
       "2. Fix obvious spelling typos (one or two letters) if they are clearly wrong.\n" +
       "3. Capitalize proper nouns (country names, cities, people, organizations).\n" +
       "4. Mark obvious noise/garbage as [неразборчиво].\n" +
-      "5. Do NOT change words, verb forms, names, or word order.\n" +
-      "6. Do NOT rephrase sentences."
+      "5. Do NOT rephrase sentences or change the intended meaning."
     );
   }
 
@@ -391,8 +395,7 @@ function buildSystemPrompt(language: string): string {
       "2. Fix obvious spelling typos (one or two letters) if they are clearly wrong.\n" +
       "3. Capitalize proper nouns.\n" +
       "4. Mark obvious noise/garbage as [неразборчиво].\n" +
-      "5. Do NOT change words, verb forms, names, or word order.\n" +
-      "6. Do NOT rephrase sentences."
+      "5. Do NOT rephrase sentences or change the intended meaning."
     );
   }
 
@@ -406,8 +409,7 @@ function buildSystemPrompt(language: string): string {
       "2. Fix obvious spelling typos (one or two letters) if they are clearly wrong.\n" +
       "3. Preserve any Kyrgyz/Uzbek/English code-switching exactly as it appears.\n" +
       "4. Mark obvious noise/garbage as [неразборчиво].\n" +
-      "5. Do NOT change words, verb forms, names, or word order.\n" +
-      "6. Do NOT rephrase sentences."
+      "5. Do NOT rephrase sentences or change the intended meaning."
     );
   }
 
@@ -420,7 +422,7 @@ function buildSystemPrompt(language: string): string {
     "2. Fix obvious spelling typos only if they are clearly wrong.\n" +
     "3. Preserve any code-switching or loanwords exactly as they appear.\n" +
     "4. Mark obvious noise/garbage as [unintelligible].\n" +
-    "5. Do NOT translate, do NOT change names, do NOT change meaning, do NOT rephrase."
+    "5. Do NOT translate, do NOT change names, do NOT change meaning, do NOT rephrase sentences."
   );
 }
 
