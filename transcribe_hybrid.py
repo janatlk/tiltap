@@ -889,6 +889,9 @@ def transcribe_tajik(wav_path: str):
     # multi-speaker/noisy audio if TILTAB_TAJIK_CONSERVATIVE=false.
     conservative_tg = os.environ.get("TILTAB_TAJIK_CONSERVATIVE", "true").lower() not in ("0", "false", "off")
 
+    # Temporarily disable fallback models to isolate the primary fine-tuned model.
+    disable_fallback = os.environ.get("TILTAB_TAJIK_DISABLE_FALLBACK", "").lower() in ("1", "true", "yes", "on")
+
     candidates = []
 
     # Primary: local open-source fine-tuned Whisper Tajik model (CTranslate2).
@@ -911,6 +914,11 @@ def transcribe_tajik(wav_path: str):
             # Low log-prob confidence is expected with conservative decoding and should
             # not trigger a fallback to the generic model.
             fine = text_postprocessing.postprocess_transcription(fine, "tg")
+
+            if disable_fallback:
+                log_diagnostic(language="tg", fallback="disabled", returning=fine.get("model", "fine-tuned"), char_count=len(fine.get("text", "")))
+                return fine
+
             serious_flags = [f for f in fine_quality["flags"] if f not in ("low_confidence",)]
             if not serious_flags:
                 log_diagnostic(language="tg", selected_model=fine["model"], selected_quality=fine_quality)
@@ -922,9 +930,11 @@ def transcribe_tajik(wav_path: str):
             # before trying the next model.
             if "memory" in str(e).lower() or "allocate" in str(e).lower():
                 release_whisper_models()
+            if disable_fallback:
+                raise
 
     # Fall back to generic Whisper if the fine-tuned model failed or hallucinated.
-    if not candidates or all(c.get("quality", {}).get("is_hallucination", True) for c in candidates):
+    if not disable_fallback and (not candidates or all(c.get("quality", {}).get("is_hallucination", True) for c in candidates)):
         log_diagnostic(language="tg", fallback_model="distil-large-v3")
         try:
             fallback = transcribe_whisper_with_vad(
@@ -943,7 +953,7 @@ def transcribe_tajik(wav_path: str):
                 release_whisper_models()
 
     # Final fallback: small Vosk Tajik model. It is much lighter and avoids OOM.
-    if not candidates or all(c.get("quality", {}).get("is_hallucination", True) for c in candidates):
+    if not disable_fallback and (not candidates or all(c.get("quality", {}).get("is_hallucination", True) for c in candidates)):
         vosk_path = "models/vosk-model-small-tg-0.22"
         if os.path.exists(vosk_path):
             log_diagnostic(language="tg", fallback_model="vosk-small-tg")
