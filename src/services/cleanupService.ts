@@ -355,7 +355,7 @@ function buildSystemPrompt(language: string): string {
       `${base}\n\n` +
       "Language: Tajik (Cyrillic script)." +
       `${strictRules}\n\n` +
-      "Tajic-specific rules:\n" +
+      "Tajik-specific rules:\n" +
       "1. Output must be clean Tajik Cyrillic.\n" +
       "2. Convert any Arabic/Persian script leaks to Tajik Cyrillic.\n" +
       "3. Fix dates: use ordinal suffixes -ум/-юm. Examples: '1-ум', '2-юм', '3-юм', '12-ум', '13-ум', '22-юм', '23-юм'. '23 май' → '23-юми май'; '23.05.2024' → '23-юми майи соли 2024'.\n" +
