@@ -37,6 +37,13 @@ export async function cleanupTranscription(
   }
 
   const lang = language.split("+")[0];
+
+  // Disable destructive LLM cleanup for non-Tajik languages unless explicitly enabled.
+  // Tajik still needs script normalization and named-entity fixes.
+  if (lang !== "tg" && !config.TILTAB_CLEANUP_NON_TAJIK) {
+    return { cleanedText: text, provider: "disabled", model: "" };
+  }
+
   const hash = createHash("sha256").update(text).digest("hex");
 
   // Check DB cache first.
@@ -279,10 +286,37 @@ function stripMarkdownCodeBlock(text: string): string {
   return text.replace(/^```(?:\w+)?\n?/, "").replace(/\n?```$/, "").trim();
 }
 
+function levenshteinDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const prev = new Array(n + 1);
+  const curr = new Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    for (let j = 0; j <= n; j++) prev[j] = curr[j];
+  }
+  return prev[n];
+}
+
+function similarityRatio(a: string, b: string): number {
+  const dist = levenshteinDistance(a, b);
+  const maxLen = Math.max(a.length, b.length);
+  return maxLen === 0 ? 1 : 1 - dist / maxLen;
+}
+
 function isCleanupSane(original: string, cleaned: string): boolean {
   if (!cleaned || cleaned.length < original.length * 0.4) return false;
   if (cleaned.length > original.length * 3) return false;
   if (/\n\n|^(Here is|Below is|Note:|Translation:|Output:)/i.test(cleaned)) return false;
+  // If the LLM changed more than 15 % of the characters, it is probably rephrasing.
+  if (similarityRatio(original, cleaned) < 0.85) return false;
   return true;
 }
 
@@ -328,11 +362,13 @@ function buildSystemPrompt(language: string): string {
       `${base}\n\n` +
       "Language: Kyrgyz (Cyrillic script).\n\n" +
       "Rules:\n" +
-      "1. Fix grammar, case, and punctuation only.\n" +
-      "2. Capitalize proper nouns (country names, cities, people, organizations).\n" +
-      "3. Preserve Russian/English code-switching exactly as it appears.\n" +
-      "4. Mark obvious noise/garbage as [неразборчиво].\n" +
-      "5. Do NOT change names, word order, or meaning."
+      "1. Add punctuation and fix capitalization only.\n" +
+      "2. Fix obvious spelling typos (one or two letters) if they are clearly wrong.\n" +
+      "3. Capitalize proper nouns (country names, cities, people, organizations).\n" +
+      "4. Preserve Russian/English code-switching exactly as it appears.\n" +
+      "5. Mark obvious noise/garbage as [неразборчиво].\n" +
+      "6. Do NOT change words, verb forms, names, or word order.\n" +
+      "7. Do NOT rephrase sentences."
     );
   }
 
@@ -341,11 +377,13 @@ function buildSystemPrompt(language: string): string {
       `${base}\n\n` +
       "Language: Uzbek (Latin script).\n\n" +
       "Rules:\n" +
-      "1. Fix grammar, spelling, and punctuation only.\n" +
-      "2. Capitalize proper nouns.\n" +
-      "3. Preserve Russian/English code-switching exactly as it appears.\n" +
-      "4. Mark obvious noise/garbage as [неразборчиво].\n" +
-      "5. Do NOT change names, word order, or meaning."
+      "1. Add punctuation and fix capitalization only.\n" +
+      "2. Fix obvious spelling typos (one or two letters) if they are clearly wrong.\n" +
+      "3. Capitalize proper nouns.\n" +
+      "4. Preserve Russian/English code-switching exactly as it appears.\n" +
+      "5. Mark obvious noise/garbage as [неразборчиво].\n" +
+      "6. Do NOT change words, verb forms, names, or word order.\n" +
+      "7. Do NOT rephrase sentences."
     );
   }
 
@@ -354,10 +392,12 @@ function buildSystemPrompt(language: string): string {
       `${base}\n\n` +
       "Language: Russian.\n\n" +
       "Rules:\n" +
-      "1. Fix grammar, punctuation, and capitalization only.\n" +
-      "2. Preserve any Kyrgyz/Uzbek/English code-switching exactly as it appears.\n" +
-      "3. Mark obvious noise/garbage as [неразборчиво].\n" +
-      "4. Do NOT change names, word order, or meaning."
+      "1. Add punctuation and fix capitalization only.\n" +
+      "2. Fix obvious spelling typos (one or two letters) if they are clearly wrong.\n" +
+      "3. Preserve any Kyrgyz/Uzbek/English code-switching exactly as it appears.\n" +
+      "4. Mark obvious noise/garbage as [неразборчиво].\n" +
+      "5. Do NOT change words, verb forms, names, or word order.\n" +
+      "6. Do NOT rephrase sentences."
     );
   }
 
@@ -366,9 +406,10 @@ function buildSystemPrompt(language: string): string {
     `Language: ${languageName(language)}.\n\n` +
     "Rules:\n" +
     "1. Add proper punctuation and fix capitalization.\n" +
-    "2. Preserve any code-switching or loanwords exactly as they appear.\n" +
-    "3. Mark obvious noise/garbage as [unintelligible].\n" +
-    "4. Do NOT translate, do NOT change names, do NOT change meaning."
+    "2. Fix obvious spelling typos only if they are clearly wrong.\n" +
+    "3. Preserve any code-switching or loanwords exactly as they appear.\n" +
+    "4. Mark obvious noise/garbage as [unintelligible].\n" +
+    "5. Do NOT translate, do NOT change names, do NOT change meaning, do NOT rephrase."
   );
 }
 

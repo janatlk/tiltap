@@ -41,13 +41,25 @@ export async function validateMediaUrl(url: string): Promise<MediaValidation> {
     proc.stdout.on("data", (d: Buffer) => { stdout += d.toString("utf-8"); });
     proc.stderr.on("data", (d: Buffer) => { stderr += d.toString("utf-8"); });
 
+    let settled = false;
     const timeout = setTimeout(() => {
+      settled = true;
+      // Give the Python process a moment to clean up, then force-kill if needed.
       proc.kill("SIGTERM");
+      const killTimer = setTimeout(() => {
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          // ignore
+        }
+      }, 5_000);
+      proc.on("exit", () => clearTimeout(killTimer));
       resolve({ ok: false, reason: "timeout" });
-    }, 30_000);
+    }, 60_000);
 
     proc.on("close", (code: number) => {
       clearTimeout(timeout);
+      if (settled) return;
       if (code !== 0) {
         resolve({ ok: false, reason: "unknown" });
         return;
@@ -61,6 +73,7 @@ export async function validateMediaUrl(url: string): Promise<MediaValidation> {
     });
     proc.on("error", () => {
       clearTimeout(timeout);
+      if (settled) return;
       resolve({ ok: false, reason: "unknown" });
     });
   });

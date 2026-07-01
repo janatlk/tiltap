@@ -708,6 +708,13 @@ function getYouTubeErrorMessage(reason: string | undefined, lang: SupportedLangu
       en: "❌ The video is age-restricted. The bot cannot download it.",
       ru: "❌ Видео имеет возрастное ограничение. Бот не может его скачать.",
     },
+    live_stream: {
+      ky: "❌ Тике эфирди транскрипциялоого болбойт. Видео аяктаганда жаңы шилтеме жибериңиз.",
+      tg: "❌ Пахши мустақимро транскрипция кардан мумкин нест. Лутфан, пас аз анҷоми видео пайванди нав фиристед.",
+      uz: "❌ Jonli efirni transkripsiya qilish mumkin emas. Iltimos, video tugagach yangi havola yuboring.",
+      en: "❌ Live streams cannot be transcribed. Please send a new link after the broadcast ends.",
+      ru: "❌ Прямые трансляции нельзя расшифровать. Пожалуйста, пришлите новую ссылку после окончания эфира.",
+    },
     timeout: {
       ky: "❌ Видеону текшерүү өтө көп убакыт алды. Интернет же YouTube көйгөйлөрү мүмкүн.",
       tg: "❌ Санҷиши видео хеле тулонӣ шуд. Эҳтимол мушкилоти интернет ё YouTube.",

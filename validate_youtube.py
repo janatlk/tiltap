@@ -5,6 +5,7 @@ import sys
 import json
 import socket
 import os
+import signal
 import tempfile
 import yt_dlp
 
@@ -17,21 +18,47 @@ from youtube_cobalt import validate_via_cobalt
 # Hard timeout so we never hang forever on slow/unreachable URLs
 socket.setdefaulttimeout(15)
 
+# Absolute wall-clock limit for the whole validation step (yt-dlp can still
+# spend a lot of time retrying player clients/manifests even with the socket
+# timeout).  This must be shorter than the Node timeout so the process returns
+# a reason instead of being killed mid-flight.
+VALIDATION_TIMEOUT_SECONDS = 20
+
+
+class ValidationTimeout(Exception):
+    pass
+
+
+def _timeout_handler(signum, frame):
+    raise ValidationTimeout()
+
 
 def _is_youtube_domain(url: str) -> bool:
     host = urlparse(url).netloc.lower()
     return any(d in host for d in ("youtube.com", "youtu.be", "youtube-nocookie.com"))
 
 
-def validate(url: str):
+def _extract_live_status(info) -> str | None:
+    """Return 'live_stream' if the URL points to an active/upcoming live stream."""
+    if not info:
+        return None
+    if info.get("is_live"):
+        return "live_stream"
+    live_status = info.get("live_status")
+    if live_status in ("is_live", "is_upcoming"):
+        return "live_stream"
+    return None
+
+
+def _validate(url: str):
     opts = {
         "quiet": True,
         "simulate": True,
         "no_warnings": True,
         # Skip expensive metadata extraction where possible
         "skip_download": True,
-        "format": "worstaudio/worst",
         "extract_flat": False,
+        "noplaylist": True,
         "playlist_items": "1",
         "geo_bypass": True,
         # Mimic a real desktop browser to reduce bot detection.
@@ -60,10 +87,15 @@ def validate(url: str):
             info = ydl.extract_info(url, download=False)
             if not info:
                 return {"ok": False, "reason": "unknown", "error": "No metadata returned"}
+
+            live_status = _extract_live_status(info)
+            if live_status == "live_stream":
+                return {"ok": False, "reason": "live_stream", "error": "Live streams cannot be transcribed"}
+
             return {
                 "ok": True,
                 "title": info.get("title", ""),
-                "duration": info.get("duration", 0),
+                "duration": info.get("duration") or 0,
                 "uploader": info.get("uploader", ""),
             }
     except yt_dlp.utils.DownloadError as e:
@@ -93,6 +125,25 @@ def validate(url: str):
         return {"ok": False, "reason": "unknown", "error": str(e)}
     finally:
         cleanup_temp_cookies(cookies_path)
+
+
+def validate(url: str):
+    """Run _validate with a hard wall-clock timeout."""
+    has_alarm = hasattr(signal, "SIGALRM") and hasattr(signal, "alarm")
+    old_handler = None
+    if has_alarm:
+        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(VALIDATION_TIMEOUT_SECONDS)
+
+    try:
+        return _validate(url)
+    except ValidationTimeout:
+        return {"ok": False, "reason": "timeout", "error": "Validation timed out"}
+    finally:
+        if has_alarm:
+            signal.alarm(0)
+            if old_handler is not None:
+                signal.signal(signal.SIGALRM, old_handler)
 
 
 if __name__ == "__main__":

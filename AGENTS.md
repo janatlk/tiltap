@@ -117,11 +117,13 @@ All transcription runs locally with open-source models. The routing per language
 | Language | Primary model | Fallback chain | Hard char/word | Notes |
 |----------|---------------|----------------|----------------|-------|
 | `ky` | Vosk `vosk-model-ky-0.42` (chunked, 25 s windows / 5 s overlap) | Vosk small | 84.5% / 75.5% | Generic Whisper does not support Kyrgyz. |
-| `tg` | Whisper fine-tuned `models/whisper-tajik-finetuned-ct2` | Generic Whisper `distil-large-v3` → Vosk small tg | 93.8% / 92.7% | `burhon97`, `abduaziz`, and generic `whisper-large-v3-turbo` all scored < 25% char on the hard fixture. |
-| `uz` | Whisper fine-tuned Rubai `models/rubai-ct2-int8` (files < 180 s) | Vosk small uz → generic Whisper | 91.5% / 91.5% | `Kotib/uzbek_stt_v1` reached only ~51% char and is 2× slower than Rubai. |
+| `tg` | **ElevenLabs Scribe v2** via VAD pre-segmentation (when `ELEVENLABS_API_KEY` is set) | Fine-tuned Whisper `models/whisper-tajik-finetuned-ct2` → `distil-large-v3` → Vosk small tg | 94.3% / 94.4% | Local Whisper needs enough RAM; on low-memory machines it falls back to Vosk small. |
+| `uz` | Whisper fine-tuned Rubai `models/rubai-ct2-int8` (files < 600 s) | Vosk small uz → generic Whisper | 88.0% / 42.9% | `Kotib/uzbek_stt_v1` reached only ~51% char and is 2× slower than Rubai. |
 | `ru` | Vosk `vosk-model-small-ru-0.22` if present, else Whisper medium | — | — | — |
 | `en` | Whisper `distil-large-v3` | — | — | — |
 | `auto` / `multi` | Whisper dual-pass (auto-detect + Russian forced) | — | — | For Turkic/Russian code-switching. |
+
+Latest run: `python benchmark.py test_audio/hard_manifest.json` (2026-07-01).
 
 Long Kyrgyz audio is processed in sliding 25-second chunks with 5-second overlap to avoid the large Vosk model missing context on clips longer than ~60 s. Timestamps and deduplication are applied across chunks.
 

@@ -58,6 +58,10 @@ tmp/
 tmp_*.wav
 tmp_*.json
 tmp_*.txt
+
+# YouTube cookies (sensitive session data)
+cookies.txt
+*.cookies.txt
 *.bak
 
 # Screenshots / local assets

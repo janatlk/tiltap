@@ -577,8 +577,9 @@ def mark_noise(text: str, language: str) -> str:
 def _has_suspicious_consonant_clusters(text: str) -> bool:
     """Detect pseudo-Cyrillic hallucinations with unusual consonant clusters.
 
-    Natural Tajik/Russian words very rarely contain several long consonant runs;
-    Whisper hallucinations on music/noise often do.
+    Natural Turkic/Russian words can contain 3-consonant clusters, so the bar
+    must be high enough not to reject valid speech. Whisper hallucinations on
+    music/noise, on the other hand, often contain many long consonant runs.
     """
     consonants = set(
         "бвгджзйклмнпрстфхцчшщБВГДЖЗЙКЛМНПРСТФХЦЧШЩҒғҚқҲҳҶҷ"
@@ -596,10 +597,13 @@ def _has_suspicious_consonant_clusters(text: str) -> bool:
         runs.append(cur)
 
     # A single extremely long run is a clear hallucination.
-    if any(r >= 5 for r in runs):
+    if any(r >= 7 for r in runs):
         return True
-    # Multiple 3+ consonant clusters in one segment are also suspicious.
-    if sum(1 for r in runs if r >= 3) >= 3:
+    # Several long clusters are suspicious; short 3-consonant runs are normal.
+    if sum(1 for r in runs if r >= 4) >= 3:
+        return True
+    # Many 3-consonant clusters only in very short segments.
+    if sum(1 for r in runs if r >= 3) >= 6:
         return True
     return False
 

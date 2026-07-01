@@ -44,7 +44,15 @@ const envSchema = z.object({
     ),
   TILTAB_CLEANUP_PROVIDER: z.enum(["openai", "groq", "gemini", "none"]).optional(),
   TILTAB_CLEANUP_MODEL: z.string().optional().or(z.literal("")),
+  // Enable LLM cleanup for non-Tajik languages. Tajik cleanup is always enabled unless provider is "none".
+  TILTAB_CLEANUP_NON_TAJIK: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .default("1")
+    .transform((v) => !v || ["0", "false", "no", "off"].includes(v.toLowerCase())),
   TILTAB_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("gpt-4o-mini"),
+  TILTAB_GROQ_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("llama-3.3-70b-versatile"),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
   DATABASE_URL: isTest
     ? z.string().default("")
