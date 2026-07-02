@@ -27,7 +27,7 @@ const envSchema = z.object({
 
   ELEVENLABS_API_KEY: z.string().optional().or(z.literal("")),
   ELEVENLABS_MODEL_ID: z.string().optional().or(z.literal("")).default("scribe_v2"),
-  TILTAB_STT_PROVIDER: z.enum(["openai", "local", "auto", "elevenlabs"]).default("auto"),
+  TILTAB_STT_PROVIDER: z.enum(["openai", "local", "auto", "elevenlabs"]).default("local"),
   TILTAB_STT_SERVICE_URL: z.string().url().optional().or(z.literal("")),
   // Comma-separated list of language codes for which Groq Whisper may be used as a fallback.
   // Default is "en" because Groq Whisper quality drops significantly for non-English languages.

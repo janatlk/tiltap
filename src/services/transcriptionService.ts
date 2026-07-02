@@ -31,8 +31,7 @@ export async function transcribeAudio(
   const provider = config.TILTAB_STT_PROVIDER;
   const normalizedLang = language ? normalizeLanguageCodeOrKeep(language) : undefined;
 
-  // Tajik always runs the local open-source fine-tuned Whisper model. This avoids
-  // ElevenLabs/OpenAI STT spend and uses the model selected during benchmarking.
+  // Tajik always runs the local open-source fine-tuned Whisper model.
   if (normalizedLang === "tg") {
     const result = await runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress, abortSignal);
     return normalizeTranscriptionResult(result);
@@ -75,7 +74,7 @@ export async function transcribeAudio(
   }
 
   // Auto mode: cloud-first. ElevenLabs → OpenAI/Groq → local fallback only
-  // when no cloud keys are configured (local models are deprecated in production).
+  // when no cloud keys are configured. Use provider=local to stay offline.
   const hasCloudKey = Boolean(config.ELEVENLABS_API_KEY || config.OPENAI_API_KEY || config.GROQ_API_KEY);
   const cloudErrors: string[] = [];
 

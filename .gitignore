@@ -67,6 +67,9 @@ cookies.txt
 # Screenshots / local assets
 *.png
 
+# Deployment keys
+.keys/
+
 # Large downloaded test fixtures
 test_audio/youtube/
 test_audio/cache/

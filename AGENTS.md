@@ -112,20 +112,32 @@ Local audio fixtures live in `test_audio/` and are described by `test_audio/mani
 
 ## Local STT Routing (`transcribe_hybrid.py`)
 
-All transcription runs locally with open-source models. The routing per language is based on a hard benchmark of real YouTube clips (`test_audio/hard_manifest.json`) run by `scripts/benchmark_models.py`:
+All transcription runs locally with open-source models. `TILTAB_STT_PROVIDER` defaults to `local`; cloud providers are only used if explicitly set.
+
+Routing per language is based on the hard benchmark of real YouTube clips (`test_audio/hard_manifest.json`):
 
 | Language | Primary model | Fallback chain | Hard char/word | Notes |
 |----------|---------------|----------------|----------------|-------|
 | `ky` | Vosk `vosk-model-ky-0.42` (chunked, 25 s windows / 5 s overlap) | Vosk small | 84.5% / 75.5% | Generic Whisper does not support Kyrgyz. |
-| `tg` | **ElevenLabs Scribe v2** via VAD pre-segmentation (when `ELEVENLABS_API_KEY` is set) | Fine-tuned Whisper `models/whisper-tajik-finetuned-ct2` → `distil-large-v3` → Vosk small tg | 94.3% / 94.4% | Local Whisper needs enough RAM; on low-memory machines it falls back to Vosk small. |
-| `uz` | Whisper fine-tuned Rubai `models/rubai-ct2-int8` (files < 600 s) | Vosk small uz → generic Whisper | 88.0% / 42.9% | `Kotib/uzbek_stt_v1` reached only ~51% char and is 2× slower than Rubai. |
-| `ru` | Vosk `vosk-model-small-ru-0.22` if present, else Whisper medium | — | — | — |
-| `en` | Whisper `distil-large-v3` | — | — | — |
-| `auto` / `multi` | Whisper dual-pass (auto-detect + Russian forced) | — | — | For Turkic/Russian code-switching. |
+| `tg` | Fine-tuned Whisper `models/whisper-tajik-finetuned-ct2` | Local Whisper `models/whisper-large-v3-turbo-ct2` → Vosk small tg | 94.3% / 94.4% | Local Whisper needs enough RAM; on low-memory machines it falls back to Vosk small. |
+| `uz` | Whisper fine-tuned Rubai `models/rubai-ct2-int8` (files < 600 s) | Local Whisper `models/whisper-large-v3-turbo-ct2` → Vosk small uz | 81.4% / 67.9% | Best known local Uzbek model. |
+| `ru` | Local Whisper `models/whisper-large-v3-turbo-ct2` | Vosk small ru | — | Large-v3-turbo handles Russian better than the small Vosk model and avoids English bias. |
+| `en` | Local Whisper `models/whisper-large-v3-turbo-ct2` | — | — | Same multilingual model as ru/auto. |
+| `auto` / `multi` | Local Whisper `models/whisper-large-v3-turbo-ct2` dual-pass (auto-detect + Russian forced) | — | — | For Turkic/Russian code-switching. |
 
-Latest run: `python benchmark.py test_audio/hard_manifest.json` (2026-07-01).
+Latest run: `python benchmark.py test_audio/hard_manifest.json` (2026-07-02).
 
-Long Kyrgyz audio is processed in sliding 25-second chunks with 5-second overlap to avoid the large Vosk model missing context on clips longer than ~60 s. Timestamps and deduplication are applied across chunks.
+### Chunking
+
+- **Kyrgyz Vosk**: long audio is split into sliding 25-second windows with 5-second overlap; timestamps are corrected and overlapping words are deduplicated.
+- **Whisper (ru/en/auto/multi and VAD-disabled tg/uz)**: very long audio (> `TILTAB_WHISPER_CHUNK_THRESHOLD_SECONDS`, default 300 s) is split into overlapping time chunks (`TILTAB_WHISPER_CHUNK_SECONDS` default 300 s, overlap 5 s). Each chunk is transcribed independently, timestamps are shifted back, and boundary segments are deduplicated. This keeps conditioning from drifting on long podcasts/interviews. When VAD is enabled, chunks are based on detected speech regions instead.
+
+Environment controls:
+- `TILTAB_LOCAL_WHISPER_MODEL` — path to CTranslate2 model (default `models/whisper-large-v3-turbo-ct2`).
+- `TILTAB_LOCAL_WHISPER_HF_MODEL` — optional HuggingFace-format fallback directory.
+- `TILTAB_WHISPER_CHUNK_THRESHOLD_SECONDS` — only chunk when audio is longer than this (default `300`).
+- `TILTAB_WHISPER_CHUNK_SECONDS` — chunk length in seconds (default `300`, minimum `60`).
+- `TILTAB_WHISPER_CHUNK_OVERLAP_SECONDS` — overlap between chunks (default `5`).
 
 ### Known gaps
 
@@ -208,6 +220,12 @@ If Daniel's module URL is configured (`TRANSLATION_MODULE_URL`), all translation
 | `LINGVA_TRANSLATE_URL` | no | Free Lingva instance, default `https://lingva.ml` |
 | `LINGVA_TRANSLATE_CHUNK_SIZE` | no | Max characters per Lingva chunk (default `2000`) |
 | `TILTAB_TRANSLATION_PROVIDER` | no | `lingva`, `openai`, `groq`, `mock`, or `auto` |
+| `TILTAB_STT_PROVIDER` | no | `local` (default), `auto`, `openai`, or `elevenlabs` |
+| `TILTAB_LOCAL_WHISPER_MODEL` | no | Path to local CTranslate2 Whisper model for ru/en/auto/multi (default `models/whisper-large-v3-turbo-ct2`) |
+| `TILTAB_LOCAL_WHISPER_HF_MODEL` | no | Optional HuggingFace-format Whisper fallback directory |
+| `TILTAB_WHISPER_CHUNK_THRESHOLD_SECONDS` | no | Audio length threshold for external time chunking (default `300`) |
+| `TILTAB_WHISPER_CHUNK_SECONDS` | no | Length of each external Whisper chunk in seconds (default `300`) |
+| `TILTAB_WHISPER_CHUNK_OVERLAP_SECONDS` | no | Overlap between external Whisper chunks in seconds (default `5`) |
 | `YOUTUBE_COOKIES_BASE64` | no | Base64-encoded Netscape-format YouTube cookies file; helps bypass "Sign in to confirm" on datacenter IPs |
 | `YOUTUBE_COOKIES_PATH` | no | Path to a Netscape-format YouTube cookies file (alternative to base64) |
 | `YOUTUBE_PO_TOKEN` | no | Proof-of-Origin token(s) for YouTube web client, comma-separated `CLIENT.CONTEXT+TOKEN` entries |

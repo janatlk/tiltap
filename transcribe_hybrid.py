@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """Hybrid transcription engine optimized for Kyrgyz, Tajik and Uzbek.
 
-Model routing:
-  ky -> Vosk large (fallback Vosk small -> Whisper)
-  tg -> ElevenLabs Scribe (fallback fine-tuned Whisper Tajik -> distil-large-v3)
-  uz -> Fine-tuned Whisper Uzbek Rubai (CTranslate2 int8) -> Vosk small fallback
-  en -> Whisper (distil-large-v3)
-  ru -> Vosk (fallback Whisper)
-  auto -> Whisper base for language detection
-  multi -> Whisper dual-pass (auto + Russian) for Turkic/Russian code-switching
+Local-first model routing:
+  ky -> Vosk large (fallback Vosk small)
+  tg -> Fine-tuned Whisper Tajik (CTranslate2)
+  uz -> Fine-tuned Whisper Uzbek Rubai (CTranslate2 int8)
+  ru -> Whisper large-v3-turbo (CTranslate2 int8)
+  en -> Whisper large-v3-turbo (CTranslate2 int8)
+  auto -> Whisper large-v3-turbo (CTranslate2 int8) for language detection
+  multi -> Whisper large-v3-turbo dual-pass (auto + Russian) for Turkic/Russian code-switching
+
+Long Whisper audio is split into time-based overlapping chunks when VAD is
+not enabled, so transcription stays stable and does not drift on podcasts,
+interviews and long YouTube videos.
 
 Real-time progress is emitted as JSON lines to stdout.
 Diagnostics (model choice, confidence, hallucination flags) go to stderr.
@@ -30,6 +34,10 @@ import text_postprocessing
 
 PYTHON_PATH = "python" if sys.platform == "win32" else "python3"
 FFMPEG_PATH = None
+
+# Primary multilingual Whisper model used for ru/en/auto/multi when available.
+# This is a local CTranslate2 conversion of openai/whisper-large-v3-turbo.
+LOCAL_WHISPER_MODEL = os.environ.get("TILTAB_LOCAL_WHISPER_MODEL", "models/whisper-large-v3-turbo-ct2")
 
 # Force UTF-8 on Windows
 if hasattr(sys.stdout, "reconfigure"):
@@ -70,7 +78,7 @@ _wav2vec_models = {}
 _whisper_hf_pipelines = {}
 
 
-def get_whisper_model(model_path="distil-large-v3"):
+def get_whisper_model(model_path=LOCAL_WHISPER_MODEL):
     """Load and cache a faster-whisper model. Models are kept in memory for reuse."""
     if model_path not in _whisper_models:
         from faster_whisper import WhisperModel
@@ -103,6 +111,23 @@ def release_whisper_models():
     _whisper_models.clear()
     gc.collect()
     print("[whisper] Dropped cached models to free memory.", file=sys.stderr, flush=True)
+
+
+def local_whisper_model_path() -> str:
+    """Return the path to the best available local multilingual Whisper model.
+
+    Prefer the CTranslate2 conversion for speed; fall back to the HuggingFace
+    Transformers directory if the conversion is missing. As a last resort return
+    the model name so faster-whisper can try to download it (useful on first
+    install but not recommended for offline/air-gapped servers).
+    """
+    ct2_path = LOCAL_WHISPER_MODEL
+    if os.path.isdir(ct2_path) and os.path.exists(os.path.join(ct2_path, "model.bin")):
+        return ct2_path
+    hf_path = os.environ.get("TILTAB_LOCAL_WHISPER_HF_MODEL", "models/whisper-large-v3-turbo")
+    if os.path.isdir(hf_path) and os.path.exists(os.path.join(hf_path, "model.safetensors")):
+        return hf_path
+    return ct2_path
 
 
 def release_hf_pipelines():
@@ -478,10 +503,24 @@ def _whisper_beam_size(conservative: bool) -> int:
     return 1 if conservative else 5
 
 
-def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "distil-large-v3", progress_label: str = "Распознаю", initial_prompt: str | None = None, conservative: bool = False, vad_parameters: dict | None = None):
+def transcribe_whisper(
+    wav_path: str,
+    language: str | None,
+    model_path: str = LOCAL_WHISPER_MODEL,
+    progress_label: str = "Распознаю",
+    initial_prompt: str | None = None,
+    conservative: bool = False,
+    vad_parameters: dict | None = None,
+    emit_progress_enabled: bool = True,
+):
     model = get_whisper_model(model_path)
     duration = get_audio_duration(wav_path)
-    emit_progress(0, f"{progress_label}: загрузка модели...")
+
+    def _emit(percent: int, label: str):
+        if emit_progress_enabled:
+            emit_progress(percent, label)
+
+    _emit(0, f"{progress_label}: загрузка модели...")
 
     default_prompt = "Transcribe the spoken words accurately, including any loanwords from other languages."
     prompt = initial_prompt if initial_prompt else default_prompt
@@ -527,7 +566,7 @@ def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "d
 
     segments_iter, info = model.transcribe(wav_path, **transcribe_kwargs)
 
-    emit_progress(5, progress_label)
+    _emit(5, progress_label)
 
     result_segments = []
     seg_id = 0
@@ -549,9 +588,9 @@ def transcribe_whisper(wav_path: str, language: str | None, model_path: str = "d
         full_text_parts.append(segment.text.strip())
         if duration:
             progress = 5 + int(90 * segment.end / duration)
-            emit_progress(progress, progress_label)
+            _emit(progress, progress_label)
 
-    emit_progress(100, progress_label)
+    _emit(100, progress_label)
     full_text = normalize_repeated_punctuation(" ".join(full_text_parts))
     full_text = collapse_consecutive_repeats(full_text)
     return {
@@ -586,6 +625,151 @@ def _vad_int_env(name: str, default: int) -> int:
         return default
 
 
+def _time_chunk_params() -> tuple[float, float, float]:
+    """Return (threshold_seconds, chunk_seconds, overlap_seconds) from env."""
+    threshold = _vad_float_env("TILTAB_WHISPER_CHUNK_THRESHOLD_SECONDS", 300.0)
+    chunk_seconds = _vad_float_env("TILTAB_WHISPER_CHUNK_SECONDS", 300.0)
+    overlap_seconds = _vad_float_env("TILTAB_WHISPER_CHUNK_OVERLAP_SECONDS", 5.0)
+    chunk_seconds = max(60.0, chunk_seconds)
+    overlap_seconds = max(0.0, min(chunk_seconds / 2.0, overlap_seconds))
+    threshold = max(60.0, threshold)
+    return threshold, chunk_seconds, overlap_seconds
+
+
+def _slice_wav_chunk(wav_path: str, output_wav: str, start_sec: float, end_sec: float) -> None:
+    """Copy a [start_sec, end_sec) slice from a 16-bit PCM WAV file."""
+    with wave.open(wav_path, "rb") as wf:
+        n_channels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        framerate = wf.getframerate()
+        start_frame = int(start_sec * framerate)
+        end_frame = int(end_sec * framerate)
+        wf.setpos(start_frame)
+        frames = wf.readframes(end_frame - start_frame)
+
+    with wave.open(output_wav, "wb") as of:
+        of.setnchannels(n_channels)
+        of.setsampwidth(sampwidth)
+        of.setframerate(framerate)
+        of.writeframes(frames)
+
+
+def transcribe_whisper_time_chunked(
+    wav_path: str,
+    language: str | None,
+    model_path: str = LOCAL_WHISPER_MODEL,
+    progress_label: str = "Распознаю",
+    initial_prompt: str | None = None,
+    conservative: bool = False,
+    vad_parameters: dict | None = None,
+):
+    """Transcribe long audio by splitting it into overlapping time chunks.
+
+    Each chunk is processed independently and timestamps are shifted back to the
+    original audio timeline. Overlapping boundary segments are deduplicated so
+    words on chunk edges are not doubled.
+    """
+    threshold, chunk_seconds, overlap_seconds = _time_chunk_params()
+    duration = get_audio_duration(wav_path)
+
+    # Short audio does not benefit from external chunking; let faster-whisper
+    # handle it internally with its own 30 s windowing.
+    if duration <= threshold:
+        return transcribe_whisper(
+            wav_path,
+            language,
+            model_path,
+            progress_label,
+            initial_prompt,
+            conservative,
+            vad_parameters,
+        )
+
+    log_diagnostic(
+        language=language,
+        chunking="time_based",
+        chunk_seconds=chunk_seconds,
+        overlap_seconds=overlap_seconds,
+        duration=duration,
+    )
+
+    step = chunk_seconds - overlap_seconds
+    chunk_starts = list(range(0, int(math.ceil(duration - overlap_seconds)), int(step)))
+    if not chunk_starts:
+        chunk_starts = [0]
+    total_chunks = len(chunk_starts)
+
+    all_segments = []
+    full_text_parts = []
+
+    for idx, start in enumerate(chunk_starts):
+        end = min(duration, start + chunk_seconds)
+        # Extend with overlap for acoustic context, then trim timestamps back.
+        slice_start = max(0.0, start - overlap_seconds)
+        slice_end = min(duration, end + overlap_seconds)
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            chunk_path = tmp.name
+        try:
+            _slice_wav_chunk(wav_path, chunk_path, slice_start, slice_end)
+            result = transcribe_whisper(
+                chunk_path,
+                language,
+                model_path,
+                progress_label=f"{progress_label}: чанк {idx + 1}/{total_chunks}",
+                initial_prompt=initial_prompt,
+                conservative=conservative,
+                vad_parameters=vad_parameters,
+                emit_progress_enabled=False,
+            )
+            offset = slice_start
+            for seg in result.get("segments", []):
+                seg_start = seg["start"] + offset
+                seg_end = seg["end"] + offset
+                # Keep only segments that overlap the original (non-overlapped) window.
+                if seg_end <= start or seg_start >= end:
+                    continue
+                seg["start"] = round(max(start, seg_start), 3)
+                seg["end"] = round(min(end, seg_end), 3)
+                all_segments.append(seg)
+            if result.get("text", "").strip():
+                full_text_parts.append(result["text"].strip())
+        finally:
+            try:
+                os.unlink(chunk_path)
+            except OSError:
+                pass
+
+        emit_progress(int(10 + 85 * (idx + 1) / total_chunks), progress_label)
+
+    all_segments.sort(key=lambda s: s["start"])
+    # Deduplicate boundary overlaps: if two segments overlap heavily in time
+    # and have very similar text, keep the longer/cleaner one.
+    deduped = []
+    for seg in all_segments:
+        if deduped:
+            last = deduped[-1]
+            time_overlap = max(0.0, min(seg["end"], last["end"]) - max(seg["start"], last["start"]))
+            text_similarity = SequenceMatcher(None, seg["text"], last["text"]).ratio()
+            if time_overlap > 0.5 and text_similarity > 0.85:
+                if len(seg["text"]) > len(last["text"]):
+                    deduped[-1] = seg
+                continue
+        deduped.append(seg)
+
+    for new_id, seg in enumerate(deduped):
+        seg["id"] = new_id
+
+    full_text = normalize_repeated_punctuation(" ".join(full_text_parts))
+    full_text = collapse_consecutive_repeats(full_text)
+    emit_progress(100, progress_label)
+    return {
+        "text": full_text,
+        "language": detected_language if detected_language else (deduped[0].get("language") if deduped else "auto"),
+        "segments": deduped,
+    }
+
+
 def transcribe_whisper_with_vad(
     wav_path: str,
     language: str | None,
@@ -601,7 +785,9 @@ def transcribe_whisper_with_vad(
     model, which is the main cause of hallucinated garbage segments.
     """
     if not _vad_enabled():
-        return transcribe_whisper(
+        # When VAD is off we still chunk very long audio in the time domain so
+        # conditioning on previous text does not drift across long podcasts.
+        return transcribe_whisper_time_chunked(
             wav_path, language, model_path, progress_label, initial_prompt, conservative, vad_parameters
         )
 
@@ -629,16 +815,16 @@ def transcribe_whisper_with_vad(
 
     if not speech_segments:
         log_diagnostic(language=language, vad_status="no_speech_detected", fallback="full_file")
-        return transcribe_whisper(
+        return transcribe_whisper_time_chunked(
             wav_path, language, model_path, progress_label, initial_prompt, conservative, vad_parameters
         )
 
     chunks = vad_utils.merge_speech_segments(speech_segments, max_gap=max_gap, max_duration=max_duration)
 
-    # If VAD found essentially one big speech region, don't bother chunking.
+    # If VAD found essentially one big speech region, don't bother VAD chunking.
     if len(chunks) == 1 and chunks[0]["start"] <= 0.1 and chunks[0]["end"] >= duration - 0.1:
         log_diagnostic(language=language, vad_status="single_segment", duration=duration)
-        return transcribe_whisper(
+        return transcribe_whisper_time_chunked(
             wav_path, language, model_path, progress_label, initial_prompt, conservative, vad_parameters
         )
 
@@ -646,6 +832,7 @@ def transcribe_whisper_with_vad(
 
     all_segments = []
     full_text_parts = []
+    detected_language = language
     total_chunks = len(chunks)
     for idx, chunk in enumerate(chunks):
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
@@ -663,7 +850,10 @@ def transcribe_whisper_with_vad(
                 initial_prompt=initial_prompt,
                 conservative=conservative,
                 vad_parameters=vad_parameters,
+                emit_progress_enabled=False,
             )
+            if detected_language is None and result.get("language"):
+                detected_language = result["language"]
             offset = slice_start
             for seg in result.get("segments", []):
                 seg_start = seg["start"] + offset
@@ -707,7 +897,7 @@ def transcribe_whisper_with_vad(
     emit_progress(100, progress_label)
     return {
         "text": full_text,
-        "language": language if language else (all_segments[0].get("language") if all_segments else "auto"),
+        "language": detected_language if detected_language else (all_segments[0].get("language") if all_segments else "auto"),
         "segments": all_segments,
     }
 
@@ -935,17 +1125,17 @@ def transcribe_tajik(wav_path: str):
 
     # Fall back to generic Whisper if the fine-tuned model failed or hallucinated.
     if not disable_fallback and (not candidates or all(c.get("quality", {}).get("is_hallucination", True) for c in candidates)):
-        log_diagnostic(language="tg", fallback_model="distil-large-v3")
+        log_diagnostic(language="tg", fallback_model=local_whisper_model_path())
         try:
             fallback = transcribe_whisper_with_vad(
                 wav_path,
                 "tg",
-                "distil-large-v3",
+                local_whisper_model_path(),
                 progress_label="Тоҷикӣ (fallback) распознаю",
             )
             fallback_quality = detect_hallucination(fallback["text"], fallback["segments"], "tg")
             fallback["quality"] = fallback_quality
-            fallback["model"] = "distil-large-v3"
+            fallback["model"] = local_whisper_model_path()
             candidates.append(fallback)
         except Exception as e:
             log_diagnostic(language="tg", whisper_error=str(e))
@@ -1019,15 +1209,16 @@ def transcribe_uzbek(wav_path: str):
                 rubai_oom = True
                 release_whisper_models()
 
-    # Fallback: generic Whisper distil-large-v3. It is usually better than Vosk small
-    # for Uzbek and is the next best option if Rubai ran out of memory or was skipped.
+    # Fallback: generic local multilingual Whisper model. It is the next best
+    # option if Rubai ran out of memory or was skipped.
     if not candidates or rubai_oom or all(c.get("quality", {}).get("is_hallucination", True) for c in candidates):
-        log_diagnostic(language="uz", fallback_model="whisper-distil-large-v3")
+        fallback_path = local_whisper_model_path()
+        log_diagnostic(language="uz", fallback_model=fallback_path)
         try:
             whisper_result = transcribe_whisper_with_vad(
                 wav_path,
                 "uz",
-                "distil-large-v3",
+                fallback_path,
                 progress_label="O'zbekcha Whisper fallback",
                 initial_prompt="Bu o'zbekcha matn. Iltimos, aniq yozib bering.",
             )
@@ -1099,15 +1290,15 @@ def merge_segment_lists(segments_a, segments_b):
     return merged
 
 
-def transcribe_multilingual(wav_path: str, model_size: str = "distil-large-v3"):
+def transcribe_multilingual(wav_path: str, model_path: str = LOCAL_WHISPER_MODEL):
     """Transcribe Turkic + Russian code-switched audio using two Whisper passes."""
     emit_progress(0, "Мультиязычное распознавание: определение языка...")
 
-    primary = transcribe_whisper_with_vad(wav_path, None, model_size, progress_label="Распознаю основной язык")
+    primary = transcribe_whisper_with_vad(wav_path, None, model_path, progress_label="Распознаю основной язык")
     primary_lang = primary["language"]
 
     emit_progress(0, "Мультиязычное распознавание: русские вставки...")
-    russian = transcribe_whisper_with_vad(wav_path, "ru", model_size, progress_label="Распознаю русский")
+    russian = transcribe_whisper_with_vad(wav_path, "ru", model_path, progress_label="Распознаю русский")
 
     merged_segments = merge_segment_lists(primary["segments"], russian["segments"])
     full_text = " ".join(s["text"] for s in merged_segments)
@@ -1148,35 +1339,27 @@ def main():
             output = transcribe_tajik(wav_path)
 
         elif language == "ru":
-            # Prefer a Russian-specific Vosk large model if available; otherwise
-            # use Whisper medium, which handles Russian Cyrillic well and avoids
-            # the English bias of distil-large-v3.
-            large_vosk_path = "models/vosk-model-ru-0.42"
-            if os.path.exists(large_vosk_path):
-                results = transcribe_vosk(wav_path, large_vosk_path, progress_label="Русский распознаю")
-                segments = build_vosk_segments(results)
-                full_text = normalize_repeated_punctuation(" ".join(s["text"] for s in segments))
-                output = {"text": full_text, "language": "ru", "segments": segments}
-            else:
-                output = transcribe_whisper_with_vad(
-                    wav_path,
-                    "ru",
-                    "medium",
-                    progress_label="Русский распознаю",
-                    initial_prompt="Распознай речь на русском языке. Сохраняй русские слова и произношение.",
-                )
+            # Primary: local multilingual Whisper large-v3-turbo. It is the best
+            # local model we have for Russian and avoids English bias.
+            output = transcribe_whisper_with_vad(
+                wav_path,
+                "ru",
+                local_whisper_model_path(),
+                progress_label="Русский распознаю",
+                initial_prompt="Распознай речь на русском языке. Сохраняй русские слова и произношение.",
+            )
 
         elif language == "uz":
             output = transcribe_uzbek(wav_path)
 
         elif language == "en":
-            output = transcribe_whisper_with_vad(wav_path, "en", "distil-large-v3", progress_label="English transcribing")
+            output = transcribe_whisper_with_vad(wav_path, "en", local_whisper_model_path(), progress_label="English transcribing")
 
         elif language == "multi":
-            output = transcribe_multilingual(wav_path, "large-v3")
+            output = transcribe_multilingual(wav_path, local_whisper_model_path())
 
         else:
-            output = transcribe_whisper_with_vad(wav_path, None, "base", progress_label="Определяю язык")
+            output = transcribe_whisper_with_vad(wav_path, None, local_whisper_model_path(), progress_label="Определяю язык")
 
         if output is None:
             raise RuntimeError(f"Transcription returned no output for language {language}")
