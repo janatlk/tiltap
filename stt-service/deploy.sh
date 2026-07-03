@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Tiltab STT Service deployment script for Hetzner CX22/CX32.
+# Tiltab STT Service deployment script for Hetzner CX43 (16 GB RAM).
+# Also works on CPX22/CPX32 if memory limits in docker-compose.yml are adjusted.
 # Run as root on a fresh Ubuntu 22.04/24.04 server.
 
 REPO_URL="https://github.com/janatlk/tiltap.git"

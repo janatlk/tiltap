@@ -7,9 +7,9 @@
 3. Choose location: **Nuremberg** or **Falkenstein**.
 4. Select image: **Ubuntu 22.04**.
 5. Select type:
-   - For testing with small models: **CPX22** (2 vCPU / 4 GB RAM / 80 GB) — ~$23.59/month
-   - For production with large Kyrgyz model active for all lengths: **CPX32** (4 vCPU / 8 GB RAM / 160 GB) — ~$33.59/month
-   > Note: Cost-optimized CX22/CX23 were unavailable at the time of writing.
+   - Recommended for production: **CX43** (8 vCPU / 16 GB RAM / 160 GB) — ~$18.49/month
+   - For testing with small models only: **CPX22** (2 vCPU / 4 GB RAM / 80 GB) — ~$23.59/month
+   > Note: The CX43 line is the current cost-optimized Hetzner type and has enough RAM to keep multiple STT models resident.
 6. Add your **SSH public key**.
 7. Give it a name, e.g. `tiltab-stt`.
 8. Click **Create & Buy**.
@@ -55,13 +55,26 @@ cd stt-service
 bash deploy.sh
 ```
 
-## 5. Upload Rubai model
+## 5. Upload custom models
 
-The Rubai Uzbek model (`models/rubai-ct2-int8`, ~740 MB) is too large to download anonymously.
+The following models are too large or not publicly downloadable and must be copied from your local machine before running `deploy.sh`:
+
+| Model | Local path | Size (approx) | Needed for |
+|-------|------------|---------------|------------|
+| Uzbek Rubai CT2 int8 | `models/rubai-ct2-int8` | ~740 MB | `uz` (primary) |
+| Tajik fine-tuned Whisper CT2 | `models/whisper-tajik-finetuned-ct2` | ~780 MB | `tg` (primary) |
+| Multilingual Whisper large-v3-turbo CT2 | `models/whisper-large-v3-turbo-ct2` | ~780 MB | `tg` fallback, `ru`/`en`/`auto` local |
+
+Deploy Tajik models by setting `DEPLOY_TG=1` when running `deploy.sh`.
+
 From your local machine run:
 
 ```bash
 scp -r models/rubai-ct2-int8 root@YOUR_SERVER_IP:/opt/tiltap/models/
+scp -r models/whisper-large-v3-turbo-ct2 root@YOUR_SERVER_IP:/opt/tiltap/models/
+# If transcribing Tajik on the remote STT service:
+DEPLOY_TG=1 bash deploy.sh   # or scp the model manually before running:
+# scp -r models/whisper-tajik-finetuned-ct2 root@YOUR_SERVER_IP:/opt/tiltap/models/
 ```
 
 Then restart the service:
@@ -208,14 +221,11 @@ curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
   -d '{"url":"https://YOUR_DOMAIN/webhook/telegram"}'
 ```
 
-### Memory safety on CPX22
+### Memory on CX43
 
-CPX22 has only 4 GB RAM. The STT Docker container is limited to 2.5 GB. To prevent OOM kills when Kyrgyz Vosk large and Uzbek Rubai would otherwise load together:
+CX43 has 16 GB RAM. The STT Docker container is limited to 12 GB, leaving headroom for the Node backend, PostgreSQL (if co-located), and OS buffers. The backend still queues remote STT requests (`src/services/remoteSttService.ts`) so only one heavy model is active at a time, which prevents CPU contention and keeps memory usage predictable. Cached Whisper models are kept in RAM between requests to reduce latency.
 
-- The backend queues remote STT requests (`src/services/remoteSttService.ts`) so only one runs at a time.
-- The STT service drops cached Whisper models after each request.
-
-No extra configuration is needed; this is automatic after the deploy steps above.
+If you downgrade to a 4 GB instance, edit `stt-service/docker-compose.yml` to lower the memory limit and uncomment/adjust the `release_whisper_models()` call in `stt-service/main.py`.
 
 ### YouTube sign-in errors
 

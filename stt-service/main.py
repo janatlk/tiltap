@@ -173,10 +173,10 @@ async def transcribe(
                     os.unlink(p)
             except Exception:
                 pass
-        # Drop cached Whisper models after every request so CPX22 never keeps
-        # Rubai/Uzbek and a Vosk model in memory at the same time.
+        # Keep Whisper models cached across requests on CX43 (16 GB RAM).
+        # The backend serializes remote STT jobs, so only one heavy model is
+        # active at a time; releasing after every request added latency.
         try:
-            th.release_whisper_models()
             gc.collect()
         except Exception:
             pass

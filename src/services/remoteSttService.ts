@@ -3,9 +3,9 @@ import { config } from "../config";
 import type { TranscriptionResult } from "../types";
 
 // Serialize remote STT requests so that only one heavy model is loaded in
-// memory on the Hetzner server at a time. CPX22 has only 4 GB RAM and the
-// Docker container is limited to 2.5 GB; running Kyrgyz Vosk large and Uzbek
-// Rubai concurrently triggers OOM kills.
+// memory on the Hetzner server at a time. Even on CX43 (16 GB RAM), keeping
+// two large models resident at once is unnecessary and wastes RAM; the queue
+// also prevents CPU contention on the shared VPS.
 let sttQueue: Promise<unknown> = Promise.resolve();
 
 export async function transcribeWithRemoteService(
