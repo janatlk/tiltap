@@ -22,6 +22,7 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI, File, Form, UploadFile, status
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 # Make project root imports work inside stt-service/
 ROOT = Path(__file__).resolve().parent.parent
@@ -145,9 +146,9 @@ async def transcribe(
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
             wav_path = tmp.name
 
-        _convert_upload_to_wav(upload_path, wav_path)
+        await run_in_threadpool(_convert_upload_to_wav, upload_path, wav_path)
 
-        result = _transcribe_local(wav_path, language)
+        result = await run_in_threadpool(_transcribe_local, wav_path, language)
         result["processing_time_seconds"] = round(time.time() - start_time, 2)
         result["service"] = "tiltab-stt"
 
