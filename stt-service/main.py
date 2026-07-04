@@ -54,7 +54,7 @@ def _convert_upload_to_wav(upload_path: str, wav_path: str) -> None:
 
 
 def _transcribe_local(wav_path: str, language: str) -> dict:
-    """Route to the right local transcription function."""
+    """Route to the best available local model, skipping cloud/download fallbacks."""
     if language == "ky":
         return th.transcribe_kyrgyz(wav_path)
     if language == "uz":
@@ -62,23 +62,17 @@ def _transcribe_local(wav_path: str, language: str) -> dict:
     if language == "tg":
         return th.transcribe_tajik(wav_path)
     if language == "ru":
-        large_vosk_path = "models/vosk-model-ru-0.42"
-        if os.path.exists(large_vosk_path):
-            results = th.transcribe_vosk(wav_path, large_vosk_path, progress_label="Русский распознаю")
-            segments = th.build_vosk_segments(results)
-            full_text = th.normalize_repeated_punctuation(" ".join(s["text"] for s in segments))
-            return {"text": full_text, "language": "ru", "segments": segments}
         return th.transcribe_whisper(
             wav_path,
             "ru",
-            "medium",
+            th.local_whisper_model_path(),
             progress_label="Русский распознаю",
             initial_prompt="Распознай речь на русском языке. Сохраняй русские слова и произношение.",
         )
     if language == "en":
-        return th.transcribe_whisper(wav_path, "en", "distil-large-v3", progress_label="English transcribing")
+        return th.transcribe_whisper(wav_path, "en", th.local_whisper_model_path(), progress_label="English transcribing")
     if language == "multi":
-        return th.transcribe_multilingual(wav_path, "large-v3")
+        return th.transcribe_multilingual(wav_path, th.local_whisper_model_path())
     raise ValueError(f"Unsupported language: {language}")
 
 

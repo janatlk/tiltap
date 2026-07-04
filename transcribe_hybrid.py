@@ -1030,6 +1030,7 @@ def transcribe_wav2vec2(wav_path: str, model_name: str, language: str, progress_
 def transcribe_kyrgyz(wav_path: str):
     large_path = "models/vosk-model-ky-0.42"
     small_path = "models/vosk-model-small-ky-0.42"
+    disable_fallback = os.environ.get("TILTAB_KYRGYZ_DISABLE_FALLBACK", "").lower() in ("1", "true", "yes", "on")
     # The large Kyrgyz model is ~1.9 GB. On a 4 GB VPS it OOMs when Rubai is also resident,
     # so release cached Whisper models before loading large Vosk to free RAM.
     use_large = os.path.exists(large_path)
@@ -1047,7 +1048,7 @@ def transcribe_kyrgyz(wav_path: str):
     # fall back to the small model which is more sensitive to weak audio.
     duration = get_audio_duration(wav_path)
     min_expected_words = max(3, int(duration / 2.5))
-    if use_large and len(full_text.split()) < min_expected_words and os.path.exists(small_path):
+    if not disable_fallback and use_large and len(full_text.split()) < min_expected_words and os.path.exists(small_path):
         log_diagnostic(
             language="ky",
             fallback_reason="large_model_produced_too_few_words",
@@ -1176,6 +1177,7 @@ def transcribe_tajik(wav_path: str):
 
 def transcribe_uzbek(wav_path: str):
     candidates = []
+    disable_fallback = os.environ.get("TILTAB_UZBEK_DISABLE_FALLBACK", "").lower() in ("1", "true", "yes", "on")
 
     # Primary: fine-tuned Whisper Uzbek (Rubai) converted to CTranslate2 int8.
     # This model is much more accurate than Vosk small on our hard benchmark.
@@ -1211,7 +1213,7 @@ def transcribe_uzbek(wav_path: str):
 
     # Fallback: generic local multilingual Whisper model. It is the next best
     # option if Rubai ran out of memory or was skipped.
-    if not candidates or rubai_oom or all(c.get("quality", {}).get("is_hallucination", True) for c in candidates):
+    if not disable_fallback and (not candidates or rubai_oom or all(c.get("quality", {}).get("is_hallucination", True) for c in candidates)):
         fallback_path = local_whisper_model_path()
         log_diagnostic(language="uz", fallback_model=fallback_path)
         try:
@@ -1236,7 +1238,7 @@ def transcribe_uzbek(wav_path: str):
     large_path = "models/vosk-model-uz-0.42"
     small_path = "models/vosk-model-small-uz-0.22"
     model_path = large_path if os.path.exists(large_path) else small_path
-    if os.path.exists(model_path):
+    if not disable_fallback and os.path.exists(model_path):
         log_diagnostic(language="uz", fallback_model="vosk", model_path=model_path)
         try:
             results = transcribe_vosk(wav_path, model_path, progress_label="O'zbekcha Vosk распознаю")
