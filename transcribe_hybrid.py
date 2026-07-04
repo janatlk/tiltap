@@ -701,6 +701,7 @@ def transcribe_whisper_time_chunked(
 
     all_segments = []
     full_text_parts = []
+    detected_language = language
 
     for idx, start in enumerate(chunk_starts):
         end = min(duration, start + chunk_seconds)
@@ -722,6 +723,8 @@ def transcribe_whisper_time_chunked(
                 vad_parameters=vad_parameters,
                 emit_progress_enabled=False,
             )
+            if detected_language is None and result.get("language"):
+                detected_language = result["language"]
             offset = slice_start
             for seg in result.get("segments", []):
                 seg_start = seg["start"] + offset
