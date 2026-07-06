@@ -158,7 +158,7 @@ def _vad_settings() -> Dict[str, Any]:
     return {
         "threshold": _float_env("GPU_VAD_THRESHOLD", 0.5),
         "min_speech_duration_ms": _int_env("GPU_VAD_MIN_SPEECH_DURATION_MS", 250),
-        "min_silence_duration_ms": _int_env("GPU_VAD_MIN_SILENCE_MS", 2000),
+        "min_silence_duration_ms": _int_env("GPU_VAD_MIN_SILENCE_MS", 500),
         "speech_pad_ms": _int_env("GPU_VAD_SPEECH_PAD_MS", 200),
         "max_gap": _float_env("GPU_VAD_MAX_GAP_MS", 2000) / 1000.0,
         "max_duration": _float_env("GPU_VAD_MAX_CHUNK_SECONDS", 30.0),
