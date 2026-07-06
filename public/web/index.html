@@ -90,12 +90,16 @@
             <input type="file" id="fileInput" accept="audio/*,video/*">
             <div class="mt-3 text-sm opacity-80" id="fileName"></div>
           </div>
+          <audio id="fileAudio" controls class="hidden w-full mt-3"></audio>
         </div>
 
         <div id="panel-youtube" style="display:none;">
           <div class="form-control">
             <label class="label" for="youtubeUrl"><span class="label-text">YouTube URL</span></label>
             <input type="text" id="youtubeUrl" class="input input-bordered w-full" placeholder="https://www.youtube.com/watch?v=...">
+          </div>
+          <div id="youtubePreview" class="hidden mt-3 aspect-video">
+            <iframe id="youtubeIframe" class="w-full h-full rounded-box" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
           </div>
         </div>
 
@@ -178,8 +182,12 @@
     const originalSegmentsBox = document.getElementById("originalSegmentsBox");
     const translationResults = document.getElementById("translationResults");
     const translationWarning = document.getElementById("translationWarning");
+    const fileAudio = document.getElementById("fileAudio");
+    const youtubePreview = document.getElementById("youtubePreview");
+    const youtubeIframe = document.getElementById("youtubeIframe");
 
     let currentFile = null;
+    let currentFileUrl = null;
     let currentJobId = null;
     let currentRequestNumber = null;
     let currentCleanText = "";
@@ -223,7 +231,45 @@
     function setFile(file) {
       currentFile = file;
       fileName.textContent = file.name + " (" + (file.size / 1024 / 1024).toFixed(2) + " MB)";
+      if (currentFileUrl) {
+        URL.revokeObjectURL(currentFileUrl);
+        currentFileUrl = null;
+      }
+      currentFileUrl = URL.createObjectURL(file);
+      fileAudio.src = currentFileUrl;
+      fileAudio.classList.remove("hidden");
     }
+
+    function extractYouTubeId(url) {
+      try {
+        const u = new URL(url);
+        if (u.hostname.includes("youtube.com")) {
+          return u.searchParams.get("v");
+        }
+        if (u.hostname === "youtu.be") {
+          return u.pathname.slice(1);
+        }
+      } catch {
+        const m = url.match(/(?:v=|\/)([0-9A-Za-z_-]{11})/);
+        return m ? m[1] : null;
+      }
+      return null;
+    }
+
+    function updateYouTubePreview() {
+      const url = youtubeUrl.value.trim();
+      const id = extractYouTubeId(url);
+      if (id) {
+        youtubeIframe.src = "https://www.youtube.com/embed/" + id;
+        youtubePreview.classList.remove("hidden");
+      } else {
+        youtubeIframe.src = "";
+        youtubePreview.classList.add("hidden");
+      }
+    }
+
+    youtubeUrl.addEventListener("input", updateYouTubePreview);
+    youtubeUrl.addEventListener("change", updateYouTubePreview);
 
     function resetUI() {
       errorBox.classList.add("hidden");
