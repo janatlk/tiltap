@@ -104,10 +104,9 @@ def _load_kyrgyz_bundle(model_path: str) -> dict[str, Any]:
             torch_dtype=dtype,
             low_cpu_mem_usage=True,
             use_safetensors=True,
-            trust_remote_code=True,
         ).to(device)
-        processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        processor = AutoProcessor.from_pretrained(model_path)
+        tokenizer = AutoTokenizer.from_pretrained(model_path)
         _kyrgyz_bundle[model_path] = {
             "model": model,
             "processor": processor,
