@@ -19,13 +19,13 @@ Returns:
 """
 
 import base64
-import io
 import os
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
+import librosa
 import runpod
 import torch
 from faster_whisper import WhisperModel
@@ -39,17 +39,18 @@ MODEL_PATHS = {
     "uz": "/models/rubai-ct2-int8",
 }
 
-# The Kyrgyz model is loaded via the HuggingFace transformers pipeline because
-# that is the exact inference path that worked well in Google Colab.
-HF_MODEL_PATHS = {
-    "ky": "/models/kyrgyz-whisper-small-hf",
-}
+# The Kyrgyz model uses a custom <|ky|> token (id 51865). It must be loaded
+# with trust_remote_code=True and transcribed with manual 30-second chunking
+# through model.generate(), otherwise the model truncates to the first 30 s
+# and the custom token can send the decoder into a loop.
+KYRGYZ_MODEL_PATH = "/models/kyrgyz-whisper-small-hf"
+KYRGYZ_LANGUAGE_TOKEN_ID = 51865
 
 DEFAULT_MODEL = "/models/whisper-large-v3-turbo-ct2"
 
 # Cache loaded models so warm workers reuse them.
 _models: dict[str, WhisperModel] = {}
-_hf_pipelines: dict[str, Any] = {}
+_kyrgyz_bundle: dict[str, Any] = {}
 
 
 def _get_gpu_name() -> str:
@@ -87,51 +88,90 @@ def _load_model(model_path: str) -> WhisperModel:
     return _models[model_path]
 
 
-def _load_hf_pipeline(model_path: str) -> Any:
-    if model_path not in _hf_pipelines:
-        from transformers import pipeline
-
-        device = 0 if torch.cuda.is_available() else -1
-        dtype = torch.float16 if device == 0 else torch.float32
-        chunk_length = float(os.environ.get("KYRGYZ_HF_CHUNK_LENGTH_S", "30"))
-        batch_size = int(os.environ.get("KYRGYZ_HF_BATCH_SIZE", "8"))
-        _hf_pipelines[model_path] = pipeline(
-            "automatic-speech-recognition",
-            model=model_path,
-            chunk_length_s=chunk_length,
-            batch_size=batch_size,
-            device=device,
-            torch_dtype=dtype,
+def _load_kyrgyz_bundle(model_path: str) -> dict[str, Any]:
+    if model_path not in _kyrgyz_bundle:
+        from transformers import (
+            AutoModelForSpeechSeq2Seq,
+            AutoProcessor,
+            AutoTokenizer,
         )
-    return _hf_pipelines[model_path]
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype = torch.float16 if device == "cuda" else torch.float32
+        print(f"Loading Kyrgyz model from {model_path} on {device} ({dtype})...")
+        model = AutoModelForSpeechSeq2Seq.from_pretrained(
+            model_path,
+            torch_dtype=dtype,
+            low_cpu_mem_usage=True,
+            use_safetensors=True,
+            trust_remote_code=True,
+        ).to(device)
+        processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        _kyrgyz_bundle[model_path] = {
+            "model": model,
+            "processor": processor,
+            "tokenizer": tokenizer,
+            "device": device,
+            "dtype": dtype,
+        }
+    return _kyrgyz_bundle[model_path]
 
 
-def _transcribe_with_hf(wav_path: str, model_path: str, language: str) -> dict:
-    pipe = _load_hf_pipeline(model_path)
-    result = pipe(wav_path, return_timestamps=True)
+def _transcribe_kyrgyz(wav_path: str) -> dict:
+    bundle = _load_kyrgyz_bundle(KYRGYZ_MODEL_PATH)
+    model = bundle["model"]
+    processor = bundle["processor"]
+    tokenizer = bundle["tokenizer"]
+    device = bundle["device"]
+    dtype = bundle["dtype"]
 
-    text = result.get("text", "").strip()
-    chunks = result.get("chunks", [])
-    segments = []
-    for chunk in chunks:
-        ts = chunk.get("timestamp")
-        if isinstance(ts, (list, tuple)) and len(ts) == 2:
-            start, end = ts
-        else:
-            start, end = 0.0, 0.0
+    audio, sr = librosa.load(wav_path, sr=16000, mono=True)
+    if audio.ndim == 0 or len(audio) == 0:
+        return {"text": "", "language": "ky", "segments": [], "model": KYRGYZ_MODEL_PATH, "gpu": _get_gpu_name()}
+
+    sr_value = 16000
+    chunk_seconds = 30
+    chunk_samples = chunk_seconds * sr_value
+    forced_decoder_ids = [[1, KYRGYZ_LANGUAGE_TOKEN_ID]]
+
+    text_parts: list[str] = []
+    segments: list[dict] = []
+    for i, start in enumerate(range(0, len(audio), chunk_samples)):
+        chunk = audio[start : start + chunk_samples]
+        if len(chunk) < sr_value:
+            # Very short trailing fragment; skip to avoid noise.
+            continue
+        inputs = processor(
+            chunk,
+            sampling_rate=sr_value,
+            return_tensors="pt",
+        ).input_features.to(device).to(dtype)
+        predicted_ids = model.generate(
+            inputs,
+            forced_decoder_ids=forced_decoder_ids,
+            no_repeat_ngram_size=3,
+            max_length=448,
+        )
+        chunk_text = tokenizer.batch_decode(predicted_ids, skip_special_tokens=True)[0].strip()
+        if chunk_text:
+            text_parts.append(chunk_text)
+        seg_start = start / sr_value
+        seg_end = min((start + len(chunk)) / sr_value, len(audio) / sr_value)
         segments.append(
             {
-                "start": round(float(start or 0.0), 3),
-                "end": round(float(end or 0.0), 3),
-                "text": str(chunk.get("text", "")).strip(),
+                "start": round(seg_start, 3),
+                "end": round(seg_end, 3),
+                "text": chunk_text,
             }
         )
 
+    full_text = " ".join(text_parts)
     return {
-        "text": text,
-        "language": language,
+        "text": full_text,
+        "language": "ky",
         "segments": segments,
-        "model": model_path,
+        "model": KYRGYZ_MODEL_PATH,
         "gpu": _get_gpu_name(),
     }
 
@@ -202,11 +242,10 @@ def handler(event):
             return {"error": f"ffmpeg conversion failed: {e}"}
 
         try:
-            if language in HF_MODEL_PATHS:
-                model_path = HF_MODEL_PATHS[language]
-                if not os.path.isdir(model_path):
-                    return {"error": f"HF model not found: {model_path}"}
-                return _transcribe_with_hf(wav_path, model_path, language)
+            if language == "ky":
+                if not os.path.isdir(KYRGYZ_MODEL_PATH):
+                    return {"error": f"Kyrgyz model not found: {KYRGYZ_MODEL_PATH}"}
+                return _transcribe_kyrgyz(wav_path)
 
             model_path = MODEL_PATHS.get(language, DEFAULT_MODEL)
             if not os.path.isdir(model_path):
