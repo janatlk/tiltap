@@ -25,7 +25,7 @@ const RUNPOD_GPU_MODEL_DIRS = new Set([
   "whisper-large-v3-turbo-ct2",
   "rubai-ct2-int8",
   "muhtasham-whisper-tg-ct2",
-  "kyrgyz-whisper-small-ct2",
+  "kyrgyz-whisper-small-hf",
 ]);
 
 function isApiModel(name: string): boolean {
@@ -149,6 +149,19 @@ export async function listBetaModels(req: Request, res: Response): Promise<void>
       }
       if (type) {
         models.push({ name: entry, path: fullPath, type, api: isApiModel(entry) });
+      }
+    }
+
+    // Add API-only GPU models that are not present locally (e.g. downloaded
+    // inside the GPU worker image).
+    for (const apiModel of RUNPOD_GPU_MODEL_DIRS) {
+      if (!models.some((m) => m.name === apiModel)) {
+        models.push({
+          name: apiModel,
+          path: `/models/${apiModel}`,
+          type: "whisper",
+          api: true,
+        });
       }
     }
 

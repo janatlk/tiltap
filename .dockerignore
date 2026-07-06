@@ -18,5 +18,3 @@ poller_offset.txt
 tmp
 test_audio/cache
 test_audio/youtube/ky_yt_full.wav
-!models/kyrgyz-whisper-small-ct2
-!models/kyrgyz-whisper-small-ct2/**

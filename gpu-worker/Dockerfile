@@ -37,17 +37,35 @@ RUN for f in /usr/local/lib/python3.*/dist-packages/faster_whisper/tokenizer.py;
 ARG WHISPER_TURBO_DIR=models/whisper-large-v3-turbo-ct2
 ARG TAJIK_DIR=models/muhtasham-whisper-tg-ct2
 ARG UZBEK_DIR=models/rubai-ct2-int8
-ARG KYRGYZ_DIR=models/kyrgyz-whisper-small-ct2
 
 COPY ${WHISPER_TURBO_DIR} /models/whisper-large-v3-turbo-ct2
 COPY ${TAJIK_DIR} /models/muhtasham-whisper-tg-ct2
 COPY ${UZBEK_DIR} /models/rubai-ct2-int8
-COPY ${KYRGYZ_DIR} /models/kyrgyz-whisper-small-ct2
+
+# Download the original HuggingFace model for Kyrgyz. The Colab reference
+# pipeline uses transformers with chunk_length_s=30 / batch_size=8, which gives
+# much better quality on real-world Kyrgyz audio than the CTranslate2/faster-
+# whisper conversion. We keep the faster-whisper path for ru/en/uz/tg.
+RUN python3 - <<'PY'
+import os
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+from transformers import WhisperForConditionalGeneration, WhisperProcessor
+model_id = "nineninesix/kyrgyz-whisper-small"
+out_dir = "/models/kyrgyz-whisper-small-hf"
+print(f"Downloading {model_id} to {out_dir}...")
+model = WhisperForConditionalGeneration.from_pretrained(model_id)
+processor = WhisperProcessor.from_pretrained(model_id)
+model.save_pretrained(out_dir)
+processor.save_pretrained(out_dir)
+print("Done.")
+PY
 
 ENV WHISPER_DEVICE=cuda
 ENV WHISPER_COMPUTE_TYPE=float16
 ENV WHISPER_BEAM_SIZE=5
 ENV WHISPER_VAD_FILTER=true
+ENV KYRGYZ_HF_BATCH_SIZE=8
+ENV KYRGYZ_HF_CHUNK_LENGTH_S=30
 
 EXPOSE 8000
 
