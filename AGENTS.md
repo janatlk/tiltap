@@ -118,7 +118,7 @@ Routing per language is based on the hard benchmark of real YouTube clips (`test
 
 | Language | Primary model | Fallback chain | Hard char/word | Notes |
 |----------|---------------|----------------|----------------|-------|
-| `ky` | Vosk `vosk-model-ky-0.42` (chunked, 25 s windows / 5 s overlap) | Vosk small | 84.5% / 75.5% | Generic Whisper does not support Kyrgyz. |
+| `ky` | Whisper `nineninesix/kyrgyz-whisper-small` (CT2 float16) on RunPod GPU | Vosk `vosk-model-ky-0.42` (CPU, if GPU disabled) | — | The GPU worker patches faster-whisper to accept the custom `<|ky|>` token. |
 | `tg` | Fine-tuned Whisper `models/whisper-tajik-finetuned-ct2` | Local Whisper `models/whisper-large-v3-turbo-ct2` → Vosk small tg | 94.3% / 94.4% | Local Whisper needs enough RAM; on low-memory machines it falls back to Vosk small. |
 | `uz` | Whisper fine-tuned Rubai `models/rubai-ct2-int8` (files < 600 s) | Local Whisper `models/whisper-large-v3-turbo-ct2` → Vosk small uz | 81.4% / 67.9% | Best known local Uzbek model. |
 | `ru` | Local Whisper `models/whisper-large-v3-turbo-ct2` | Vosk small ru | — | Large-v3-turbo handles Russian better than the small Vosk model and avoids English bias. |
@@ -129,8 +129,9 @@ Latest run: `python benchmark.py test_audio/hard_manifest.json` (2026-07-02).
 
 ### Chunking
 
-- **Kyrgyz Vosk**: long audio is split into sliding 25-second windows with 5-second overlap; timestamps are corrected and overlapping words are deduplicated.
+- **Kyrgyz GPU**: long audio is handled by the GPU worker; the backend sends the full file and relies on faster-whisper internally.
 - **Whisper (ru/en/auto/multi and VAD-disabled tg/uz)**: very long audio (> `TILTAB_WHISPER_CHUNK_THRESHOLD_SECONDS`, default 300 s) is split into overlapping time chunks (`TILTAB_WHISPER_CHUNK_SECONDS` default 300 s, overlap 5 s). Each chunk is transcribed independently, timestamps are shifted back, and boundary segments are deduplicated. This keeps conditioning from drifting on long podcasts/interviews. When VAD is enabled, chunks are based on detected speech regions instead.
+- **Kyrgyz CPU fallback (Vosk)**: if the GPU path is unavailable, long audio is split into sliding 25-second windows with 5-second overlap; timestamps are corrected and overlapping words are deduplicated.
 
 Environment controls:
 - `TILTAB_LOCAL_WHISPER_MODEL` — path to CTranslate2 model (default `models/whisper-large-v3-turbo-ct2`).
