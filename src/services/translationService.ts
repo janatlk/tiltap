@@ -70,6 +70,60 @@ function chunkText(text: string, maxSize: number): string[] {
   return result;
 }
 
+export interface TranslationQualityReport {
+  isSuspicious: boolean;
+  flags: string[];
+}
+
+export function detectTranslationIssues(text: string): TranslationQualityReport {
+  const flags: string[] = [];
+  const trimmed = text.trim();
+
+  if (!trimmed) {
+    flags.push("empty");
+    return { isSuspicious: true, flags };
+  }
+
+  const words = trimmed.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    flags.push("empty");
+    return { isSuspicious: true, flags };
+  }
+
+  const counts = new Map<string, number>();
+  for (const w of words) {
+    // Strip punctuation so repeated words are counted together.
+    const normalized = w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+    if (!normalized) continue;
+    counts.set(normalized, (counts.get(normalized) || 0) + 1);
+  }
+
+  if (counts.size > 0) {
+    const [topWord, topCount] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (topCount >= 5 && topCount / words.length > 0.35) {
+      flags.push(`repetition:${topWord}`);
+    }
+  }
+
+  // Detect a degenerate tail where the same token is repeated to fill the context window.
+  const tailMatch = trimmed.match(/(\S{2,})(?:\s+\1){8,}\s*$/i);
+  if (tailMatch) {
+    flags.push(`repeated-tail:${tailMatch[1].toLowerCase()}`);
+  }
+
+  return {
+    isSuspicious: flags.length > 0,
+    flags,
+  };
+}
+
+class TranslationTruncatedError extends Error {
+  constructor(provider: string) {
+    super(`${provider} translation was truncated (max_tokens reached)`);
+    this.name = "TranslationTruncatedError";
+  }
+}
+
 async function translateWithLingva(req: TranslateRequest): Promise<TranslateResponse> {
   const baseUrl = config.LINGVA_TRANSLATE_URL.replace(/\/$/, "");
   const source = mapLingvaLanguage(req.sourceLang);
@@ -117,41 +171,79 @@ async function translateWithLingva(req: TranslateRequest): Promise<TranslateResp
 // ---------------------------------------------------------------------------
 
 function buildSystemPrompt(targetName: string, sourceName?: string): string {
-  const sourceHint = sourceName && sourceName !== "auto"
-    ? `Translate the user's text from ${sourceName} into ${targetName}.`
-    : `Translate the user's text into ${targetName}.`;
+  const sourceHint =
+    sourceName && sourceName !== "auto"
+      ? `from ${sourceName} into ${targetName}`
+      : `into ${targetName}`;
+
   return (
-    "You are a professional translator.\n\n" +
-    `${sourceHint}\n\n` +
-    "Rules:\n" +
-    "- Preserve the original meaning exactly.\n" +
-    "- Do not add, remove, summarize, or infer information.\n" +
-    "- Translate every sentence in order.\n" +
-    "- Do not merge or split unrelated sentences.\n" +
-    "- Preserve names of people, places, organizations, brands, and abbreviations unless there is a well-established translation.\n" +
-    "- If a word or phrase is unclear, translate it as literally as possible instead of guessing.\n" +
-    "- Keep numbers, dates, and proper nouns accurate.\n" +
-    "- Maintain paragraph structure whenever possible.\n\n" +
-    "Respond with ONLY the translated text, no explanations."
+    "You are a highly disciplined translator. Your sole task is to translate the SOURCE text " +
+    sourceHint +
+    ".\n\n" +
+    "The SOURCE text will be provided in the next user message inside <SOURCE></SOURCE> tags. " +
+    "Follow these rules precisely:\n\n" +
+    "1. Complete translation: translate every sentence and every word. Do not omit anything. " +
+    "Do not leave any fragments in the source language.\n" +
+    "2. Sentence-level fidelity: preserve the sentence structure of the source. " +
+    "Do not merge two source sentences into one. Do not split one source sentence into several " +
+    "unless the grammar of " +
+    targetName +
+    " absolutely requires it.\n" +
+    "3. No additions or inferences: do not add explanations, headings, summaries, commentary, " +
+    "or background information. Do not infer facts, emotions, judgements, or causes that are not " +
+    "explicitly present in the source.\n" +
+    "4. Preserve names and proper nouns: keep names of people, places, organizations, books, " +
+    "brands, and abbreviations accurate. Use the established " +
+    targetName +
+    " form when one exists " +
+    "(for example, the writer Mo Yan should be rendered as Мо Янь in Russian). " +
+    "If no established form exists, transliterate consistently. Do not invent, shorten, " +
+    "normalize, or replace names.\n" +
+    "5. Consistent terminology: choose one target-language equivalent for each recurring term " +
+    "and use it throughout the text. Do not switch synonyms arbitrarily.\n" +
+    "6. Preserve tone and register: translate interviews as interviews, spoken style as spoken, " +
+    "formal text as formal. Do not make the text more ideological, more emotional, or more literary " +
+    "than the source.\n" +
+    "7. Preserve repetitions: if the source repeats a phrase or question, keep the repetition. " +
+    "Do not delete duplicates unless they are obvious speech-disfluency artifacts.\n" +
+    "8. Numbers and dates: keep them exact and in the same order as the source.\n" +
+    "9. Ambiguous or unclear words: translate literally rather than guessing or smoothing over.\n" +
+    "10. Ideological neutrality: do not intensify, soften, or reframe meaning. " +
+    "For example, do not turn 'certain risks for humanity' into 'a threat to the nation'.\n\n" +
+    "Output only the translation. No markdown, no XML tags, no code fences, no explanations."
   );
 }
 
-function buildPayload(targetName: string, sourceName: string | undefined, text: string, model: string): object {
-  return {
+function buildPayload(
+  targetName: string,
+  sourceName: string | undefined,
+  text: string,
+  model: string,
+  maxTokens?: number
+): object {
+  const payload: Record<string, unknown> = {
     model,
     messages: [
       { role: "system", content: buildSystemPrompt(targetName, sourceName) },
-      { role: "user", content: text },
+      {
+        role: "user",
+        content: `<SOURCE>\n${text}\n</SOURCE>\n\nTranslate the SOURCE text exactly according to the rules above.`,
+      },
     ],
     temperature: 0.0,
   };
+  if (maxTokens && maxTokens > 0) {
+    payload.max_tokens = maxTokens;
+  }
+  return payload;
 }
 
 async function callTranslationProvider(
   url: string,
   apiKey: string,
   payload: object,
-  providerName: string
+  providerName: string,
+  maxTokens?: number
 ): Promise<string> {
   const res = await fetch(url, {
     method: "POST",
@@ -175,7 +267,17 @@ async function callTranslationProvider(
   };
 
   const model = (payload as { model?: string }).model ?? data.model ?? "unknown";
-  logTranslationCost(providerName.toLowerCase(), model, data.usage?.prompt_tokens ?? 0, data.usage?.completion_tokens ?? 0);
+  const completionTokens = data.usage?.completion_tokens ?? 0;
+  logTranslationCost(providerName.toLowerCase(), model, data.usage?.prompt_tokens ?? 0, completionTokens);
+
+  if (maxTokens && completionTokens >= maxTokens) {
+    logger.warn(`${providerName} translation hit max_tokens and may be truncated`, {
+      model,
+      completionTokens,
+      maxTokens,
+    });
+    throw new TranslationTruncatedError(providerName);
+  }
 
   return data.choices[0]?.message?.content?.trim() ?? "";
 }
@@ -219,27 +321,30 @@ async function translateWithOpenAI(
   }
 
   if (!options.skipCache) {
-    const cached = await translationRepo.getTranslationCache(hash, req.targetLang);
+    const cached = await translationRepo.getConfirmedTranslationCache(hash, req.targetLang);
     if (cached) {
-      logger.info("Translation cache hit", { targetLang: req.targetLang, sourceLang });
+      logger.info("Translation confirmed cache hit", { targetLang: req.targetLang, sourceLang });
       return { translatedText: cached.translated_text, detectedLang: sourceLang };
     }
   }
 
   const model = config.TILTAB_TRANSLATION_MODEL || "gpt-4o-mini";
+  const maxTokens = config.TILTAB_TRANSLATION_MAX_TOKENS || 4096;
 
   if (openaiKey) {
     try {
       const translatedText = await callTranslationProvider(
         OPENAI_API_URL,
         openaiKey,
-        buildPayload(targetName, sourceName, req.text, model),
-        "OpenAI"
+        buildPayload(targetName, sourceName, req.text, model, maxTokens),
+        "OpenAI",
+        maxTokens
       );
       logger.info("Translated with OpenAI", { targetLang: req.targetLang, model });
       await translationRepo.saveTranslationCache({
         sourceHash: hash,
         sourceText: req.text,
+        sourceLang,
         targetLang: req.targetLang,
         translatedText,
         provider: "openai",
@@ -262,22 +367,41 @@ async function translateWithOpenAI(
   }
 
   const groqModel = config.TILTAB_GROQ_TRANSLATION_MODEL;
-  const translatedText = await callTranslationProvider(
-    GROQ_API_URL,
-    groqKey,
-    buildPayload(targetName, sourceName, req.text, groqModel),
-    "Groq"
-  );
-  logger.info("Translated with Groq fallback", { targetLang: req.targetLang, model: groqModel });
-  await translationRepo.saveTranslationCache({
-    sourceHash: hash,
-    sourceText: req.text,
-    targetLang: req.targetLang,
-    translatedText,
-    provider: "groq",
-    model: groqModel,
-  });
-  return { translatedText, detectedLang: sourceLang };
+  try {
+    const translatedText = await callTranslationProvider(
+      GROQ_API_URL,
+      groqKey,
+      buildPayload(targetName, sourceName, req.text, groqModel, maxTokens),
+      "Groq",
+      maxTokens
+    );
+    logger.info("Translated with Groq fallback", { targetLang: req.targetLang, model: groqModel });
+    await translationRepo.saveTranslationCache({
+      sourceHash: hash,
+      sourceText: req.text,
+      sourceLang,
+      targetLang: req.targetLang,
+      translatedText,
+      provider: "groq",
+      model: groqModel,
+    });
+    return { translatedText, detectedLang: sourceLang };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn("OpenAI and Groq translation failed, trying free fallback", { error: msg });
+
+    const isTajikTranslation = req.targetLang === "tg" || sourceLang === "tg";
+    if (config.LINGVA_TRANSLATE_URL && !isTajikTranslation) {
+      const fallback = await translateWithLingva(req);
+      return {
+        translatedText: fallback.translatedText,
+        detectedLang: fallback.detectedLang,
+        warning: `Groq translation failed (${msg}). Used free Lingva/Google Translate fallback — quality may be lower.`,
+      };
+    }
+
+    throw err;
+  }
 }
 
 async function translateWithGroq(req: TranslateRequest): Promise<TranslateResponse> {
@@ -288,14 +412,221 @@ async function translateWithGroq(req: TranslateRequest): Promise<TranslateRespon
   const targetName = languageNames[req.targetLang] ?? req.targetLang;
   const sourceLang = normalizeLanguageCodeOrKeep(req.sourceLang) ?? "auto";
   const sourceName = sourceLang === "auto" ? undefined : (languageNames[sourceLang] ?? sourceLang);
-  const translatedText = await callTranslationProvider(
-    GROQ_API_URL,
-    groqKey,
-    buildPayload(targetName, sourceName, req.text, config.TILTAB_GROQ_TRANSLATION_MODEL),
-    "Groq"
+
+  const maxTokens = config.TILTAB_TRANSLATION_MAX_TOKENS || 4096;
+  try {
+    const translatedText = await callTranslationProvider(
+      GROQ_API_URL,
+      groqKey,
+      buildPayload(targetName, sourceName, req.text, config.TILTAB_GROQ_TRANSLATION_MODEL, maxTokens),
+      "Groq",
+      maxTokens
+    );
+    logger.info("Translated with Groq", { targetLang: req.targetLang });
+    return { translatedText, detectedLang: sourceLang };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn("Groq translation failed, trying free fallback", { error: msg });
+
+    // Free fallback: Lingva/Google Translate for non-Tajik pairs.
+    const isTajikTranslation = req.targetLang === "tg" || sourceLang === "tg";
+    if (config.LINGVA_TRANSLATE_URL && !isTajikTranslation) {
+      const fallback = await translateWithLingva(req);
+      return {
+        translatedText: fallback.translatedText,
+        detectedLang: fallback.detectedLang,
+        warning: `Groq translation failed (${msg}). Used free Lingva/Google Translate fallback — quality may be lower.`,
+      };
+    }
+
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Post-translation QA / review
+// ---------------------------------------------------------------------------
+
+const scriptByLanguage: Record<string, "cyrillic" | "latin" | "other"> = {
+  ru: "cyrillic",
+  ky: "cyrillic",
+  tg: "cyrillic",
+  uz_cyrl: "cyrillic",
+  en: "latin",
+  uz: "latin",
+};
+
+// Letters that strongly indicate a specific Cyrillic source language.
+// Used only as a quick heuristic for same-script pairs.
+const sourceSpecificLetters: Record<string, string> = {
+  ky: "ңөү",
+  tg: "ӯӣҳҷқғ",
+  uz_cyrl: "ўқғҳ",
+};
+
+function detectUntranslatedFragments(
+  text: string,
+  sourceLang: string,
+  targetLang: string
+): string[] {
+  const sourceScript = scriptByLanguage[sourceLang] ?? "other";
+  const targetScript = scriptByLanguage[targetLang] ?? "other";
+  const fragments = new Set<string>();
+
+  if (sourceScript === targetScript && sourceLang !== targetLang) {
+    // For same-script pairs, flag only words that contain source-specific letters.
+    const markers = sourceSpecificLetters[sourceLang];
+    if (markers) {
+      const words = text.match(/[\p{L}\p{M}]+/gu) ?? [];
+      for (const word of words) {
+        if (Array.from(markers).some((ch) => word.includes(ch))) {
+          fragments.add(word);
+        }
+      }
+    }
+    return Array.from(fragments).slice(0, 10);
+  }
+
+  if (sourceScript === "cyrillic" && targetScript === "latin") {
+    const words = text.match(/[\u0400-\u04FF]{3,}/g);
+    if (words) words.forEach((w) => fragments.add(w));
+  }
+
+  if (sourceScript === "latin" && targetScript === "cyrillic") {
+    const words = text.match(/[a-zA-Z]{4,}/g);
+    if (words) words.forEach((w) => fragments.add(w));
+  }
+
+  return Array.from(fragments).slice(0, 10);
+}
+
+function buildReviewPayload(
+  sourceText: string,
+  translatedText: string,
+  sourceName: string,
+  targetName: string,
+  model: string,
+  maxTokens?: number
+): object {
+  const prompt =
+    `You are a senior translation quality reviewer. A text was translated from ${sourceName} into ${targetName}.\n\n` +
+    `Review the current translation against the source. Produce a corrected translation that fixes ONLY these issues:\n` +
+    `1. Untranslated fragments still in ${sourceName}. Translate them into ${targetName}.\n` +
+    `2. Inconsistent names, places, or terms (e.g. "Issyk-Kul forum" vs "forum in Issyk-Kul"). Pick one standard form and use it throughout.\n` +
+    `3. Hallucinated or invented names that do not appear in the source. Remove or replace them with [?].\n` +
+    `4. Awkward or ungrammatical phrasing in ${targetName}.\n\n` +
+    `Rules:\n` +
+    `- Preserve the original meaning exactly. Do NOT summarize, expand, or change the message.\n` +
+    `- Do NOT translate names of people, places, organizations, or brands unless there is a well-established ${targetName} form.\n` +
+    `- Keep numbers, dates, and proper nouns accurate.\n` +
+    `- Maintain paragraph structure.\n` +
+    `- Return a JSON object with exactly these keys:\n` +
+    `  - "corrected": the full corrected translation in ${targetName}\n` +
+    `  - "issues": a short array of issue types you found (e.g. ["untranslated fragment", "inconsistent name"]), or []\n` +
+    `  - "warning": a concise user-facing sentence in ${targetName} summarizing the problem, or null if no significant issue remains\n` +
+    `- Output ONLY valid JSON, no markdown, no explanations.\n\n` +
+    `Source (${sourceName}):\n${sourceText}\n\n` +
+    `Current translation (${targetName}):\n${translatedText}`;
+
+  const payload: Record<string, unknown> = {
+    model,
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.0,
+    response_format: { type: "json_object" },
+  };
+  if (maxTokens && maxTokens > 0) {
+    payload.max_tokens = maxTokens;
+  }
+  return payload;
+}
+
+function parseReviewResponse(raw: string): {
+  corrected: string;
+  issues: string[];
+  warning: string | null;
+} {
+  const cleaned = raw.replace(/```json\s*|\s*```/g, "").trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    return {
+      corrected: typeof parsed.corrected === "string" ? parsed.corrected : cleaned,
+      issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+      warning:
+        parsed.warning === null || parsed.warning === undefined
+          ? null
+          : typeof parsed.warning === "string"
+          ? parsed.warning
+          : null,
+    };
+  } catch {
+    // Fallback: treat the whole output as the corrected translation.
+    return { corrected: raw, issues: [], warning: null };
+  }
+}
+
+async function reviewTranslation(
+  req: TranslateRequest,
+  translatedText: string,
+  providerName: "groq" | "openai"
+): Promise<{ reviewedText: string; warning?: string }> {
+  if (!config.TILTAB_REVIEW_ENABLED) {
+    return { reviewedText: translatedText };
+  }
+
+  const sourceLang = normalizeLanguageCodeOrKeep(req.sourceLang) ?? "auto";
+  const sourceName = languageNames[sourceLang] ?? sourceLang;
+  const targetName = languageNames[req.targetLang] ?? req.targetLang;
+
+  const combinedLength = req.text.length + translatedText.length;
+  const maxReviewInputChars = config.TILTAB_REVIEW_MAX_INPUT_CHARS || 4000;
+  if (combinedLength > maxReviewInputChars) {
+    logger.info("Skipping translation review: combined input too long", {
+      sourceLang,
+      targetLang: req.targetLang,
+      combinedLength,
+      maxReviewInputChars,
+    });
+    return { reviewedText: translatedText };
+  }
+
+  const url = providerName === "groq" ? GROQ_API_URL : OPENAI_API_URL;
+  const key = providerName === "groq" ? config.GROQ_API_KEY : config.OPENAI_API_KEY;
+  const model =
+    providerName === "groq"
+      ? config.TILTAB_REVIEW_MODEL || config.TILTAB_GROQ_TRANSLATION_MODEL
+      : config.TILTAB_REVIEW_MODEL || config.TILTAB_TRANSLATION_MODEL || "gpt-4o-mini";
+
+  if (!key) {
+    return { reviewedText: translatedText };
+  }
+
+  const maxTokens = config.TILTAB_REVIEW_MAX_TOKENS || 4096;
+  const raw = await callTranslationProvider(
+    url,
+    key,
+    buildReviewPayload(req.text, translatedText, sourceName, targetName, model, maxTokens),
+    `${providerName}-review`,
+    maxTokens
   );
-  logger.info("Translated with Groq", { targetLang: req.targetLang });
-  return { translatedText, detectedLang: sourceLang };
+  const parsed = parseReviewResponse(raw);
+  logger.info("Translation review complete", {
+    sourceLang,
+    targetLang: req.targetLang,
+    provider: providerName,
+    issues: parsed.issues,
+  });
+
+  const heuristicFragments = detectUntranslatedFragments(
+    parsed.corrected || translatedText,
+    sourceLang,
+    req.targetLang
+  );
+  let warning = parsed.warning ?? undefined;
+  if (!warning && heuristicFragments.length > 0) {
+    warning = `В переводе могут остаться непереведённые фрагменты: ${heuristicFragments.join(", ")}.`;
+  }
+
+  return { reviewedText: parsed.corrected || translatedText, warning };
 }
 
 function mockTranslation(req: TranslateRequest): TranslateResponse {
@@ -307,30 +638,43 @@ function mockTranslation(req: TranslateRequest): TranslateResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Admin confirmation
+// ---------------------------------------------------------------------------
+
+export async function confirmTranslation(payload: {
+  sourceHash: string;
+  targetLang: string;
+  confirmedBy?: string;
+  translatedText?: string;
+}): Promise<translationRepo.TranslationCacheEntry | null> {
+  return translationRepo.confirmTranslationCache(payload);
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
-export async function translateText(req: TranslateRequest): Promise<TranslateResponse> {
-  if (!req.text?.trim()) {
-    return { translatedText: "", detectedLang: "auto" };
-  }
-
-  // Uzbek Cyrillic is a script variant of Uzbek Latin. Translate to Latin first,
-  // then transliterate. For LLM providers we could ask directly, but transliteration
-  // keeps the output consistent and works for all providers.
-  const isUzbekCyrillic = req.targetLang === "uz_cyrl";
-  const translateReq: TranslateRequest = isUzbekCyrillic
-    ? { ...req, targetLang: "uz" }
-    : req;
-
+async function doTranslate(translateReq: TranslateRequest): Promise<TranslateResponse> {
   const sourceLang = normalizeLanguageCodeOrKeep(translateReq.sourceLang) ?? "auto";
   const hash = createHash("sha256").update(translateReq.text).digest("hex");
-  const cached = await translationRepo.getTranslationCache(hash, translateReq.targetLang);
+  const cached = await translationRepo.getConfirmedTranslationCache(hash, translateReq.targetLang);
   if (cached) {
-    logger.info("Translation cache hit (public)", { targetLang: translateReq.targetLang, sourceLang });
-    let text = cached.translated_text;
-    if (isUzbekCyrillic) text = latinToCyrillic(text);
-    return { translatedText: text, detectedLang: sourceLang };
+    logger.info("Translation confirmed cache hit", { targetLang: translateReq.targetLang, sourceLang });
+    // Re-validate cached entries: old bad translations may have been stored before
+    // the quality guard was introduced. If one is found, delete it and translate fresh.
+    const cachedQuality = detectTranslationIssues(cached.translated_text);
+    if (cachedQuality.isSuspicious) {
+      logger.warn("Cached translation failed quality check, deleting and re-translating", {
+        targetLang: translateReq.targetLang,
+        sourceLang,
+        flags: cachedQuality.flags,
+      });
+      await translationRepo.deleteTranslationCache(hash, translateReq.targetLang).catch((err) => {
+        logger.error("Failed to delete bad translation cache", { error: err, hash });
+      });
+    } else {
+      return { translatedText: cached.translated_text, detectedLang: sourceLang };
+    }
   }
 
   // Tajik texts need accurate handling of Arabic/Cyrillic script and named entities.
@@ -342,7 +686,7 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
   // If Daniel's module URL is configured, try to proxy to it first.
   // If it fails, fall through to the normal provider chain instead of failing the request.
   if (config.TRANSLATION_MODULE_URL) {
-    logger.info("Proxying translation to Daniel's module", { targetLang: req.targetLang });
+    logger.info("Proxying translation to Daniel's module", { targetLang: translateReq.targetLang });
     try {
       const res = await fetch(config.TRANSLATION_MODULE_URL, {
         method: "POST",
@@ -355,12 +699,6 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
       }
 
       const moduleResult = (await res.json()) as TranslateResponse;
-      if (isUzbekCyrillic) {
-        return {
-          translatedText: latinToCyrillic(moduleResult.translatedText),
-          detectedLang: moduleResult.detectedLang ?? sourceLang,
-        };
-      }
       return moduleResult;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -400,12 +738,215 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
     result = mockTranslation(translateReq);
   }
 
-  if (isUzbekCyrillic) {
-    return {
-      translatedText: latinToCyrillic(result.translatedText),
-      detectedLang: result.detectedLang,
-    };
+  // -------------------------------------------------------------------------
+  // Sanity check the raw translation before review / cache. LLMs can degenerate
+  // into repetitive loops when they hit their output token limit. If the output
+  // looks suspicious, fail the translation so the caller can fall back to the
+  // source transcription instead of sending garbage to the user.
+  // -------------------------------------------------------------------------
+  const quality = detectTranslationIssues(result.translatedText);
+  if (quality.isSuspicious) {
+    logger.warn("Translation quality check failed", {
+      sourceLang,
+      targetLang: translateReq.targetLang,
+      provider: provider ?? "auto",
+      flags: quality.flags,
+      translatedLength: result.translatedText.length,
+    });
+    throw new Error(`Translation output rejected: ${quality.flags.join(", ")}`);
+  }
+
+  // -------------------------------------------------------------------------
+  // Quality review: fix untranslated fragments, inconsistent names, and
+  // awkward phrasing. Runs for all language pairs. Respect TILTAB_REVIEW_PROVIDER
+  // if set; otherwise prefer the same provider used for translation.
+  // Fail-soft: review failures are logged but never surfaced to the user.
+  // -------------------------------------------------------------------------
+  const preferredReviewProvider: "openai" | "groq" | undefined = (() => {
+    if (config.TILTAB_REVIEW_PROVIDER === "openai" && config.OPENAI_API_KEY) return "openai";
+    if (config.TILTAB_REVIEW_PROVIDER === "groq" && config.GROQ_API_KEY) return "groq";
+    if (config.TILTAB_REVIEW_PROVIDER === "auto") {
+      if (provider === "openai" && config.OPENAI_API_KEY) return "openai";
+      if (provider === "groq" && config.GROQ_API_KEY) return "groq";
+      if (config.GROQ_API_KEY) return "groq";
+      if (config.OPENAI_API_KEY) return "openai";
+    }
+    return undefined;
+  })();
+
+  if (preferredReviewProvider) {
+    const fallbackProvider =
+      preferredReviewProvider === "openai" && config.GROQ_API_KEY ? "groq" :
+      preferredReviewProvider === "groq" && config.OPENAI_API_KEY ? "openai" : undefined;
+
+    let reviewed: { reviewedText: string; warning?: string } = { reviewedText: result.translatedText };
+    try {
+      reviewed = await reviewTranslation(translateReq, result.translatedText, preferredReviewProvider);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn("Preferred review provider failed", { provider: preferredReviewProvider, error: msg });
+      if (fallbackProvider) {
+        try {
+          reviewed = await reviewTranslation(translateReq, result.translatedText, fallbackProvider);
+        } catch (err2) {
+          const msg2 = err2 instanceof Error ? err2.message : String(err2);
+          logger.warn("Fallback review provider also failed", { provider: fallbackProvider, error: msg2 });
+        }
+      }
+    }
+
+    result.translatedText = reviewed.reviewedText;
+    if (reviewed.warning) {
+      result.warning = result.warning ? `${result.warning} ${reviewed.warning}` : reviewed.warning;
+    }
   }
 
   return result;
+}
+
+export async function translateText(req: TranslateRequest): Promise<TranslateResponse> {
+  if (!req.text?.trim()) {
+    return { translatedText: "", detectedLang: "auto" };
+  }
+
+  // Uzbek Cyrillic is a script variant of Uzbek Latin. Translate to Latin first,
+  // then transliterate. For LLM providers we could ask directly, but transliteration
+  // keeps the output consistent and works for all providers.
+  const isUzbekCyrillic = req.targetLang === "uz_cyrl";
+  const translateReq: TranslateRequest = isUzbekCyrillic
+    ? { ...req, targetLang: "uz" }
+    : req;
+
+  const sourceLang = normalizeLanguageCodeOrKeep(translateReq.sourceLang) ?? "auto";
+  const hash = createHash("sha256").update(translateReq.text).digest("hex");
+  const provider = config.TILTAB_TRANSLATION_PROVIDER;
+  const model = config.TILTAB_GROQ_TRANSLATION_MODEL || config.TILTAB_TRANSLATION_MODEL || "unknown";
+
+  // Every user-facing translation gets a public request number. This lets users
+  // report problems by quoting the number, and lets admins look up the exact
+  // request in the audit log.
+  const requestNumber = await translationRepo.getNextRequestNumber().catch((err) => {
+    logger.error("Failed to generate request number", { error: err instanceof Error ? err.message : String(err) });
+    return 0;
+  });
+
+  try {
+    // If a confirmed cache entry already exists, serve it and log a confirmed
+    // audit row. We re-validate quality here so bad cached entries are re-translated.
+    const cached = await translationRepo.getConfirmedTranslationCache(hash, translateReq.targetLang);
+    if (cached && !detectTranslationIssues(cached.translated_text).isSuspicious) {
+      logger.info("Translation confirmed cache hit", { targetLang: translateReq.targetLang, sourceLang, requestNumber });
+      await translationRepo.saveTranslationRequest({
+        sourceHash: hash,
+        sourceText: translateReq.text,
+        sourceLang,
+        targetLang: translateReq.targetLang,
+        translatedText: cached.translated_text,
+        provider: "cache",
+        model: "cache",
+        status: "confirmed",
+        sourceUrl: translateReq.sourceUrl,
+        sourceType: translateReq.sourceType,
+        requestNumber,
+      }).catch((logErr) => {
+        logger.error("Failed to log translation request", { error: logErr instanceof Error ? logErr.message : String(logErr) });
+      });
+
+      const cachedResult: TranslateResponse = {
+        translatedText: cached.translated_text,
+        detectedLang: sourceLang,
+        requestId: requestNumber,
+      };
+      if (isUzbekCyrillic) {
+        cachedResult.translatedText = latinToCyrillic(cachedResult.translatedText);
+      }
+      return cachedResult;
+    }
+
+    const result = await doTranslate(translateReq);
+
+    // Save reviewed result to cache as PENDING. It will not be auto-returned
+    // until an admin confirms it via /web/admin.
+    await translationRepo.saveTranslationCache({
+      sourceHash: hash,
+      sourceText: translateReq.text,
+      sourceLang,
+      targetLang: translateReq.targetLang,
+      translatedText: result.translatedText,
+      provider: provider ?? "auto",
+      model,
+      sourceUrl: translateReq.sourceUrl,
+      sourceType: translateReq.sourceType,
+      requestNumber,
+    });
+
+    await translationRepo.saveTranslationRequest({
+      sourceHash: hash,
+      sourceText: translateReq.text,
+      sourceLang,
+      targetLang: translateReq.targetLang,
+      translatedText: result.translatedText,
+      provider: provider ?? "auto",
+      model,
+      status: "pending",
+      sourceUrl: translateReq.sourceUrl,
+      sourceType: translateReq.sourceType,
+      requestNumber,
+    }).catch((logErr) => {
+      logger.error("Failed to log translation request", { error: logErr instanceof Error ? logErr.message : String(logErr) });
+    });
+
+    if (isUzbekCyrillic) {
+      return {
+        translatedText: latinToCyrillic(result.translatedText),
+        detectedLang: result.detectedLang,
+        warning: result.warning,
+        requestId: requestNumber,
+      };
+    }
+
+    return { ...result, requestId: requestNumber };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    logger.error("Translation failed, logging error to cache", {
+      sourceLang,
+      targetLang: translateReq.targetLang,
+      provider: provider ?? "auto",
+      error: errorMessage,
+      requestNumber,
+    });
+
+    await translationRepo.logTranslationError({
+      sourceHash: hash,
+      sourceText: translateReq.text,
+      sourceLang,
+      targetLang: translateReq.targetLang,
+      errorMessage,
+      provider: provider ?? "auto",
+      model,
+      sourceUrl: translateReq.sourceUrl,
+      sourceType: translateReq.sourceType,
+      requestNumber,
+    }).catch((logErr) => {
+      logger.error("Failed to log translation error", { error: logErr instanceof Error ? logErr.message : String(logErr) });
+    });
+
+    await translationRepo.saveTranslationRequest({
+      sourceHash: hash,
+      sourceText: translateReq.text,
+      sourceLang,
+      targetLang: translateReq.targetLang,
+      provider: provider ?? "auto",
+      model,
+      status: "error",
+      errorMessage,
+      sourceUrl: translateReq.sourceUrl,
+      sourceType: translateReq.sourceType,
+      requestNumber,
+    }).catch((logErr) => {
+      logger.error("Failed to log translation request", { error: logErr instanceof Error ? logErr.message : String(logErr) });
+    });
+
+    throw err;
+  }
 }

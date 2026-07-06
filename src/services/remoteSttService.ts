@@ -7,6 +7,22 @@ import type { TranscriptionResult } from "../types";
 // two large models resident at once is unnecessary and wastes RAM; the queue
 // also prevents CPU contention on the shared VPS.
 let sttQueue: Promise<unknown> = Promise.resolve();
+let pendingCount = 0;
+let runningJob: { filename: string; language: string; startedAt: number } | null = null;
+
+export interface RemoteSttQueueStatus {
+  pending: number;
+  running: boolean;
+  current?: { filename: string; language: string; startedAt: number };
+}
+
+export function getRemoteSttQueueStatus(): RemoteSttQueueStatus {
+  return {
+    pending: pendingCount,
+    running: runningJob !== null,
+    current: runningJob ?? undefined,
+  };
+}
 
 export async function transcribeWithRemoteService(
   audioBuffer: Buffer,
@@ -20,51 +36,60 @@ export async function transcribeWithRemoteService(
   }
 
   const run = async (): Promise<TranscriptionResult> => {
-    const url = new URL("/transcribe", baseUrl).toString();
-    const form = new FormData();
-    form.append("file", new Blob([new Uint8Array(audioBuffer)]), filename);
-    form.append("language", language);
+    pendingCount = Math.max(0, pendingCount - 1);
+    runningJob = { filename, language, startedAt: Date.now() };
+    try {
+      const url = new URL("/transcribe", baseUrl).toString();
+      const form = new FormData();
+      form.append("file", new Blob([new Uint8Array(audioBuffer)]), filename);
+      form.append("language", language);
 
-    logger.info("Starting remote STT request", {
-      url: baseUrl,
-      language,
-      sizeBytes: audioBuffer.length,
-    });
+      logger.info("Starting remote STT request", {
+        url: baseUrl,
+        language,
+        sizeBytes: audioBuffer.length,
+      });
 
-    const res = await fetch(url, {
-      method: "POST",
-      body: form,
-      signal: abortSignal,
-    });
+      const res = await fetch(url, {
+        method: "POST",
+        body: form,
+        signal: abortSignal,
+      });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`Remote STT service returned ${res.status}: ${text}`);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`Remote STT service returned ${res.status}: ${text}`);
+      }
+
+      const data = (await res.json()) as TranscriptionResult & {
+        error?: string;
+        type?: string;
+      };
+
+      if (data.error) {
+        throw new Error(`Remote STT service error: ${data.error}`);
+      }
+
+      logger.info("Remote STT service response received", {
+        language: data.language,
+        textLength: data.text?.length,
+        segmentCount: data.segments?.length,
+      });
+
+      return {
+        text: data.text ?? "",
+        language: data.language ?? language,
+        segments: data.segments ?? [],
+        provider: data.provider ?? "remote",
+        model: data.model ?? "unknown",
+      };
+    } finally {
+      runningJob = null;
     }
-
-    const data = (await res.json()) as TranscriptionResult & {
-      error?: string;
-      type?: string;
-    };
-
-    if (data.error) {
-      throw new Error(`Remote STT service error: ${data.error}`);
-    }
-
-    logger.info("Remote STT service response received", {
-      language: data.language,
-      textLength: data.text?.length,
-      segmentCount: data.segments?.length,
-    });
-
-    return {
-      text: data.text ?? "",
-      language: data.language ?? language,
-      segments: data.segments ?? [],
-    };
   };
 
   // Chain the new job after the current queue (success or failure).
+  pendingCount += 1;
   const queuedAt = Date.now();
   const job = sttQueue.then(run, run);
   sttQueue = job.catch(() => {

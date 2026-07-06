@@ -11,6 +11,7 @@ import { transcribeWithElevenLabs } from "./elevenlabsSttService";
 import type { TranscriptionResult, TranscriptionSegment } from "../types";
 import { normalizeLanguageCodeOrKeep } from "../utils/languageCodes";
 import { transcribeWithRemoteService } from "./remoteSttService";
+import { isGpuSttEnabled, isGpuSttLanguageSupported, transcribeWithGpu } from "./gpuSttService";
 
 const FFMPEG_PATH = require("ffmpeg-static");
 const PYTHON_PATH = process.platform === "win32" ? "python" : "python3";
@@ -31,14 +32,15 @@ export async function transcribeAudio(
   const provider = config.TILTAB_STT_PROVIDER;
   const normalizedLang = language ? normalizeLanguageCodeOrKeep(language) : undefined;
 
-  // Tajik always runs the local open-source fine-tuned Whisper model.
-  if (normalizedLang === "tg") {
-    const result = await runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress, abortSignal);
+  // GPU offloading for supported languages (ru/en/uz/tg/ky/auto/multi). GPU is
+  // cheaper and faster than CPU inference on the Hetzner box for heavy files.
+  if (isGpuSttEnabled() && normalizedLang && isGpuSttLanguageSupported(normalizedLang)) {
+    const result = await transcribeWithGpu(audioBuffer, filename, normalizedLang, abortSignal);
     return normalizeTranscriptionResult(result);
   }
 
-  // Priority local models hosted on the remote STT server (ky/uz are too heavy for Render/Starter RAM).
-  const remoteSupported = new Set(["ky", "uz"]);
+  // Priority local models hosted on the remote STT server (uz is too heavy for Render/Starter RAM).
+  const remoteSupported = new Set(["uz"]);
   if (config.TILTAB_STT_SERVICE_URL && normalizedLang && remoteSupported.has(normalizedLang)) {
     const result = await transcribeWithRemoteService(audioBuffer, filename, normalizedLang, abortSignal);
     return normalizeTranscriptionResult(result);
@@ -70,7 +72,11 @@ export async function transcribeAudio(
 
   if (provider === "local") {
     result = await runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress, abortSignal);
-    return normalizeTranscriptionResult(result);
+    return normalizeTranscriptionResult({
+      ...result,
+      provider: "local",
+      model: getLocalModelName(language),
+    });
   }
 
   // Auto mode: cloud-first. ElevenLabs → OpenAI/Groq → local fallback only
@@ -105,7 +111,11 @@ export async function transcribeAudio(
   }
 
   result = await runHybridTranscription(audioBuffer, filename, language, onProcessStart, onProgress, abortSignal);
-  return normalizeTranscriptionResult(result);
+  return normalizeTranscriptionResult({
+    ...result,
+    provider: "local",
+    model: getLocalModelName(language),
+  });
 }
 
 async function convertToAudio(inputBuffer: Buffer, _filename: string): Promise<Buffer> {
@@ -271,6 +281,24 @@ function normalizeTranscriptionResult(result: TranscriptionResult): Transcriptio
     ...result,
     language: normalizeLanguageCodeOrKeep(result.language) ?? "auto",
   };
+}
+
+function getLocalModelName(language?: string): string {
+  const lang = normalizeLanguageCodeOrKeep(language) ?? "auto";
+  switch (lang) {
+    case "tg":
+      return "whisper-tajik-finetuned-ct2";
+    case "uz":
+      return process.env.TILTAB_LOCAL_WHISPER_MODEL_UZ || "rubai-ct2-int8";
+    case "ky":
+      return process.env.TILTAB_LOCAL_VOSK_MODEL_KY || "vosk-model-ky-0.42";
+    case "ru":
+    case "en":
+    case "auto":
+    case "multi":
+    default:
+      return process.env.TILTAB_LOCAL_WHISPER_MODEL || "whisper-large-v3-turbo-ct2";
+  }
 }
 
 function parseTranscriptionResult(data: {

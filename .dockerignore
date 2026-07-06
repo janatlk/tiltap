@@ -6,8 +6,17 @@ dist
 .vscode
 .idea
 coverage
-models
+# Ignore all models by default, but allow the GPU worker to copy specific ones.
+models/*
+!models/whisper-large-v3-turbo-ct2
+!models/whisper-large-v3-turbo-ct2/**
+!models/muhtasham-whisper-tg-ct2
+!models/muhtasham-whisper-tg-ct2/**
+!models/rubai-ct2-int8
+!models/rubai-ct2-int8/**
 poller_offset.txt
 tmp
 test_audio/cache
 test_audio/youtube/ky_yt_full.wav
+!models/kyrgyz-whisper-small-ct2
+!models/kyrgyz-whisper-small-ct2/**

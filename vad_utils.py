@@ -146,7 +146,10 @@ def merge_speech_segments(
         max_duration: No output chunk will exceed this duration (seconds).
 
     Returns:
-        A list of chunks suitable for passing to an ASR engine.
+        A list of chunks suitable for passing to an ASR engine. Overly long
+        chunks are split at the largest silence gaps between original VAD
+        segments rather than at fixed time intervals, so words are not cut
+        in the middle.
     """
     if not segments:
         return []
@@ -164,7 +167,7 @@ def merge_speech_segments(
             current = dict(seg)
     merged.append(current)
 
-    # Split any chunk that is longer than max_duration.
+    # Split any chunk that is longer than max_duration at natural silence gaps.
     final: List[Dict[str, float]] = []
     for chunk in merged:
         duration = chunk["end"] - chunk["start"]
@@ -172,13 +175,38 @@ def merge_speech_segments(
             final.append(chunk)
             continue
 
-        n_splits = math.ceil(duration / max_duration)
-        split_duration = duration / n_splits
+        # Find original segments that fall inside this merged chunk.
+        inner_segs = [s for s in sorted_segs if s["start"] >= chunk["start"] and s["end"] <= chunk["end"]]
+        # Build silence gaps between consecutive inner segments.
+        gaps: List[Tuple[float, float, float]] = []
+        prev_end = chunk["start"]
+        for seg in inner_segs:
+            gap_start = prev_end
+            gap_end = seg["start"]
+            if gap_end > gap_start:
+                gaps.append((gap_start, gap_end, gap_end - gap_start))
+            prev_end = seg["end"]
+        if prev_end < chunk["end"]:
+            gaps.append((prev_end, chunk["end"], chunk["end"] - prev_end))
+
+        # Sort gaps by duration descending; prefer gaps near the middle of the chunk.
+        mid = chunk["start"] + duration / 2
+        gaps.sort(key=lambda g: (-g[2], abs((g[0] + g[1]) / 2 - mid)))
+
+        # Determine how many pieces we need and pick the best split points.
+        n_pieces = math.ceil(duration / max_duration)
+        n_splits = max(1, n_pieces - 1)
+        split_points = sorted(g[:2] for g in gaps[:n_splits])
+
         start = chunk["start"]
-        for _ in range(n_splits):
-            end = min(start + split_duration, chunk["end"])
-            final.append({"start": start, "end": end})
-            start = end
+        for gap_start, gap_end in split_points:
+            # Split in the middle of the silence gap.
+            split_at = (gap_start + gap_end) / 2
+            if split_at - start >= 1.0:
+                final.append({"start": start, "end": split_at})
+                start = split_at
+        if chunk["end"] - start >= 0.5:
+            final.append({"start": start, "end": chunk["end"]})
 
     return final
 

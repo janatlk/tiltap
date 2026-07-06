@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="business">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TilTap Admin — Translation Audit</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style>
+    .text-box {
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.6;
+      max-height: 220px;
+      overflow: auto;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-base-200 py-6 px-4">
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <header class="flex flex-wrap items-center justify-between gap-4">
+      <h1 class="text-3xl font-bold tracking-tight">TilTap Admin</h1>
+      <div class="flex gap-2">
+        <a href="/web/admin-beta-test.html" class="btn btn-sm btn-ghost">Beta STT Test</a>
+        <a href="/web" class="btn btn-sm btn-ghost">Back to web UI</a>
+      </div>
+    </header>
+
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body">
+        <div class="flex flex-wrap gap-4 items-end">
+          <div class="form-control flex-1 min-w-[200px]">
+            <label class="label" for="adminToken"><span class="label-text">Admin token <span class="text-error">*</span></span></label>
+            <input type="text" id="adminToken" class="input input-bordered w-full" placeholder="TILTAB_ADMIN_TOKEN value">
+          </div>
+          <button id="refreshBtn" class="btn btn-primary">Refresh</button>
+        </div>
+        <p class="text-sm text-base-content/70 mt-3">
+          Translations are saved as <strong>Pending</strong> until confirmed. Confirmed entries are served from cache; rejected and error rows are preserved for audit.
+        </p>
+      </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body">
+        <div class="flex flex-wrap gap-4 items-end">
+          <div class="form-control flex-1 min-w-[200px]">
+            <label class="label" for="requestSearch"><span class="label-text">Lookup request number</span></label>
+            <input type="text" id="requestSearch" class="input input-bordered w-full" placeholder="e.g. 3248">
+          </div>
+          <button id="searchBtn" class="btn btn-outline">Search</button>
+        </div>
+        <div id="searchResult" class="mt-4"></div>
+      </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body">
+        <div role="tablist" class="tabs tabs-lift flex-wrap">
+          <button role="tab" class="tab tab-active" data-tab="pending">Pending <span class="badge badge-sm badge-ghost ms-1" id="count-pending">0</span></button>
+          <button role="tab" class="tab" data-tab="confirmed">Confirmed <span class="badge badge-sm badge-ghost ms-1" id="count-confirmed">0</span></button>
+          <button role="tab" class="tab" data-tab="rejected">Rejected <span class="badge badge-sm badge-ghost ms-1" id="count-rejected">0</span></button>
+          <button role="tab" class="tab" data-tab="errors">Errors <span class="badge badge-sm badge-ghost ms-1" id="count-errors">0</span></button>
+          <button role="tab" class="tab" data-tab="web-jobs">STT Jobs <span class="badge badge-sm badge-ghost ms-1" id="count-web-jobs">0</span></button>
+          <button role="tab" class="tab" data-tab="live">Live <span class="badge badge-sm badge-ghost ms-1" id="count-live">0</span></button>
+        </div>
+        <div id="listContainer" class="mt-4">
+          <div class="text-center text-base-content/60 py-12">Click "Refresh" to load translations.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast toast-end hidden z-50">
+    <div class="alert" id="toastAlert">
+      <span id="toastMsg"></span>
+    </div>
+  </div>
+
+  <dialog id="loginModal" class="modal">
+    <div class="modal-box">
+      <h3 class="text-lg font-bold">Admin access required</h3>
+      <p class="py-2 text-base-content/70">Enter the admin token to use this panel.</p>
+      <div class="form-control mt-2">
+        <input type="text" id="loginToken" class="input input-bordered w-full" placeholder="TILTAB_ADMIN_TOKEN value">
+      </div>
+      <div id="loginError" class="alert alert-error hidden text-sm mt-3" role="alert"></div>
+      <div class="modal-action">
+        <button id="loginBtn" class="btn btn-primary">Enter</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script>
+    const API = "";
+    const adminToken = document.getElementById("adminToken");
+    const loginToken = document.getElementById("loginToken");
+    const loginModal = document.getElementById("loginModal");
+    const loginBtn = document.getElementById("loginBtn");
+    const loginError = document.getElementById("loginError");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const listContainer = document.getElementById("listContainer");
+    const toast = document.getElementById("toast");
+    const toastAlert = document.getElementById("toastAlert");
+    const toastMsg = document.getElementById("toastMsg");
+    const tabs = document.querySelectorAll("[role='tablist'] .tab");
+    const requestSearch = document.getElementById("requestSearch");
+    const searchBtn = document.getElementById("searchBtn");
+    const searchResult = document.getElementById("searchResult");
+
+    let currentTab = "pending";
+
+    function getStoredToken() {
+      return localStorage.getItem("tiltab_admin_token") || "";
+    }
+
+    function setToken(token) {
+      adminToken.value = token;
+      loginToken.value = token;
+      localStorage.setItem("tiltab_admin_token", token);
+    }
+
+    const initialToken = getStoredToken();
+    if (initialToken) setToken(initialToken);
+
+    function requireToken() {
+      if (!adminToken.value.trim()) {
+        loginModal.showModal();
+        return false;
+      }
+      loginModal.close();
+      return true;
+    }
+
+    adminToken.addEventListener("change", () => {
+      setToken(adminToken.value);
+      requireToken();
+    });
+
+    loginBtn.addEventListener("click", () => {
+      const token = loginToken.value.trim();
+      if (!token) {
+        loginError.classList.remove("hidden");
+        loginError.textContent = "Token is required.";
+        return;
+      }
+      setToken(token);
+      requireToken();
+      loadTab(currentTab);
+    });
+
+    loginToken.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") loginBtn.click();
+    });
+
+    function showToast(msg, isError) {
+      toastMsg.textContent = msg;
+      toastAlert.className = "alert " + (isError ? "alert-error" : "alert-success");
+      toast.classList.remove("hidden");
+      setTimeout(() => { toast.classList.add("hidden"); }, 3000);
+    }
+
+    async function apiFetch(path, opts = {}) {
+      const headers = opts.headers || {};
+      if (!adminToken.value) {
+        throw new Error("Admin token is required. Enter it above.");
+      }
+      headers["X-Admin-Token"] = adminToken.value;
+      return fetch(API + path, { ...opts, headers });
+    }
+
+    let liveInterval = null;
+
+    async function loadTab(tab) {
+      currentTab = tab;
+      stopLivePolling();
+      if (!requireToken()) return;
+
+      tabs.forEach((btn) => btn.classList.toggle("tab-active", btn.dataset.tab === tab));
+      listContainer.innerHTML = '<div class="text-center text-base-content/60 py-12">Loading...</div>';
+
+      try {
+        if (tab === "live") {
+          await loadLiveProcesses();
+          startLivePolling();
+          return;
+        }
+        const endpoint = tab === "web-jobs" ? `/api/admin/web-jobs?limit=100` : `/api/admin/translations/${tab}?limit=100`;
+        const res = await apiFetch(endpoint);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to load");
+        document.getElementById(`count-${tab}`).textContent = data.count || 0;
+        if (tab === "web-jobs") {
+          renderWebJobs(data.items || []);
+        } else {
+          renderList(tab, data.items || []);
+        }
+      } catch (err) {
+        listContainer.innerHTML = `<div class="text-center text-error py-12">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function startLivePolling() {
+      stopLivePolling();
+      liveInterval = setInterval(loadLiveProcesses, 3000);
+    }
+
+    function stopLivePolling() {
+      if (liveInterval) {
+        clearInterval(liveInterval);
+        liveInterval = null;
+      }
+    }
+
+    async function loadLiveProcesses() {
+      try {
+        const res = await apiFetch("/api/admin/processes");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to load");
+        renderLiveProcesses(data);
+      } catch (err) {
+        listContainer.innerHTML = `<div class="text-center text-error py-12">${escapeHtml(err.message)}</div>`;
+        stopLivePolling();
+      }
+    }
+
+    function statusBadgeClass(status) {
+      switch (status) {
+        case "pending": return "badge-warning";
+        case "confirmed": return "badge-success";
+        case "rejected": return "badge-error";
+        case "error": return "badge-error";
+        case "running": return "badge-info";
+        default: return "badge-ghost";
+      }
+    }
+
+    function renderList(tab, items) {
+      if (!items.length) {
+        listContainer.innerHTML = '<div class="text-center text-base-content/60 py-12">No entries in this tab.</div>';
+        return;
+      }
+      listContainer.innerHTML = "";
+      items.forEach((item) => {
+        const div = document.createElement("div");
+        div.className = "card card-compact bg-base-200 mb-4";
+        div.dataset.hash = item.sourceHash;
+        div.dataset.lang = item.targetLang;
+
+        const dateField = tab === "confirmed" ? item.confirmedAt : tab === "rejected" ? item.rejectedAt : tab === "errors" ? item.errorAt : item.createdAt;
+        const actor = tab === "confirmed" ? item.confirmedBy : tab === "rejected" ? item.rejectedBy : "";
+        const sourceLink = item.sourceUrl
+          ? `<a class="link link-primary break-all" href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noopener">${escapeHtml(item.sourceUrl)}</a>`
+          : `<em class="text-base-content/50">No source link</em>`;
+
+        let actionsHtml = "";
+        if (tab === "pending") {
+          actionsHtml = `
+            <button class="btn btn-sm btn-success confirm-btn">Confirm</button>
+            <button class="btn btn-sm btn-error btn-outline reject-btn">Reject</button>
+          `;
+        } else if (tab === "confirmed" || tab === "rejected") {
+          actionsHtml = `
+            ${tab === "rejected" ? '<button class="btn btn-sm btn-success confirm-btn">Confirm</button>' : ''}
+            <button class="btn btn-sm btn-ghost delete-btn">Delete from audit</button>
+          `;
+        } else if (tab === "errors") {
+          actionsHtml = `
+            <button class="btn btn-sm btn-success retry-btn">Retry confirm</button>
+            <button class="btn btn-sm btn-error btn-outline reject-btn">Reject</button>
+          `;
+        }
+
+        const langPair = `${(item.sourceLang || "auto").toUpperCase()} → ${item.targetLang.toUpperCase()}`;
+        div.innerHTML = `
+          <div class="card-body">
+            <div class="flex flex-wrap gap-2 mb-3">
+              <span class="badge badge-sm ${statusBadgeClass(item.status)}">${item.status.toUpperCase()}</span>
+              ${item.requestNumber ? `<span class="badge badge-sm badge-ghost" title="Public request number">#${item.requestNumber}</span>` : ""}
+              <span class="badge badge-sm badge-ghost" title="Source → Target">${escapeHtml(langPair)}</span>
+              <span class="badge badge-sm badge-ghost">${escapeHtml(item.provider)}</span>
+              <span class="badge badge-sm badge-ghost">${escapeHtml(item.model)}</span>
+              <span class="badge badge-sm badge-ghost">${item.sourceType || "unknown"}</span>
+              <span class="badge badge-sm badge-ghost">${new Date(dateField).toLocaleString()}</span>
+              ${actor ? `<span class="badge badge-sm badge-ghost">by ${escapeHtml(actor)}</span>` : ""}
+            </div>
+            <div class="bg-base-300 rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Source</label>${escapeHtml(item.sourceText)}</div>
+            ${tab !== "errors" ? `<label class="label-text text-xs uppercase opacity-70 block mb-1">Translation ${tab === "pending" ? "(edit before confirming if needed)" : ""}</label>` : ""}
+            ${tab !== "errors" ? `<textarea class="textarea textarea-bordered w-full mb-3 translation-text">${escapeHtml(item.translatedText)}</textarea>` : ""}
+            ${tab === "errors" ? `<div class="bg-error/10 text-error rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Error</label>${escapeHtml(item.errorMessage || "Unknown error")}</div>` : ""}
+            <div class="text-xs text-base-content/60 mb-3">Source link: ${sourceLink}</div>
+            <div class="flex flex-wrap gap-2">${actionsHtml}</div>
+          </div>
+        `;
+
+        if (tab === "pending" || tab === "errors" || tab === "rejected") {
+          const confirmBtn = div.querySelector(".confirm-btn");
+          if (confirmBtn) confirmBtn.addEventListener("click", () => confirmItem(div));
+        }
+        if (tab === "pending" || tab === "errors") {
+          div.querySelector(".reject-btn")?.addEventListener("click", () => rejectItem(div));
+        }
+        if (tab === "confirmed" || tab === "rejected") {
+          div.querySelector(".delete-btn")?.addEventListener("click", () => deleteItem(div));
+        }
+
+        listContainer.appendChild(div);
+      });
+    }
+
+    async function rejectItem(div) {
+      if (!confirm("Reject this translation? It will be kept in the Rejected tab and not served from cache.")) return;
+      const hash = div.dataset.hash;
+      const lang = div.dataset.lang;
+      const btn = div.querySelector(".reject-btn");
+      btn.disabled = true;
+      btn.textContent = "Rejecting...";
+      try {
+        const res = await apiFetch(`/api/admin/translations/${encodeURIComponent(hash)}/${encodeURIComponent(lang)}/reject`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rejectedBy: "web-admin" }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Reject failed");
+        showToast("Translation rejected");
+        loadTab(currentTab);
+      } catch (err) {
+        showToast(err.message, true);
+        btn.disabled = false;
+        btn.textContent = "Reject";
+      }
+    }
+
+    async function confirmItem(div) {
+      const hash = div.dataset.hash;
+      const lang = div.dataset.lang;
+      const text = div.querySelector(".translation-text")?.value;
+      const btn = div.querySelector(".confirm-btn");
+      btn.disabled = true;
+      btn.textContent = "Saving...";
+      try {
+        const res = await apiFetch(`/api/admin/translations/${encodeURIComponent(hash)}/${encodeURIComponent(lang)}/confirm`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ translatedText: text, confirmedBy: "web-admin" }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Confirm failed");
+        showToast("Translation confirmed");
+        loadTab(currentTab);
+      } catch (err) {
+        showToast(err.message, true);
+        btn.disabled = false;
+        btn.textContent = "Confirm";
+      }
+    }
+
+    async function deleteItem(div) {
+      if (!confirm("Permanently delete this audit row? This cannot be undone.")) return;
+      const hash = div.dataset.hash;
+      const lang = div.dataset.lang;
+      const btn = div.querySelector(".delete-btn");
+      btn.disabled = true;
+      btn.textContent = "Deleting...";
+      try {
+        const res = await apiFetch(`/api/admin/translations/${encodeURIComponent(hash)}/${encodeURIComponent(lang)}`, {
+          method: "DELETE",
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Delete failed");
+        showToast("Row deleted");
+        loadTab(currentTab);
+      } catch (err) {
+        showToast(err.message, true);
+        btn.disabled = false;
+        btn.textContent = "Delete from audit";
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function formatSegments(segments) {
+      if (!Array.isArray(segments) || segments.length === 0) return "";
+      return segments.map((s) => `[${formatTime(s.start)} → ${formatTime(s.end)}] ${s.text}`).join("\n");
+    }
+
+    function formatTime(seconds) {
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      const ms = Math.floor((seconds % 1) * 1000);
+      return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
+    }
+
+    function renderLiveProcesses(data) {
+      const webJobs = data.webJobs || [];
+      const telegramProcesses = data.telegramProcesses || [];
+      const remoteStt = data.remoteStt || { pending: 0, running: false };
+      const total = webJobs.length + telegramProcesses.length + (remoteStt.running || remoteStt.pending ? 1 : 0);
+      document.getElementById("count-live").textContent = total;
+
+      listContainer.innerHTML = "";
+
+      const summary = document.createElement("div");
+      summary.className = "card card-compact bg-base-200 mb-4";
+      summary.innerHTML = `
+        <div class="card-body">
+          <div class="flex flex-wrap gap-2">
+            <span class="badge badge-sm badge-info">LIVE</span>
+            <span class="badge badge-sm badge-ghost">Web: ${webJobs.length}</span>
+            <span class="badge badge-sm badge-ghost">Telegram: ${telegramProcesses.length}</span>
+            <span class="badge badge-sm badge-ghost">Remote STT: ${remoteStt.pending} pending${remoteStt.running ? ", running" : ""}</span>
+            <span class="badge badge-sm badge-ghost">Updated: ${new Date(data.timestamp).toLocaleTimeString()}</span>
+          </div>
+        </div>
+      `;
+      listContainer.appendChild(summary);
+
+      if (webJobs.length === 0 && telegramProcesses.length === 0 && !remoteStt.running && remoteStt.pending === 0) {
+        const empty = document.createElement("div");
+        empty.className = "text-center text-base-content/60 py-12";
+        empty.textContent = "No active processes right now.";
+        listContainer.appendChild(empty);
+        return;
+      }
+
+      webJobs.forEach((job) => {
+        const div = document.createElement("div");
+        div.className = "card card-compact bg-base-200 mb-4";
+        const langPair = `${(job.sourceLang || "auto").toUpperCase()} → ${(job.targetLang || "-").toUpperCase()}`;
+        const elapsed = Date.now() - job.createdAt;
+        div.innerHTML = `
+          <div class="card-body">
+            <div class="flex flex-wrap gap-2 mb-2">
+              <span class="badge badge-sm ${statusBadgeClass(job.status)}">${job.status.toUpperCase()}</span>
+              <span class="badge badge-sm badge-ghost">WEB</span>
+              ${job.requestNumber ? `<span class="badge badge-sm badge-ghost">#${job.requestNumber}</span>` : ""}
+              <span class="badge badge-sm badge-ghost">${escapeHtml(langPair)}</span>
+              <span class="badge badge-sm badge-ghost">${job.type}</span>
+              <span class="badge badge-sm badge-ghost">${formatDuration(elapsed)}</span>
+            </div>
+            <div class="text-sm mb-1">
+              ${job.filename ? `File: <b>${escapeHtml(job.filename)}</b>` : ""}
+              ${job.sourceUrl ? `URL: <a class="link link-primary break-all" href="${escapeHtml(job.sourceUrl)}" target="_blank" rel="noopener">${escapeHtml(job.sourceUrl)}</a>` : ""}
+            </div>
+            <div class="text-sm text-base-content/60">${escapeHtml(job.progress?.label || "")} · ${Math.round(job.progress?.percent || 0)}% ${job.pid ? `· PID ${job.pid}` : ""}</div>
+            ${job.provider || job.model || job.gpu ? `
+              <div class="flex flex-wrap gap-2 mt-2">
+                ${job.provider ? `<span class="badge badge-sm badge-ghost">${escapeHtml(job.provider)}</span>` : ""}
+                ${job.model ? `<span class="badge badge-sm badge-ghost">${escapeHtml(job.model)}</span>` : ""}
+                ${job.gpu ? `<span class="badge badge-sm badge-accent">GPU: ${escapeHtml(job.gpu)}</span>` : ""}
+              </div>
+            ` : ""}
+          </div>
+        `;
+        listContainer.appendChild(div);
+      });
+
+      telegramProcesses.forEach((proc) => {
+        const div = document.createElement("div");
+        div.className = "card card-compact bg-base-200 mb-4";
+        div.innerHTML = `
+          <div class="card-body">
+            <div class="flex flex-wrap gap-2 mb-2">
+              <span class="badge badge-sm badge-info">RUNNING</span>
+              <span class="badge badge-sm badge-ghost">TG</span>
+              <span class="badge badge-sm badge-ghost">Chat ${proc.chatId}</span>
+              <span class="badge badge-sm badge-ghost">${escapeHtml(proc.type.toUpperCase())}</span>
+              <span class="badge badge-sm badge-ghost">${(proc.language || "auto").toUpperCase()}</span>
+              <span class="badge badge-sm badge-ghost">${formatDuration(proc.durationMs)}</span>
+            </div>
+            <div class="text-sm mb-1">
+              ${proc.filename ? `File: <b>${escapeHtml(proc.filename)}</b>` : ""}
+              ${proc.sourceUrl ? `URL: <a class="link link-primary break-all" href="${escapeHtml(proc.sourceUrl)}" target="_blank" rel="noopener">${escapeHtml(proc.sourceUrl)}</a>` : ""}
+            </div>
+            ${proc.pid ? `<div class="text-sm text-base-content/60">PID ${proc.pid}</div>` : ""}
+          </div>
+        `;
+        listContainer.appendChild(div);
+      });
+
+      if (remoteStt.running || remoteStt.pending > 0) {
+        const div = document.createElement("div");
+        div.className = "card card-compact bg-base-200 mb-4";
+        const current = remoteStt.current;
+        div.innerHTML = `
+          <div class="card-body">
+            <div class="flex flex-wrap gap-2 mb-2">
+              <span class="badge badge-sm ${remoteStt.running ? "badge-info" : "badge-warning"}">${remoteStt.running ? "RUNNING" : "PENDING"}</span>
+              <span class="badge badge-sm badge-ghost">REMOTE STT</span>
+              <span class="badge badge-sm badge-ghost">${remoteStt.pending} in queue</span>
+            </div>
+            ${current ? `<div class="text-sm">Current: <b>${escapeHtml(current.filename)}</b> · ${(current.language || "auto").toUpperCase()} · ${formatDuration(Date.now() - new Date(current.startedAt).getTime())}</div>` : ""}
+          </div>
+        `;
+        listContainer.appendChild(div);
+      }
+    }
+
+    function formatDuration(ms) {
+      const s = Math.floor(ms / 1000);
+      const m = Math.floor(s / 60);
+      const h = Math.floor(m / 60);
+      if (h > 0) return `${h}h ${m % 60}m`;
+      if (m > 0) return `${m}m ${s % 60}s`;
+      return `${s}s`;
+    }
+
+    function renderWebJobs(items) {
+      if (!items.length) {
+        listContainer.innerHTML = '<div class="text-center text-base-content/60 py-12">No STT jobs yet.</div>';
+        return;
+      }
+      listContainer.innerHTML = "";
+      items.forEach((item) => {
+        const div = document.createElement("div");
+        div.className = "card card-compact bg-base-200 mb-4";
+        const langPair = `${(item.sourceLang || "auto").toUpperCase()} → ${(item.targetLang || "-").toUpperCase()}`;
+        const dateField = item.completedAt || item.updatedAt || item.createdAt;
+        const sourceLink = item.sourceUrl
+          ? `<a class="link link-primary break-all" href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noopener">${escapeHtml(item.sourceUrl)}</a>`
+          : `<em class="text-base-content/50">No source link</em>`;
+
+        div.innerHTML = `
+          <div class="card-body">
+            <div class="flex flex-wrap gap-2 mb-3">
+              <span class="badge badge-sm ${statusBadgeClass(item.status)}">${item.status.toUpperCase()}</span>
+              ${item.requestNumber ? `<span class="badge badge-sm badge-ghost" title="Public request number">#${item.requestNumber}</span>` : ""}
+              <span class="badge badge-sm badge-ghost" title="Source → Target">${escapeHtml(langPair)}</span>
+              <span class="badge badge-sm badge-ghost">${escapeHtml(item.provider || "-")}</span>
+              <span class="badge badge-sm badge-ghost">${escapeHtml(item.model || "-")}</span>
+              ${item.gpu ? `<span class="badge badge-sm badge-accent" title="GPU">${escapeHtml(item.gpu)}</span>` : ""}
+              <span class="badge badge-sm badge-ghost">${item.sourceType || "unknown"}</span>
+              <span class="badge badge-sm badge-ghost">${new Date(dateField).toLocaleString()}</span>
+            </div>
+            ${item.filename ? `<div class="text-xs text-base-content/60 mb-2">File: ${escapeHtml(item.filename)}</div>` : ""}
+            ${item.fullText ? `<div class="bg-base-300 rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Transcription</label>${escapeHtml(item.fullText)}</div>` : ""}
+            ${item.segments && item.segments.length ? `<div class="bg-base-300 rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Segments</label>${escapeHtml(formatSegments(item.segments))}</div>` : ""}
+            ${item.status === "failed" ? `<div class="bg-error/10 text-error rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Error</label>${escapeHtml(item.errorMessage || "Unknown error")}</div>` : ""}
+            <div class="text-xs text-base-content/60">Source link: ${sourceLink}</div>
+          </div>
+        `;
+        listContainer.appendChild(div);
+      });
+    }
+
+    async function searchRequestNumber() {
+      const number = requestSearch.value.trim();
+      if (!number) return;
+      if (!requireToken()) return;
+      searchResult.innerHTML = '<div class="text-center text-base-content/60 py-8">Searching...</div>';
+      try {
+        let res = await apiFetch(`/api/admin/translations/search/${encodeURIComponent(number)}`);
+        let data = await res.json();
+        if (!res.ok || !data.found) {
+          res = await apiFetch(`/api/admin/web-jobs/search/${encodeURIComponent(number)}`);
+          data = await res.json();
+        }
+        if (!res.ok) throw new Error(data.error || "Search failed");
+        if (!data.found || !data.entry) throw new Error("Request not found");
+        renderSearchResult(data.entry);
+      } catch (err) {
+        searchResult.innerHTML = `<div class="text-center text-error py-8">${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function renderSearchResult(item) {
+      const dateField = item.errorAt || item.confirmedAt || item.rejectedAt || item.createdAt;
+      const isWebJob = item.jobId !== undefined;
+      const langPair = isWebJob
+        ? `${(item.sourceLang || "auto").toUpperCase()} → ${(item.targetLang || "-").toUpperCase()}`
+        : `${(item.sourceLang || "auto").toUpperCase()} → ${item.targetLang.toUpperCase()}`;
+      const sourceLink = item.sourceUrl
+        ? `<a class="link link-primary break-all" href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noopener">${escapeHtml(item.sourceUrl)}</a>`
+        : `<em class="text-base-content/50">No source link</em>`;
+      searchResult.innerHTML = `
+        <div class="card card-compact bg-base-200">
+          <div class="card-body">
+            <div class="flex flex-wrap gap-2 mb-3">
+              <span class="badge badge-sm ${statusBadgeClass(item.status)}">${item.status.toUpperCase()}</span>
+              ${item.requestNumber ? `<span class="badge badge-sm badge-ghost" title="Public request number">#${item.requestNumber}</span>` : ""}
+              <span class="badge badge-sm badge-ghost" title="Source → Target">${escapeHtml(langPair)}</span>
+              <span class="badge badge-sm badge-ghost">${escapeHtml(item.provider)}</span>
+              <span class="badge badge-sm badge-ghost">${escapeHtml(item.model)}</span>
+              <span class="badge badge-sm badge-ghost">${item.sourceType || "unknown"}</span>
+              <span class="badge badge-sm badge-ghost">${new Date(dateField).toLocaleString()}</span>
+            </div>
+            ${isWebJob ? `<div class="bg-base-300 rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Transcription</label>${escapeHtml(item.fullText || "")}</div>` : ""}
+            ${isWebJob && item.segments && item.segments.length ? `<div class="bg-base-300 rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Segments</label>${escapeHtml(formatSegments(item.segments))}</div>` : ""}
+            ${!isWebJob ? `<div class="bg-base-300 rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Source</label>${escapeHtml(item.sourceText)}</div>` : ""}
+            ${!isWebJob && item.status !== "error" ? `<div class="bg-base-300 rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Translation</label>${escapeHtml(item.translatedText)}</div>` : ""}
+            ${item.status === "error" ? `<div class="bg-error/10 text-error rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Error</label>${escapeHtml(item.errorMessage || "Unknown error")}</div>` : ""}
+            <div class="text-xs text-base-content/60">Source link: ${sourceLink}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    searchBtn.addEventListener("click", searchRequestNumber);
+    requestSearch.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") searchBtn.click();
+    });
+
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => loadTab(tab.dataset.tab));
+    });
+
+    refreshBtn.addEventListener("click", () => loadTab(currentTab));
+
+    requireToken();
+    if (adminToken.value) loadTab("pending");
+  </script>
+</body>
+</html>

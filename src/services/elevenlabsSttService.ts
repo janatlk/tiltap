@@ -183,5 +183,7 @@ export async function transcribeWithElevenLabs(
     text: rawText,
     language: data.language_code ?? language ?? "auto",
     segments,
+    provider: "elevenlabs",
+    model: config.ELEVENLABS_MODEL_ID || "scribe_v2",
   };
 }

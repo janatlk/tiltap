@@ -25,6 +25,10 @@ GARBAGE_THRESHOLD = float(os.environ.get("TILTAB_GARBAGE_THRESHOLD", "0.4"))
 FUZZY_MATCH_THRESHOLD = float(os.environ.get("TILTAB_NE_FUZZY_THRESHOLD", "0.80"))
 MAX_NE_DISTANCE_CHARS = int(os.environ.get("TILTAB_NE_MAX_DISTANCE", "4"))
 
+
+def _cleanup_aggressive() -> bool:
+    return os.environ.get("TILTAB_CLEANUP_AGGRESSIVE", "").strip().lower() in ("1", "true", "on", "yes")
+
 # Marker used for unintelligible speech. Same marker for every language so the
 # UI/backend can replace it with a localized label if desired.
 UNINTELLIGIBLE = "[неразборчиво]"
@@ -999,7 +1003,7 @@ class LLMTextCleaner:
     def __init__(self):
         self.provider, self.key = self._pick_provider()
         self.model = os.environ.get("TILTAB_CLEANUP_MODEL") or self._default_model(self.provider)
-        self.cache: Dict[str, str] = {}
+        self.cache: Dict[str, Tuple[str, Optional[str]]] = {}
 
     def _pick_provider(self) -> Tuple[str, str]:
         forced = os.environ.get("TILTAB_CLEANUP_PROVIDER", "").strip().lower()
@@ -1229,43 +1233,59 @@ class LLMTextCleaner:
         if not orig_words:
             return False
 
+        aggressive = _cleanup_aggressive()
+
         # Arabic/Persian input in Tajik is allowed to be rewritten more freely.
         if language == "tg" and _arabic_ratio(original) > 0.5:
-            return abs(len(clean_words) - len(orig_words)) / max(len(orig_words), 1) <= 0.5
+            max_len_diff = 0.7 if aggressive else 0.5
+            return abs(len(clean_words) - len(orig_words)) / max(len(orig_words), 1) <= max_len_diff
+
+        min_ratio = 0.40 if aggressive else 0.60
+        max_len_diff = 0.50 if aggressive else 0.30
 
         ratio = difflib.SequenceMatcher(None, orig_words, clean_words).ratio()
-        if ratio < 0.60:
+        if ratio < min_ratio:
             return False
         len_diff = abs(len(clean_words) - len(orig_words)) / max(len(orig_words), 1)
-        if len_diff > 0.30:
+        if len_diff > max_len_diff:
             return False
         return True
 
     def clean(self, text: str, language: str) -> str:
+        cleaned, _ = self.clean_with_warning(text, language)
+        return cleaned
+
+    def clean_with_warning(self, text: str, language: str) -> Tuple[str, Optional[str]]:
         text = text.strip()
         if not text or text == UNINTELLIGIBLE:
-            return text
+            return text, None
         cache_key = f"{language}:{text}"
         if cache_key in self.cache:
             return self.cache[cache_key]
         if not self.available():
-            return text
+            return text, "LLM cleanup provider is not available"
 
         result = None
+        warning = None
         for provider, key, model in self._provider_chain():
             candidate = self._call_provider(provider, key, model, text, language)
-            if candidate and self._is_safe_edit(text, candidate, language):
+            if candidate is None:
+                warning = f"{provider} cleanup failed (rate limit, quota, or network error)"
+                continue
+            if self._is_safe_edit(text, candidate, language):
                 result = candidate
+                warning = None
                 break
-            if candidate:
+            warning = f"{provider} cleanup edit was too aggressive and was skipped"
+            if not _cleanup_aggressive():
                 print(
                     f"[postprocess] {provider} edit too aggressive, trying fallback",
                     file=sys.stderr,
                 )
 
         cleaned = result if result else text
-        self.cache[cache_key] = cleaned
-        return cleaned
+        self.cache[cache_key] = (cleaned, warning)
+        return cleaned, warning
 
 
 # ---------------------------------------------------------------------------
@@ -1300,15 +1320,27 @@ def _contains_arabic(text: str) -> bool:
 
 def _needs_llm_cleanup(text: str, score: float, language: str) -> bool:
     """Only spend LLM credits when the segment is clearly dirty or grammar may be off."""
+    aggressive = _cleanup_aggressive()
     if language == "tg":
         # Tajik: run LLM cleanup only when there is real work to do (Arabic script
         # leaks, Latin leakage, or low segment score). Clean Cyrillic text is
         # handled by the rule-based Tajik normalizer to minimize API spend.
-        if _contains_arabic(text) or _latin_ratio(text) > 0.1 or score < 0.7:
+        latin_threshold = 0.05 if aggressive else 0.1
+        score_threshold = 0.6 if aggressive else 0.7
+        has_noise = bool(re.search(r"\[(музыка|неразборчиво|плач|кулол|аплодисменты)\]", text))
+        has_repetition = bool(re.search(r"(\b\w+\b)\s+\1\s+\1", text))
+        if aggressive:
+            # In aggressive mode run the LLM on every Tajik segment so it can fix
+            # grammar, mixed-language inserts, and noise that the rule-based scorer misses.
+            return True
+        if _contains_arabic(text) or _latin_ratio(text) > latin_threshold or score < score_threshold:
+            return True
+        if has_noise or has_repetition:
             return True
         return False
     # For other languages, run LLM cleanup conservatively on low-scoring or short text.
-    return score < 0.75 or _non_linguistic_ratio(text) > 0.1
+    score_threshold = 0.85 if aggressive else 0.75
+    return score < score_threshold or _non_linguistic_ratio(text) > 0.1
 
 
 def _apply_tajik_rules(text: str) -> str:
@@ -1338,16 +1370,16 @@ def _apply_tajik_rules_early(text: str) -> str:
     return text
 
 
-def postprocess_segment(text: str, language: str, confidence: Optional[float] = None) -> Tuple[str, float]:
-    """Run a single segment through scorer and cleaner. Returns (text, score)."""
+def postprocess_segment(text: str, language: str, confidence: Optional[float] = None) -> Tuple[str, float, Optional[str]]:
+    """Run a single segment through scorer and cleaner. Returns (text, score, warning)."""
     text = text.strip()
     if not text:
-        return UNINTELLIGIBLE, 0.0
+        return UNINTELLIGIBLE, 0.0, None
 
     # Whisper sometimes emits low-confidence hallucinations on music/noise.
     # avg_logprob is negative; values below -1.5 are usually unreliable.
     if confidence is not None and confidence < -1.5:
-        return UNINTELLIGIBLE, 0.0
+        return UNINTELLIGIBLE, 0.0, None
 
     # Language-specific rule-based cleanup first so that names, dates, and
     # clitics are normalized before the garbage detector sees the segment.
@@ -1359,19 +1391,20 @@ def postprocess_segment(text: str, language: str, confidence: Optional[float] = 
     # Noise markers should win over the garbage detector.
     noisy = mark_noise(text, language)
     if noisy != text:
-        return noisy, 0.0
+        return noisy, 0.0, None
 
     score = score_segment(text, language)
     if is_garbage(text, language):
-        return UNINTELLIGIBLE, score
+        return UNINTELLIGIBLE, score, None
 
     cleaned = text
+    warning = None
     # Call LLM for grammar/script cleanup when useful.
     if len(text) >= 3 and _needs_llm_cleanup(text, score, language):
         cleaner = _get_cleaner()
-        cleaned = cleaner.clean(text, language)
+        cleaned, warning = cleaner.clean_with_warning(text, language)
     if not cleaned:
-        return UNINTELLIGIBLE, score
+        return UNINTELLIGIBLE, score, warning
 
     # Apply language-specific rule-based fixes again after LLM editing.
     if language == "tg":
@@ -1381,7 +1414,7 @@ def postprocess_segment(text: str, language: str, confidence: Optional[float] = 
         cleaned = fix_mixed_script_typos(cleaned)
         cleaned = mark_noise(cleaned, language)
 
-    return cleaned, score
+    return cleaned, score, warning
 
 
 def postprocess_transcription(result: Dict, language: Optional[str] = None) -> Dict:
@@ -1401,15 +1434,18 @@ def postprocess_transcription(result: Dict, language: Optional[str] = None) -> D
 
     new_segments = []
     kept_texts = []
+    warnings: List[str] = []
     for seg in result.get("segments", []):
         raw_text = seg.get("text", "")
-        cleaned_text, score = postprocess_segment(raw_text, lang, seg.get("confidence"))
+        cleaned_text, score, warning = postprocess_segment(raw_text, lang, seg.get("confidence"))
         new_seg = dict(seg)
         new_seg["text"] = cleaned_text
         new_seg["quality_score"] = round(score, 3)
         new_segments.append(new_seg)
         if cleaned_text != UNINTELLIGIBLE:
             kept_texts.append(cleaned_text)
+        if warning:
+            warnings.append(warning)
 
     full_text = " ".join(kept_texts)
 
@@ -1420,15 +1456,21 @@ def postprocess_transcription(result: Dict, language: Optional[str] = None) -> D
     # Final LLM pass on the merged text if it still looks dirty.
     if lang and len(full_text) >= 15 and _needs_llm_cleanup(full_text, score_segment(full_text, lang), lang):
         cleaner = _get_cleaner()
-        full_text = cleaner.clean(full_text, lang)
+        cleaned_full, full_warning = cleaner.clean_with_warning(full_text, lang)
+        if full_warning:
+            warnings.append(full_warning)
+        full_text = cleaned_full
         if lang == "tg":
             full_text = _apply_tajik_rules(full_text)
         else:
             full_text = normalize_repeated_punctuation(full_text)
             full_text = fix_mixed_script_typos(full_text)
 
-    return {
+    output = {
         **result,
         "text": full_text,
         "segments": new_segments,
     }
+    if warnings:
+        output["warning"] = "; ".join(set(warnings))
+    return output

@@ -6,6 +6,7 @@ import { translateText } from "../services/translationService";
 import { cleanupTranscription, detectTranscriptionIssues } from "../services/cleanupService";
 import { isSupportedMediaUrl, validateMediaUrl, transcribeMediaLink } from "../services/youtubeService";
 import type { TranslateRequest } from "../types";
+import * as webJobRepo from "../db/repos/webJobRepo";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
@@ -13,14 +14,22 @@ export type WebJobStatus = "pending" | "running" | "completed" | "failed";
 
 export interface WebJob {
   id: string;
+  requestNumber?: number;
   type: "transcribe" | "youtube";
   status: WebJobStatus;
   progress: TranscriptionProgress;
+  sourceLang?: string;
+  targetLang?: string;
+  sourceUrl?: string;
+  sourceType?: string;
+  filename?: string;
   result?: TranscriptionResult;
   cleanedText?: string;
   translatedText?: string;
   translatedLang?: string;
+  translationWarning?: string;
   translationError?: string;
+  translationRequestId?: number;
   transcriptionId?: number;
   error?: string;
   pid?: number;
@@ -44,21 +53,43 @@ function cleanupExpiredJobs(): void {
   }
 }
 
-function createJob(type: "transcribe" | "youtube"): WebJob {
+async function createJob(type: "transcribe" | "youtube", meta: { sourceLang?: string; targetLang?: string; sourceUrl?: string; sourceType?: string; filename?: string } = {}): Promise<WebJob> {
   cleanupExpiredJobs();
   const job: WebJob = {
     id: generateJobId(),
     type,
     status: "pending",
     progress: { percent: 0, label: "Starting..." },
+    sourceLang: meta.sourceLang,
+    targetLang: meta.targetLang,
+    sourceUrl: meta.sourceUrl,
+    sourceType: meta.sourceType,
+    filename: meta.filename,
     listeners: new Set(),
     createdAt: Date.now(),
   };
   jobs.set(job.id, job);
+
+  try {
+    const entry = await webJobRepo.createWebJob({
+      jobId: job.id,
+      type,
+      sourceLang: meta.sourceLang,
+      targetLang: meta.targetLang,
+      sourceUrl: meta.sourceUrl,
+      sourceType: meta.sourceType,
+      filename: meta.filename,
+    });
+    job.requestNumber = entry.request_number;
+  } catch (err) {
+    logger.error("Failed to create web job audit row", { error: err instanceof Error ? err.message : String(err), jobId: job.id });
+  }
+
   return job;
 }
 
 function updateJob(job: WebJob, updates: Partial<WebJob>): void {
+  const prevStatus = job.status;
   Object.assign(job, updates);
   for (const listener of job.listeners) {
     try {
@@ -67,11 +98,26 @@ function updateJob(job: WebJob, updates: Partial<WebJob>): void {
       // ignore listener errors
     }
   }
+  if (updates.status && updates.status !== prevStatus) {
+    webJobRepo.updateWebJob(job.id, {
+      status: updates.status,
+      error_message: updates.error,
+      completed_at: updates.status === "completed" || updates.status === "failed" ? new Date() : undefined,
+    }).catch((err) => {
+      logger.error("Failed to persist web job status", { error: err instanceof Error ? err.message : String(err), jobId: job.id });
+    });
+  }
 }
 
 function setJobProgress(job: WebJob, progress: TranscriptionProgress): void {
   job.progress = progress;
   updateJob(job, {});
+  webJobRepo.updateWebJob(job.id, {
+    progress_percent: Math.round(progress.percent),
+    progress_label: progress.label,
+  }).catch((err) => {
+    logger.error("Failed to persist web job progress", { error: err instanceof Error ? err.message : String(err), jobId: job.id });
+  });
 }
 
 export function getJob(jobId: string): WebJob | undefined {
@@ -94,10 +140,15 @@ export async function handleWebTranscribe(req: Request, res: Response): Promise<
     const sourceLang = typeof req.body.sourceLang === "string" ? req.body.sourceLang : "auto";
     const targetLang = typeof req.body.targetLang === "string" && req.body.targetLang !== "none" ? req.body.targetLang : undefined;
 
-    const job = createJob("transcribe");
-    res.status(202).json({ jobId: job.id });
+    const job = await createJob("transcribe", {
+      sourceLang,
+      targetLang,
+      filename: file.originalname,
+      sourceType: "web_upload",
+    });
+    res.status(202).json({ jobId: job.id, requestNumber: job.requestNumber });
 
-    processAudioJob(job, file.buffer, file.originalname, sourceLang, targetLang).catch((err) => {
+    processAudioJob(job, file.buffer, file.originalname, sourceLang, targetLang, "web_upload").catch((err) => {
       logger.error("Web transcribe job failed", { error: err instanceof Error ? err.message : String(err), jobId: job.id });
       updateJob(job, { status: "failed", error: err instanceof Error ? err.message : String(err) });
     });
@@ -125,10 +176,15 @@ export async function handleWebYouTube(req: Request, res: Response): Promise<voi
     const language = sourceLang && sourceLang !== "none" ? sourceLang : "auto";
     const target = targetLang && targetLang !== "none" ? targetLang : undefined;
 
-    const job = createJob("youtube");
-    res.status(202).json({ jobId: job.id, title: validation.title });
+    const job = await createJob("youtube", {
+      sourceLang: language,
+      targetLang: target,
+      sourceUrl: url,
+      sourceType: "youtube",
+    });
+    res.status(202).json({ jobId: job.id, requestNumber: job.requestNumber, title: validation.title });
 
-    processMediaLinkJob(job, url, language, target).catch((err) => {
+    processMediaLinkJob(job, url, language, target, "youtube").catch((err) => {
       logger.error("Web media link job failed", { error: err instanceof Error ? err.message : String(err), jobId: job.id });
       updateJob(job, { status: "failed", error: err instanceof Error ? err.message : String(err) });
     });
@@ -173,7 +229,9 @@ export async function handleWebJobStatus(req: Request, res: Response): Promise<v
     cleanedText: job.cleanedText,
     translatedText: job.translatedText,
     translatedLang: job.translatedLang,
+    translationWarning: job.translationWarning,
     translationError: job.translationError,
+    translationRequestId: job.translationRequestId,
     transcriptionId: job.transcriptionId,
     error: job.error,
   });
@@ -199,7 +257,9 @@ export function handleWebJobProgress(req: Request, res: Response): void {
       cleanedText: j.cleanedText,
       translatedText: j.translatedText,
       translatedLang: j.translatedLang,
+      translationWarning: j.translationWarning,
       translationError: j.translationError,
+      translationRequestId: j.translationRequestId,
       transcriptionId: j.transcriptionId,
       error: j.error,
     })}\n\n`);
@@ -221,7 +281,8 @@ async function processAudioJob(
   buffer: Buffer,
   filename: string,
   language: string,
-  targetLanguage?: string
+  targetLanguage?: string,
+  sourceType?: string
 ): Promise<void> {
   updateJob(job, { status: "running", progress: { percent: 0, label: "Transcribing..." } });
 
@@ -233,14 +294,15 @@ async function processAudioJob(
     (progress) => setJobProgress(job, progress)
   );
 
-  await finalizeTranscription(job, result, targetLanguage);
+  await finalizeTranscription(job, result, targetLanguage, undefined, sourceType);
 }
 
 async function processMediaLinkJob(
   job: WebJob,
   url: string,
   language: string,
-  targetLanguage?: string
+  targetLanguage?: string,
+  sourceType?: string
 ): Promise<void> {
   updateJob(job, { status: "running", progress: { percent: 0, label: "Starting..." } });
 
@@ -251,22 +313,36 @@ async function processMediaLinkJob(
     (pid) => updateJob(job, { pid })
   );
 
-  await finalizeTranscription(job, result, targetLanguage);
+  await finalizeTranscription(job, result, targetLanguage, url, sourceType);
 }
 
 async function finalizeTranscription(
   job: WebJob,
   result: TranscriptionResult,
-  targetLanguage?: string
+  targetLanguage?: string,
+  sourceUrl?: string,
+  sourceType?: string
 ): Promise<void> {
   if (result.segments.length === 0) {
     updateJob(job, { status: "completed", result });
+    webJobRepo.updateWebJob(job.id, {
+      status: "completed",
+      full_text: result.text,
+      segments_json: result.segments,
+      provider: result.provider,
+      model: result.model,
+      gpu: result.gpu,
+      completed_at: new Date(),
+    }).catch((err) => {
+      logger.error("Failed to persist empty web job result", { error: err instanceof Error ? err.message : String(err), jobId: job.id });
+    });
     return;
   }
 
   setJobProgress(job, { percent: 95, label: "Finalizing..." });
   const cleanup = await cleanupTranscription(result.text, result.language);
   const cleanedText = cleanup.cleanedText;
+  const cleanupWarning = cleanup.warning;
 
   const quality = detectTranscriptionIssues(cleanedText, result.language, result.segments);
   if (quality.isSuspicious) {
@@ -274,24 +350,43 @@ async function finalizeTranscription(
   }
 
   let translatedText: string | undefined;
+  let translationWarning: string | undefined;
   let translationError: string | undefined;
   if (targetLanguage && targetLanguage !== result.language && cleanedText) {
     try {
-      const translation = await translateText({ text: cleanedText, targetLang: targetLanguage, sourceLang: result.language });
+      const translation = await translateText({ text: cleanedText, targetLang: targetLanguage, sourceLang: result.language, sourceUrl, sourceType });
       translatedText = translation.translatedText;
+      translationWarning = translation.warning;
+      updateJob(job, { translationRequestId: translation.requestId });
     } catch (err) {
       translationError = err instanceof Error ? err.message : String(err);
       logger.error("Web auto-translation failed", { error: translationError, jobId: job.id });
     }
   }
 
+  const transcriptionWarning = (result as TranscriptionResult & { warning?: string }).warning;
+  const combinedWarning = [cleanupWarning, transcriptionWarning].filter(Boolean).join("; ") || undefined;
+
   updateJob(job, {
     status: "completed",
-    result: { ...result, text: cleanedText },
+    result: { ...result, text: cleanedText, warning: combinedWarning },
     cleanedText,
     translatedText,
     translatedLang: targetLanguage,
+    translationWarning,
     translationError,
+  });
+
+  webJobRepo.updateWebJob(job.id, {
+    status: "completed",
+    full_text: cleanedText,
+    segments_json: result.segments,
+    provider: result.provider,
+    model: result.model,
+    gpu: result.gpu,
+    completed_at: new Date(),
+  }).catch((err) => {
+    logger.error("Failed to persist web job result", { error: err instanceof Error ? err.message : String(err), jobId: job.id });
   });
 }
 

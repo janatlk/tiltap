@@ -62,7 +62,12 @@ function buildFormData(
   return formData;
 }
 
-async function parseTranscriptionResponse(res: Response, fallbackLanguage: string): Promise<TranscriptionResult> {
+async function parseTranscriptionResponse(
+  res: Response,
+  fallbackLanguage: string,
+  providerName: string,
+  modelName: string
+): Promise<TranscriptionResult> {
   const data = (await res.json()) as {
     text: string;
     language?: string;
@@ -129,7 +134,7 @@ async function callSttProvider(
 
   onProgress?.({ percent: 90, label: `${providerName}: обработка результата...` });
 
-  const result = await parseTranscriptionResponse(res, mappedLang ?? "auto");
+  const result = await parseTranscriptionResponse(res, mappedLang ?? "auto", providerName, model);
 
   onProgress?.({ percent: 100, label: `${providerName}: готово` });
 
@@ -183,7 +188,7 @@ export async function transcribeWithOpenAI(
         "OpenAI",
         onProgress,
         abortSignal
-      );
+      ); // provider/model returned by callSttProvider
     } catch (err) {
       openaiError = err instanceof Error ? err : new Error(String(err));
       const isRetryable = isRetryableError(0, openaiError.message);
@@ -220,5 +225,5 @@ export async function transcribeWithOpenAI(
     "Groq",
     onProgress,
     abortSignal
-  );
+  ); // provider/model returned by callSttProvider
 }

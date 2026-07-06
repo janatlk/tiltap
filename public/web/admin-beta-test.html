@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="business">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TilTap Beta STT Test</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style>
+    .dropzone {
+      border: 2px dashed color-mix(in oklab, var(--color-base-content) 20%, transparent); background: color-mix(in oklab, var(--color-base-content) 3%, transparent);
+      border-radius: var(--radius-box);
+      padding: 2.5rem 1rem;
+      text-align: center;
+      color: var(--color-base-content);
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      opacity: 0.8;
+    }
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--color-primary);
+      background: color-mix(in oklab, var(--color-primary) 6%, transparent);
+      opacity: 1;
+    }
+    .dropzone input { display: none; }
+    .text-box {
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.6;
+      max-height: 240px;
+      overflow: auto;
+    }
+    .segment time {
+      color: var(--color-base-content);
+      opacity: 0.6;
+      white-space: nowrap;
+      font-size: 0.75rem;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-base-200 py-6 px-4">
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <header class="flex flex-wrap items-center justify-between gap-4">
+      <h1 class="text-3xl font-bold tracking-tight">Beta STT Test</h1>
+      <a href="/web/admin.html" class="btn btn-sm btn-ghost">Back to admin</a>
+    </header>
+
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body">
+        <div class="form-control max-w-xl">
+          <label class="label" for="adminToken"><span class="label-text">Admin token <span class="text-error">*</span></span></label>
+          <input type="text" id="adminToken" class="input input-bordered w-full" placeholder="TILTAB_ADMIN_TOKEN value">
+        </div>
+      </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body space-y-4">
+        <div role="tablist" class="tabs tabs-lift">
+          <button role="tab" class="tab tab-active" data-tab="single">Single model</button>
+          <button role="tab" class="tab" data-tab="compare">A/B compare</button>
+        </div>
+
+        <div role="tablist" class="tabs tabs-border">
+          <button role="tab" class="tab tab-active" data-tab="file">File upload</button>
+          <button role="tab" class="tab" data-tab="link">Media link</button>
+        </div>
+
+        <div id="panel-file">
+          <div class="dropzone" id="dropzone">
+            <div class="text-lg font-medium">Drag & drop audio/video here or click to browse</div>
+            <input type="file" id="fileInput" accept="audio/*,video/*">
+            <div class="mt-3 text-sm opacity-80" id="fileName"></div>
+          </div>
+        </div>
+
+        <div id="panel-link" style="display:none;">
+          <div class="form-control">
+            <label class="label" for="linkUrl"><span class="label-text">YouTube / TikTok / Instagram Reels URL</span></label>
+            <input type="text" id="linkUrl" class="input input-bordered w-full" placeholder="https://www.youtube.com/watch?v=...">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-sm" id="singleControls">
+      <div class="card-body">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="form-control">
+            <label class="label" for="modelSelect"><span class="label-text">Local model</span></label>
+            <select id="modelSelect" class="select select-bordered w-full"></select>
+          </div>
+          <div class="form-control">
+            <label class="label" for="languageSelect"><span class="label-text">Language hint</span></label>
+            <select id="languageSelect" class="select select-bordered w-full">
+              <option value="auto">Auto detect</option>
+              <option value="ky">Kyrgyz</option>
+              <option value="tg">Tajik</option>
+              <option value="uz">Uzbek</option>
+              <option value="ru">Russian</option>
+              <option value="en">English</option>
+              <option value="multi">Multi (code-switching)</option>
+            </select>
+          </div>
+        </div>
+        <button id="runBtn" class="btn btn-primary btn-block mt-4">Run raw STT</button>
+        <div class="alert alert-warning alert-soft text-sm mt-4" role="alert">
+          No post-processing, no VAD, no translation. Raw model output only.
+        </div>
+      </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-sm hidden" id="compareControls">
+      <div class="card-body">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="form-control">
+            <label class="label" for="modelSelectA"><span class="label-text">Model A</span></label>
+            <select id="modelSelectA" class="select select-bordered w-full"></select>
+          </div>
+          <div class="form-control">
+            <label class="label" for="modelSelectB"><span class="label-text">Model B</span></label>
+            <select id="modelSelectB" class="select select-bordered w-full"></select>
+          </div>
+          <div class="form-control">
+            <label class="label" for="languageSelectCompare"><span class="label-text">Language hint</span></label>
+            <select id="languageSelectCompare" class="select select-bordered w-full">
+              <option value="auto">Auto detect</option>
+              <option value="ky">Kyrgyz</option>
+              <option value="tg">Tajik</option>
+              <option value="uz">Uzbek</option>
+              <option value="ru">Russian</option>
+              <option value="en">English</option>
+              <option value="multi">Multi (code-switching)</option>
+            </select>
+          </div>
+        </div>
+        <button id="compareBtn" class="btn btn-primary btn-block mt-4">Run A/B comparison</button>
+        <div class="alert alert-info alert-soft text-sm mt-4" role="alert">
+          Runs Model A first, then Model B on the same audio, streaming progress for each. First run after a server restart may be slow while the model loads into memory.
+        </div>
+        <div id="compareProgress" class="mt-4 space-y-3"></div>
+      </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-sm hidden" id="resultBox">
+      <div class="card-body space-y-4">
+        <div class="text-sm text-base-content/70" id="resultMeta"></div>
+        <label class="label-text text-xs uppercase opacity-70">Raw text</label>
+        <div class="bg-base-200 rounded-box p-4 text-box" id="resultText"></div>
+        <div>
+          <label class="label-text text-xs uppercase opacity-70">Timed segments</label>
+          <div id="segmentsBox" class="space-y-2 mt-2"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-sm hidden" id="compareResultBox">
+      <div class="card-body space-y-4">
+        <div class="text-sm text-base-content/70" id="compareResultMeta"></div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4" id="compareGrid"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = "/api/admin/beta";
+    const adminToken = document.getElementById("adminToken");
+    const modelSelect = document.getElementById("modelSelect");
+    const modelSelectA = document.getElementById("modelSelectA");
+    const modelSelectB = document.getElementById("modelSelectB");
+    const languageSelect = document.getElementById("languageSelect");
+    const languageSelectCompare = document.getElementById("languageSelectCompare");
+    const fileInput = document.getElementById("fileInput");
+    const dropzone = document.getElementById("dropzone");
+    const fileName = document.getElementById("fileName");
+    const linkUrl = document.getElementById("linkUrl");
+    const runBtn = document.getElementById("runBtn");
+    const compareBtn = document.getElementById("compareBtn");
+    const resultBox = document.getElementById("resultBox");
+    const resultMeta = document.getElementById("resultMeta");
+    const resultText = document.getElementById("resultText");
+    const segmentsBox = document.getElementById("segmentsBox");
+    const compareResultBox = document.getElementById("compareResultBox");
+    const compareResultMeta = document.getElementById("compareResultMeta");
+    const compareGrid = document.getElementById("compareGrid");
+    const compareProgress = document.getElementById("compareProgress");
+    const tabGroups = document.querySelectorAll("[role='tablist']");
+    const modeTabs = tabGroups[0].querySelectorAll(".tab");
+    const sourceTabs = tabGroups[1].querySelectorAll(".tab");
+    const panels = { file: document.getElementById("panel-file"), link: document.getElementById("panel-link") };
+    const singleControls = document.getElementById("singleControls");
+    const compareControls = document.getElementById("compareControls");
+
+    let currentFile = null;
+    let currentTab = "file";
+    let currentMode = "single";
+    let models = [];
+
+    function getStoredToken() { return localStorage.getItem("tiltab_admin_token") || ""; }
+    adminToken.value = getStoredToken();
+    adminToken.addEventListener("change", () => localStorage.setItem("tiltab_admin_token", adminToken.value));
+
+    async function loadModels() {
+      try {
+        const res = await fetch(API + "/models", { headers: { "X-Admin-Token": adminToken.value } });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to load models");
+        models = data.models || [];
+        [modelSelect, modelSelectA, modelSelectB].forEach((sel) => {
+          sel.innerHTML = "";
+          models.forEach((m) => {
+            const opt = document.createElement("option");
+            opt.value = m.path;
+            opt.textContent = m.api ? `${m.name} (${m.type}, API)` : `${m.name} (${m.type})`;
+            sel.appendChild(opt);
+          });
+          if (models.length === 0) {
+            sel.innerHTML = '<option value="">No local models found</option>';
+          }
+        });
+        if (models.length >= 2) {
+          modelSelectA.selectedIndex = 0;
+          modelSelectB.selectedIndex = 1;
+        }
+      } catch (err) {
+        [modelSelect, modelSelectA, modelSelectB].forEach((sel) => {
+          sel.innerHTML = '<option value="">Error loading models</option>';
+        });
+        alert(err.message);
+      }
+    }
+
+    modeTabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        modeTabs.forEach((t) => t.classList.remove("tab-active"));
+        tab.classList.add("tab-active");
+        currentMode = tab.dataset.tab;
+        singleControls.classList.toggle("hidden", currentMode !== "single");
+        compareControls.classList.toggle("hidden", currentMode !== "compare");
+        resultBox.classList.add("hidden");
+        compareResultBox.classList.add("hidden");
+      });
+    });
+
+    sourceTabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        sourceTabs.forEach((t) => t.classList.remove("tab-active"));
+        tab.classList.add("tab-active");
+        currentTab = tab.dataset.tab;
+        Object.entries(panels).forEach(([k, el]) => { el.style.display = k === currentTab ? "block" : "none"; });
+      });
+    });
+
+    dropzone.addEventListener("click", () => fileInput.click());
+    dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
+    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+    dropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+      if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", () => { if (fileInput.files.length) setFile(fileInput.files[0]); });
+
+    function setFile(file) {
+      currentFile = file;
+      fileName.textContent = file.name + " (" + (file.size / 1024 / 1024).toFixed(2) + " MB)";
+    }
+
+    function formatTime(seconds) {
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      const ms = Math.floor((seconds % 1) * 1000);
+      return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0") + "." + String(ms).padStart(3, "0");
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function renderSegments(container, segments) {
+      container.innerHTML = "";
+      (segments || []).forEach((seg) => {
+        const div = document.createElement("div");
+        div.className = "segment flex gap-3 py-2 border-b border-base-300 last:border-0";
+        div.innerHTML = `<time>${formatTime(seg.start)} → ${formatTime(seg.end)}</time><span>${escapeHtml(seg.text)}</span>`;
+        container.appendChild(div);
+      });
+    }
+
+    async function runTest() {
+      if (!adminToken.value.trim()) { alert("Admin token is required"); return; }
+      const model = modelSelect.value;
+      if (!model) { alert("Select a model"); return; }
+
+      runBtn.disabled = true;
+      runBtn.textContent = "Running...";
+      resultBox.classList.add("hidden");
+
+      try {
+        let res;
+        if (currentTab === "file") {
+          if (!currentFile) { alert("Select a file"); return; }
+          const form = new FormData();
+          form.append("file", currentFile);
+          form.append("model", model);
+          form.append("language", languageSelect.value);
+          res = await fetch(API + "/transcribe", { method: "POST", headers: { "X-Admin-Token": adminToken.value }, body: form });
+        } else {
+          if (!linkUrl.value.trim()) { alert("Enter a URL"); return; }
+          res = await fetch(API + "/link", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Admin-Token": adminToken.value },
+            body: JSON.stringify({ url: linkUrl.value.trim(), model, language: languageSelect.value }),
+          });
+        }
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Request failed");
+
+        resultMeta.innerHTML = `
+          <span class="badge badge-ghost">Detected: ${(data.language || "auto").toUpperCase()}</span>
+          <span class="badge badge-ghost">Segments: ${(data.segments || []).length}</span>
+          <span class="badge badge-ghost">Chars: ${(data.text || "").length}</span>
+        `;
+        resultText.textContent = data.text || "";
+        renderSegments(segmentsBox, data.segments);
+        resultBox.classList.remove("hidden");
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        runBtn.disabled = false;
+        runBtn.textContent = "Run raw STT";
+      }
+    }
+
+    function createProgressItem(key, modelName) {
+      const id = "progress-" + key;
+      let el = document.getElementById(id);
+      if (!el) {
+        el = document.createElement("div");
+        el.id = id;
+        compareProgress.appendChild(el);
+      }
+      el.innerHTML = `
+        <div class="text-sm font-medium mb-1"><span class="loading loading-spinner loading-xs me-2"></span>${escapeHtml(modelName)}</div>
+        <progress class="progress progress-primary w-full" id="${id}-bar" value="0" max="100"></progress>
+        <div class="text-xs text-base-content/70 mt-1" id="${id}-label">Starting…</div>
+      `;
+      return { bar: document.getElementById(id + "-bar"), label: document.getElementById(id + "-label") };
+    }
+
+    function updateProgress(key, modelName, percent, label) {
+      const { bar, label: lbl } = createProgressItem(key, modelName);
+      bar.value = Math.max(0, Math.min(100, percent));
+      lbl.textContent = label || "Running…";
+    }
+
+    function finishProgress(key, success, message) {
+      const el = document.getElementById("progress-" + key);
+      if (!el) return;
+      const spinner = el.querySelector(".loading");
+      if (spinner) spinner.remove();
+      const label = el.querySelector("#progress-" + key + "-label");
+      if (label) label.textContent = message;
+      const bar = el.querySelector("progress");
+      if (bar) bar.value = 100;
+      if (!success) {
+        bar.classList.remove("progress-primary");
+        bar.classList.add("progress-error");
+        el.classList.add("text-error");
+      }
+    }
+
+    async function runCompare() {
+      if (!adminToken.value.trim()) { alert("Admin token is required"); return; }
+      const modelA = modelSelectA.value;
+      const modelB = modelSelectB.value;
+      if (!modelA || !modelB) { alert("Select both models"); return; }
+      if (modelA === modelB) { alert("Choose two different models for a meaningful comparison"); return; }
+
+      const language = languageSelectCompare.value;
+      compareBtn.disabled = true;
+      compareBtn.textContent = "Running comparison…";
+      compareResultBox.classList.add("hidden");
+      compareProgress.innerHTML = "";
+
+      const results = { a: null, b: null };
+
+      try {
+        const form = new FormData();
+        if (currentTab === "file") {
+          if (!currentFile) { alert("Select a file"); return; }
+          form.append("file", currentFile);
+        } else {
+          if (!linkUrl.value.trim()) { alert("Enter a URL"); return; }
+          form.append("url", linkUrl.value.trim());
+        }
+        form.append("modelA", modelA);
+        form.append("modelB", modelB);
+        form.append("language", language);
+
+        const res = await fetch(API + "/compare", {
+          method: "POST",
+          headers: { "X-Admin-Token": adminToken.value },
+          body: form,
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `Request failed (${res.status})`);
+        }
+        if (!res.body) throw new Error("Streaming not supported by this browser");
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+              const ev = JSON.parse(trimmed);
+              if (ev.type === "progress") {
+                updateProgress(ev.key, ev.model, ev.percent, ev.label);
+              } else if (ev.type === "result") {
+                finishProgress(ev.key, true, `${ev.model} completed`);
+                results[ev.key] = ev.data;
+              } else if (ev.type === "error") {
+                finishProgress(ev.key, false, ev.error);
+                throw new Error(ev.error);
+              } else if (ev.type === "done") {
+                if (ev.title) {
+                  compareResultMeta.innerHTML = `<span class="badge badge-ghost">Source: ${escapeHtml(ev.title)}</span>`;
+                } else {
+                  compareResultMeta.innerHTML = "";
+                }
+              }
+            } catch (parseErr) {
+              // ignore malformed lines
+            }
+          }
+        }
+
+        renderCompareResults(results, modelA, modelB);
+        compareResultBox.classList.remove("hidden");
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        compareBtn.disabled = false;
+        compareBtn.textContent = "Run A/B comparison";
+      }
+    }
+
+    function renderCompareResults(results, modelAPath, modelBPath) {
+      const nameA = models.find((m) => m.path === modelAPath)?.name || modelAPath;
+      const nameB = models.find((m) => m.path === modelBPath)?.name || modelBPath;
+      compareGrid.innerHTML = "";
+
+      ["a", "b"].forEach((key) => {
+        const data = results[key];
+        const modelName = key === "a" ? nameA : nameB;
+        const col = document.createElement("div");
+        col.className = "card bg-base-200";
+        if (!data) {
+          col.innerHTML = `<div class="card-body"><h3 class="card-title text-base">${escapeHtml(modelName)}</h3><div class="text-error">No result</div></div>`;
+          compareGrid.appendChild(col);
+          return;
+        }
+        const text = data.text || "";
+        const segments = data.segments || [];
+        const detected = data.language || "auto";
+        col.innerHTML = `
+          <div class="card-body">
+            <h3 class="card-title text-base">${escapeHtml(modelName)}</h3>
+            <div class="flex flex-wrap gap-2 mb-3">
+              <span class="badge badge-ghost">Detected: ${detected.toUpperCase()}</span>
+              <span class="badge badge-ghost">Segments: ${segments.length}</span>
+              <span class="badge badge-ghost">Chars: ${text.length}</span>
+              <span class="badge badge-ghost">Words: ${text.split(/\s+/).filter(Boolean).length}</span>
+            </div>
+            <label class="label-text text-xs uppercase opacity-70">Raw text</label>
+            <div class="bg-base-300 rounded-box p-3 text-box mb-3">${escapeHtml(text)}</div>
+            <label class="label-text text-xs uppercase opacity-70">Timed segments</label>
+            <div class="space-y-2 mt-2 segments-box" id="segments-${key}"></div>
+          </div>
+        `;
+        compareGrid.appendChild(col);
+        renderSegments(document.getElementById("segments-" + key), segments);
+      });
+    }
+
+    runBtn.addEventListener("click", runTest);
+    compareBtn.addEventListener("click", runCompare);
+    loadModels();
+  </script>
+</body>
+</html>

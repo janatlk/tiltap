@@ -205,7 +205,32 @@ Provider priority (unless overridden by `TILTAB_TRANSLATION_PROVIDER`):
 
 Translation results are cached in `translation_cache` keyed by SHA-256 of the source text and target language, minimizing repeat API costs.
 
+The LLM translation prompt is intentionally strict: it forbids adding, removing, summarizing, or inferring information; merging or splitting sentences; inventing names; and reframing meaning (e.g. intensifying "certain risks" into "a threat"). Names are preserved or rendered using their established target-language form when one exists.
+
+A post-translation QA review step (`TILTAB_REVIEW_ENABLED`, default `true`) checks the result for source-language leftovers, inconsistent terminology, and hallucinated names. It uses the configured review provider (`TILTAB_REVIEW_PROVIDER`, default `auto`) and model (`TILTAB_REVIEW_MODEL`), falling back between Groq and OpenAI if one fails. Review failures are logged and silently ignored so they never block a translation. Review is skipped when the combined source + translated text exceeds `TILTAB_REVIEW_MAX_INPUT_CHARS` (default `4000`) to avoid JSON-format failures on long inputs.
+
+Before a translation is cached or returned, a lightweight sanity check rejects degenerate outputs such as empty text or a single word repeated more than 35% of the time (e.g. the model getting stuck in a loop). When this happens the service throws, letting the caller fall back to the original transcription instead of sending garbage to the user. Cached translations are also re-validated on read, so any bad entries stored before this guard was introduced are automatically deleted and re-translated.
+
+LLM translation calls now set `max_tokens` (`TILTAB_TRANSLATION_MAX_TOKENS`, default `4096`). If the model consumes the entire budget, the request is treated as truncated and fails over rather than returning an incomplete, possibly repetitive result.
+
 If Daniel's module URL is configured (`TRANSLATION_MODULE_URL`), all translation requests are proxied to it instead.
+
+## Translation Audit Log
+
+Every translation request is recorded:
+
+- `translation_cache` stores the current lifecycle state of each unique `(source_hash, target_lang)`: `pending`, `confirmed`, `rejected`, or `error`.
+- `translation_requests` is an append-only audit log that captures each request with its source text, target language, provider/model, source URL, source type, and any error message.
+- Every translation response includes a public `requestId` (the `request_number` from the audit log). Users can quote this number when reporting errors; admins can look it up directly in the admin panel search box or via `GET /api/admin/translations/search/:number`.
+
+The admin panel at `/web/admin.html` exposes four tabs:
+
+1. **Pending** — unconfirmed translations awaiting admin review.
+2. **Confirmed (Accepted)** — approved translations that are now served from cache for matching source text.
+3. **Rejected** — translations an admin rejected; preserved for audit and not served from cache.
+4. **Errors** — translation requests that failed (logged in `translation_requests`).
+
+Rejecting a translation updates its status instead of deleting it. Admins can still hard-delete a row from the Confirmed or Rejected tab if needed.
 
 ## Environment Variables
 
@@ -220,6 +245,13 @@ If Daniel's module URL is configured (`TRANSLATION_MODULE_URL`), all translation
 | `LINGVA_TRANSLATE_URL` | no | Free Lingva instance, default `https://lingva.ml` |
 | `LINGVA_TRANSLATE_CHUNK_SIZE` | no | Max characters per Lingva chunk (default `2000`) |
 | `TILTAB_TRANSLATION_PROVIDER` | no | `lingva`, `openai`, `groq`, `mock`, or `auto` |
+| `TILTAB_REVIEW_ENABLED` | no | Run post-translation QA review (default `true`) |
+| `TILTAB_REVIEW_PROVIDER` | no | `openai`, `groq`, or `auto` (default `auto`; prefers the same provider used for translation) |
+| `TILTAB_REVIEW_MODEL` | no | Override the model used for QA review |
+| `TILTAB_TRANSLATION_MAX_TOKENS` | no | Max output tokens for LLM translation (default `4096`). Hitting the limit raises an error so the caller can fall back to the source transcript. |
+| `TILTAB_REVIEW_MAX_TOKENS` | no | Max output tokens for the post-translation review step (default `4096`) |
+| `TILTAB_REVIEW_MAX_INPUT_CHARS` | no | Skip the review step when source + translated text exceeds this length (default `4000`) |
+| `TILTAB_ADMIN_TOKEN` | **yes** | Required to open `/web/admin.html` and to call `/api/admin/*` endpoints. Without it the admin UI and API return `401`. |
 | `TILTAB_STT_PROVIDER` | no | `local` (default), `auto`, `openai`, or `elevenlabs` |
 | `TILTAB_LOCAL_WHISPER_MODEL` | no | Path to local CTranslate2 Whisper model for ru/en/auto/multi (default `models/whisper-large-v3-turbo-ct2`) |
 | `TILTAB_LOCAL_WHISPER_HF_MODEL` | no | Optional HuggingFace-format Whisper fallback directory |
@@ -238,9 +270,9 @@ If Daniel's module URL is configured (`TRANSLATION_MODULE_URL`), all translation
 | `TELEGRAM_WEBHOOK_SECRET` | no | Future webhook validation |
 | `LOG_LEVEL` | no | `error`, `warn`, `info`, `debug` |
 
-## Deployment (Hetzner CPX22)
+## Deployment (Hetzner CX43)
 
-Production runs on a Hetzner CPX22 (4 vCPU / 8 GB RAM / 160 GB NVMe) with local open-source models. Models live in `/opt/tiltab/models` and are part of the deployment artifact.
+Production runs on a Hetzner CX43 (8 vCPU / 16 GB RAM / 160 GB NVMe, hel2) with local open-source models. Models live in `/opt/tiltap/models` and are part of the deployment artifact.
 
 ### Required server secrets
 
@@ -252,6 +284,7 @@ Optional:
 - `GROQ_API_KEY` (cleanup / translation fallback)
 - `TILTAB_CLEANUP_PROVIDER` / `TILTAB_CLEANUP_MODEL`
 - `LINGVA_TRANSLATE_URL` / `TILTAB_TRANSLATION_PROVIDER`
+- `TILTAB_REVIEW_ENABLED` / `TILTAB_REVIEW_PROVIDER` / `TILTAB_REVIEW_MODEL`
 - `YOUTUBE_COOKIES_BASE64` or `YOUTUBE_COOKIES_PATH`
 - `YOUTUBE_PO_TOKEN` / `YOUTUBE_VISITOR_DATA`
 - `YOUTUBE_PROXY`
@@ -261,8 +294,8 @@ Optional:
 ### Deploy
 
 ```bash
-ssh root@46.225.238.161
-cd /opt/tiltab
+ssh root@95.216.169.56
+cd /opt/tiltap
 git fetch origin
 git reset --hard origin/main
 npm ci
@@ -271,7 +304,7 @@ systemctl restart tiltab-backend.service
 systemctl status tiltab-backend.service --no-pager
 ```
 
-New models must be downloaded to `/opt/tiltab/models` and added to the server provisioning/automation so they persist across rebuilds.
+New models must be downloaded to `/opt/tiltap/models` and added to the server provisioning/automation so they persist across rebuilds.
 
 ### CI/CD
 

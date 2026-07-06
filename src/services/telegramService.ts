@@ -696,12 +696,19 @@ export interface ActiveProcess {
   startTime: number;
   statusMessageId?: number;
   type: "media" | "youtube" | "test";
+  language?: string;
+  filename?: string;
+  sourceUrl?: string;
 }
 
 const activeProcesses = new Map<number, ActiveProcess>();
 
 export function getActiveProcess(chatId: number): ActiveProcess | undefined {
   return activeProcesses.get(chatId);
+}
+
+export function getActiveProcesses(): Map<number, ActiveProcess> {
+  return new Map(activeProcesses);
 }
 
 export function setActiveProcess(chatId: number, process: ActiveProcess): void {

@@ -824,13 +824,6 @@ def transcribe_whisper_with_vad(
 
     chunks = vad_utils.merge_speech_segments(speech_segments, max_gap=max_gap, max_duration=max_duration)
 
-    # If VAD found essentially one big speech region, don't bother VAD chunking.
-    if len(chunks) == 1 and chunks[0]["start"] <= 0.1 and chunks[0]["end"] >= duration - 0.1:
-        log_diagnostic(language=language, vad_status="single_segment", duration=duration)
-        return transcribe_whisper_time_chunked(
-            wav_path, language, model_path, progress_label, initial_prompt, conservative, vad_parameters
-        )
-
     log_diagnostic(language=language, vad_status="chunked", chunks=len(chunks), duration=duration)
 
     all_segments = []
@@ -916,7 +909,13 @@ def transcribe_whisper_hf(wav_path: str, model_name: str, language: str, progres
     audio, sr = load_audio(wav_path)
 
     emit_progress(5, progress_label)
-    result = pipe(audio, return_timestamps=True)
+    generate_kwargs = None
+    if language and language != "auto":
+        generate_kwargs = {"language": language, "task": "transcribe"}
+    if generate_kwargs:
+        result = pipe(audio, return_timestamps=True, generate_kwargs=generate_kwargs)
+    else:
+        result = pipe(audio, return_timestamps=True)
     emit_progress(95, progress_label)
 
     full_text = strip_leading_repetitions(result.get("text", "").strip())
@@ -1318,6 +1317,57 @@ def transcribe_multilingual(wav_path: str, model_path: str = LOCAL_WHISPER_MODEL
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+def _is_ct2_model(model_path: str) -> bool:
+    return os.path.isdir(model_path) and os.path.exists(os.path.join(model_path, "model.bin"))
+
+
+def _is_hf_whisper_model(model_path: str) -> bool:
+    if not os.path.isdir(model_path):
+        return False
+    has_weights = (
+        os.path.exists(os.path.join(model_path, "model.safetensors"))
+        or os.path.exists(os.path.join(model_path, "pytorch_model.bin"))
+    )
+    return has_weights and os.path.exists(os.path.join(model_path, "config.json"))
+
+
+def _run_beta_transcription(wav_path: str, language: str | None, model_path: str) -> dict:
+    """Run a specific local model without VAD and without post-processing.
+
+    Used by the admin beta-test page to compare raw model outputs.
+    Supports Vosk, CTranslate2 Whisper, and HuggingFace Whisper models.
+    """
+    is_vosk = "vosk" in model_path.lower()
+    if is_vosk:
+        vosk_results = transcribe_vosk_chunked(wav_path, model_path, progress_label="Vosk beta")
+        # transcribe_vosk_chunked returns a list of partial result objects; build
+        # normalized segments and text so downstream code sees the same schema as
+        # the Whisper path.
+        segments = build_vosk_segments(vosk_results)
+        full_text = normalize_repeated_punctuation(" ".join(s["text"] for s in segments))
+        return {
+            "text": full_text,
+            "language": language or "auto",
+            "segments": segments,
+        }
+
+    if _is_hf_whisper_model(model_path):
+        return transcribe_whisper_hf(
+            wav_path,
+            model_path,
+            language or "tg",
+            progress_label="Whisper HF beta",
+        )
+
+    # Default: assume CTranslate2/faster-whisper compatible model.
+    return transcribe_whisper_time_chunked(
+        wav_path,
+        language,
+        model_path,
+        progress_label="Whisper beta",
+    )
+
+
 def main():
     if len(sys.argv) < 4:
         print("Usage: transcribe_hybrid.py <input_file> <ffmpeg_path> <language>", file=sys.stderr)
@@ -1327,6 +1377,8 @@ def main():
     ffmpeg_path = sys.argv[2]
     FFMPEG_PATH = ffmpeg_path
     language = sys.argv[3] if sys.argv[3] != "auto" else None
+    beta_model = os.environ.get("TILTAB_BETA_MODEL", "").strip()
+    skip_postprocess = os.environ.get("TILTAB_SKIP_POSTPROCESS", "").lower() in ("1", "true", "yes")
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         wav_path = tmp.name
@@ -1335,9 +1387,11 @@ def main():
         emit_progress(0, "Подготовка аудио...")
         convert_to_wav(input_file, wav_path, ffmpeg_path)
         duration = get_audio_duration(wav_path)
-        log_diagnostic(input_duration_seconds=duration, requested_language=sys.argv[3])
+        log_diagnostic(input_duration_seconds=duration, requested_language=sys.argv[3], beta_mode=bool(beta_model))
 
-        if language == "ky":
+        if beta_model:
+            output = _run_beta_transcription(wav_path, language, beta_model)
+        elif language == "ky":
             output = transcribe_kyrgyz(wav_path)
 
         elif language == "tg":
@@ -1382,14 +1436,15 @@ def main():
 
         # Language-aware post-processing: remove garbage, fix grammar/case,
         # normalize scripts (Tajik). Applied to all languages with Tajik-specific
-        # rules kept inside the post-processor.
-        output = text_postprocessing.postprocess_transcription(output, language)
-        log_diagnostic(
-            postprocess_applied=True,
-            output_language=output.get("language"),
-            output_char_count=len(output.get("text", "")),
-            output_segment_count=len(output.get("segments", [])),
-        )
+        # rules kept inside the post-processor. Skipped in beta mode.
+        if not skip_postprocess:
+            output = text_postprocessing.postprocess_transcription(output, language)
+            log_diagnostic(
+                postprocess_applied=True,
+                output_language=output.get("language"),
+                output_char_count=len(output.get("text", "")),
+                output_segment_count=len(output.get("segments", [])),
+            )
 
         # Remove internal quality field from final JSON to keep schema stable
         output.pop("quality", None)

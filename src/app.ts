@@ -7,6 +7,8 @@ import { requestLogger } from "./middleware/requestLogger";
 import webhookRoutes from "./routes/webhook";
 import translateRoutes from "./routes/translate";
 import webRoutes from "./routes/web";
+import adminRoutes from "./routes/admin";
+import betaTestRoutes from "./routes/betaTest";
 import { getProvidersHealth } from "./controllers/providersController";
 import { isDbHealthy } from "./db";
 import { config } from "./config";
@@ -38,7 +40,9 @@ app.get("/health", async (_req, res) => {
 // Provider health & billing snapshot
 app.get("/health/providers", getProvidersHealth);
 
-// Static web UI
+// Static web UI. The admin HTML shell is public so the token never has to
+// appear in a URL; all admin API endpoints require the token via the
+// X-Admin-Token header and the UI prompts for it.
 app.use("/web", express.static(path.join(process.cwd(), "public/web")));
 app.use(express.static(path.join(process.cwd(), "public")));
 
@@ -46,6 +50,8 @@ app.use(express.static(path.join(process.cwd(), "public")));
 app.use("/webhook", webhookRoutes);
 app.use("/api/translate", translateRoutes);
 app.use("/api/web", webRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/admin/beta", betaTestRoutes);
 
 // 404
 app.use((_req: Request, res: Response) => {

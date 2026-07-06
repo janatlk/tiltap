@@ -493,6 +493,8 @@ async function processAudio(
       startTime: Date.now(),
       statusMessageId: statusMsgId,
       type: "media",
+      language,
+      filename,
     });
 
     const result = await transcribeAudio(
@@ -506,6 +508,8 @@ async function processAudio(
           startTime: Date.now(),
           statusMessageId: statusMsgId,
           type: "media",
+          language,
+          filename,
         });
       },
       onProgress,
@@ -557,7 +561,11 @@ async function processAudio(
       transcriptionId,
       lang,
       replyToMessageId,
-      qualityWarning
+      qualityWarning,
+      undefined,
+      cleanup.warning,
+      undefined,
+      "telegram_media"
     );
     await deleteMessage(chatId, statusMsgId).catch(() => {});
 
@@ -598,6 +606,9 @@ async function downloadAndTranscribeYouTube(
       startTime: Date.now(),
       statusMessageId: statusMsgId,
       type: "youtube",
+      language,
+      sourceUrl: url,
+      filename: "youtube_audio.wav",
     });
 
     const downloadProgress = createProgressUpdater(chatId, statusMsgId, lang, url);
@@ -624,6 +635,9 @@ async function downloadAndTranscribeYouTube(
           startTime: Date.now(),
           statusMessageId: statusMsgId,
           type: "youtube",
+          language,
+          sourceUrl: url,
+          filename: "youtube_audio.wav",
         });
       },
       transcribeProgress,
@@ -666,7 +680,10 @@ async function downloadAndTranscribeYouTube(
       lang,
       undefined,
       undefined,
-      "YouTube"
+      "YouTube",
+      cleanup.warning,
+      url,
+      "youtube"
     );
     await deleteMessage(chatId, statusMsgId).catch(() => {});
   } catch (err) {
@@ -778,7 +795,10 @@ async function sendResultDocument(
   lang: SupportedLanguage,
   replyToMessageId?: number,
   qualityWarning?: string,
-  titlePrefix?: string
+  titlePrefix?: string,
+  cleanupWarning?: string,
+  sourceUrl?: string,
+  sourceType?: string
 ): Promise<void> {
   const sourceLabel = LANGUAGE_LABELS[sourceLang as SupportedLanguage] ?? sourceLang;
 
@@ -787,7 +807,7 @@ async function sendResultDocument(
   // If a target language is chosen and differs from the source, send only the translated file.
   if (targetLang && targetLang !== "none" && targetLang !== sourceLang && cleanedText.trim()) {
     try {
-      const translation = await translateText({ text: cleanedText, targetLang, sourceLang: sourceLang });
+      const translation = await translateText({ text: cleanedText, targetLang, sourceLang: sourceLang, sourceUrl, sourceType });
 
       if (transcriptionId > 0) {
         await saveTranslation({
@@ -801,11 +821,17 @@ async function sendResultDocument(
 
       const targetLabel = LANGUAGE_LABELS[targetLang as SupportedLanguage] ?? targetLang;
       const title = `${targetLabel}`;
+      const warnings = [
+        cleanupWarning,
+        translation.warning,
+      ].filter(Boolean);
+      const warningNote = warnings.length ? `\n\n⚠️ ${warnings.join(" ")}` : "";
+      const caption = translation.requestId ? `${title} #${translation.requestId}` : title;
       await sendDocument(
         chatId,
-        Buffer.from(`${title}\n\n${translation.translatedText}`, "utf-8"),
+        Buffer.from(`${title}${warningNote}\n\n${translation.translatedText}`, "utf-8"),
         `translation_${Date.now()}.txt`,
-        title,
+        caption,
         backToMenuKeyboard
       );
       return;
@@ -826,7 +852,8 @@ async function sendResultDocument(
 
   const title = titlePrefix ? `${titlePrefix} — ${sourceLabel}` : `${sourceLabel}`;
   const subtitles = formatSubtitles(segments);
-  const fileContent = `${title}\n\n${cleanedText}\n\n---\n\n${subtitles}`;
+  const warningHeader = cleanupWarning ? `\n\n⚠️ ${cleanupWarning}` : "";
+  const fileContent = `${title}${warningHeader}\n\n${cleanedText}\n\n---\n\n${subtitles}`;
   const caption = qualityWarning ? `${qualityWarning}` : title;
   await sendDocument(
     chatId,
@@ -908,6 +935,8 @@ async function runAccuracyTest(chatId: number, language: string): Promise<void> 
       startTime: Date.now(),
       statusMessageId: statusMsgId,
       type: "test",
+      language,
+      filename: fixture.title,
     });
 
     await editMessageText(chatId, statusMsgId, renderLoadingStages(30, t("testDownloading", lang), fixture.title, testHeader), { replyMarkup: stopKeyboard });
@@ -929,6 +958,8 @@ async function runAccuracyTest(chatId: number, language: string): Promise<void> 
           startTime: Date.now(),
           statusMessageId: statusMsgId,
           type: "test",
+          language,
+          filename: fixture.title,
         });
       },
       (progress) => testProgress({ ...progress, label: `${progress.label} (${t("testRecognizing", lang)})` }),

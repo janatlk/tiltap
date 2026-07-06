@@ -7,6 +7,7 @@ export interface CleanupResult {
   cleanedText: string;
   provider: string;
   model: string;
+  warning?: string;
 }
 
 export interface CleanupOptions {
@@ -84,7 +85,7 @@ export async function cleanupTranscription(
   }
 
   logger.warn("All LLM cleanup providers failed; returning raw transcript");
-  return { cleanedText: text, provider: "fallback", model: "" };
+  return { cleanedText: text, provider: "fallback", model: "", warning: "LLM cleanup failed (rate limit or provider error). Returned raw transcript." };
 }
 
 // ---------------------------------------------------------------------------

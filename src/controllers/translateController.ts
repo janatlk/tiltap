@@ -19,7 +19,11 @@ export async function handleTranslate(req: Request, res: Response): Promise<void
       return;
     }
 
-    const result = await translateText(body);
+    const result = await translateText({
+      ...body,
+      sourceUrl: body.sourceUrl,
+      sourceType: body.sourceType ?? "text",
+    });
 
     res.status(200).json(result);
     logger.info("Translation request handled", {

@@ -1,305 +1,168 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="business">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TilTap Web</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <style>
-    :root {
-      --bg: #0f172a;
-      --card: #1e293b;
-      --text: #f8fafc;
-      --muted: #94a3b8;
-      --primary: #3b82f6;
-      --primary-hover: #2563eb;
-      --success: #22c55e;
-      --warning: #f59e0b;
-      --danger: #ef4444;
-      --radius: 12px;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 24px 16px;
-    }
-    .container {
-      width: 100%;
-      max-width: 720px;
-    }
-    header {
-      text-align: center;
-      margin-bottom: 24px;
-    }
-    header h1 { margin: 0 0 8px; font-size: 2rem; }
-    header p { margin: 0; color: var(--muted); }
-    .card {
-      background: var(--card);
-      border-radius: var(--radius);
-      padding: 20px;
-      margin-bottom: 16px;
-      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
-    }
-    .row {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-    .row:last-child { margin-bottom: 0; }
-    label { font-size: 0.875rem; color: var(--muted); display: block; margin-bottom: 6px; }
-    select, input[type="text"] {
-      width: 100%;
-      padding: 10px 12px;
-      border-radius: 8px;
-      border: 1px solid #334155;
-      background: #0f172a;
-      color: var(--text);
-      font-size: 1rem;
-      outline: none;
-    }
-    select:focus, input:focus { border-color: var(--primary); }
-    .tabs {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-    }
-    .tab {
-      flex: 1;
-      padding: 10px;
-      border-radius: 8px;
-      border: 1px solid #334155;
-      background: transparent;
-      color: var(--text);
-      cursor: pointer;
-      font-weight: 500;
-    }
-    .tab.active { background: var(--primary); border-color: var(--primary); }
     .dropzone {
-      border: 2px dashed #334155;
-      border-radius: var(--radius);
-      padding: 40px 20px;
+      border: 2px dashed color-mix(in oklab, var(--color-base-content) 20%, transparent); background: color-mix(in oklab, var(--color-base-content) 3%, transparent);
+      border-radius: var(--radius-box);
+      padding: 2.5rem 1rem;
       text-align: center;
-      color: var(--muted);
+      color: var(--color-base-content);
       cursor: pointer;
       transition: border-color 0.2s, background 0.2s;
+      opacity: 0.8;
     }
-    .dropzone:hover, .dropzone.dragover { border-color: var(--primary); background: rgba(59,130,246,0.08); }
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--color-primary);
+      background: color-mix(in oklab, var(--color-primary) 6%, transparent);
+      opacity: 1;
+    }
     .dropzone input { display: none; }
-    .file-name { margin-top: 12px; color: var(--text); word-break: break-all; }
-    button.primary {
-      width: 100%;
-      padding: 12px;
-      border: none;
-      border-radius: 8px;
-      background: var(--primary);
-      color: white;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    button.primary:hover { background: var(--primary-hover); }
-    button.primary:disabled { background: #475569; cursor: not-allowed; }
-    .progress-wrap {
-      display: none;
-      margin-top: 16px;
-    }
-    .progress-wrap.active { display: block; }
-    .progress-bar {
-      height: 10px;
-      background: #334155;
-      border-radius: 5px;
-      overflow: hidden;
-    }
-    .progress-fill {
-      height: 100%;
-      width: 0%;
-      background: var(--primary);
-      transition: width 0.3s ease;
-    }
-    .progress-label {
-      display: flex;
-      justify-content: space-between;
-      margin-top: 6px;
-      font-size: 0.875rem;
-      color: var(--muted);
-    }
-    .result {
-      display: none;
-      margin-top: 16px;
-    }
-    .result.active { display: block; }
-    .result h3 { margin: 0 0 12px; }
-    .result-meta { color: var(--muted); font-size: 0.875rem; margin-bottom: 12px; }
     .text-box {
-      background: #0f172a;
-      border-radius: 8px;
-      padding: 16px;
       white-space: pre-wrap;
       word-break: break-word;
-      line-height: 1.5;
+      line-height: 1.6;
       max-height: 320px;
       overflow: auto;
     }
-    .segments { margin-top: 16px; }
-    .segment {
-      padding: 10px 0;
-      border-bottom: 1px solid #334155;
-      display: flex;
-      gap: 12px;
-    }
-    .segment time { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
-    .lang-buttons {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-top: 12px;
-    }
-    .lang-btn {
-      padding: 8px 12px;
-      border-radius: 8px;
-      border: 1px solid #334155;
-      background: #0f172a;
-      color: var(--text);
-      cursor: pointer;
-    }
-    .lang-btn:hover { border-color: var(--primary); }
-    .translation {
-      margin-top: 16px;
-      padding-top: 16px;
-      border-top: 1px solid #334155;
-    }
-    .translation h4 { margin: 0 0 8px; color: var(--success); }
-    .error {
-      color: var(--danger);
-      margin-top: 12px;
-      display: none;
-    }
-    .error.active { display: block; }
-    footer {
-      text-align: center;
-      color: var(--muted);
+    .segment time {
+      color: var(--color-base-content);
+      opacity: 0.6;
+      white-space: nowrap;
       font-size: 0.75rem;
-      margin-top: 24px;
     }
   </style>
 </head>
-<body>
-  <div class="container">
-    <header>
-      <h1>🎙️ TilTap Web</h1>
-      <p>Transcribe audio, video, and YouTube links. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.</p>
+<body class="min-h-screen bg-base-200 py-8 px-4">
+  <div class="max-w-3xl mx-auto space-y-6">
+
+    <header class="text-center space-y-2">
+      <h1 class="text-3xl font-bold tracking-tight">TilTap Web</h1>
+      <p class="text-base-content/70">Transcribe audio, video, and YouTube links. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.</p>
+      <a href="/web/admin.html" class="link link-primary text-sm">Admin panel</a>
     </header>
 
-    <div class="card">
-      <div class="row">
-        <div style="flex:1; min-width:140px;">
-          <label for="sourceLang">Transcription language</label>
-          <select id="sourceLang">
-            <option value="auto">🌍 Auto detect</option>
-            <option value="ky">🇰🇬 Кыргызча</option>
-            <option value="tg">🇹🇯 Тоҷикӣ</option>
-            <option value="uz">🇺🇿 O'zbekcha</option>
-            <option value="ru">🇷🇺 Русский</option>
-            <option value="en">🇬🇧 English</option>
-          </select>
-        </div>
-        <div style="flex:1; min-width:140px;">
-          <label for="targetLang">Translate to</label>
-          <select id="targetLang">
-            <option value="none">❌ No translation</option>
-            <option value="ky">🇰🇬 Кыргызча</option>
-            <option value="tg">🇹🇯 Тоҷикӣ</option>
-            <option value="uz">🇺🇿 O'zbekcha</option>
-            <option value="ru">🇷🇺 Русский</option>
-            <option value="en">🇬🇧 English</option>
-          </select>
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="form-control">
+            <label class="label" for="sourceLang"><span class="label-text">Transcription language</span></label>
+            <select id="sourceLang" class="select select-bordered w-full">
+              <option value="auto">Auto detect</option>
+              <option value="ky">Kyrgyz</option>
+              <option value="tg">Tajik</option>
+              <option value="uz">Uzbek</option>
+              <option value="ru">Russian</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+          <div class="form-control">
+            <label class="label" for="targetLang"><span class="label-text">Translate to</span></label>
+            <select id="targetLang" class="select select-bordered w-full">
+              <option value="none">No translation</option>
+              <option value="ky">Kyrgyz</option>
+              <option value="tg">Tajik</option>
+              <option value="uz">Uzbek</option>
+              <option value="ru">Russian</option>
+              <option value="en">English</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="tabs">
-        <button class="tab active" data-tab="file">📁 Upload file</button>
-        <button class="tab" data-tab="youtube">🔗 YouTube link</button>
-      </div>
-
-      <div id="panel-file">
-        <div class="dropzone" id="dropzone">
-          <div>Drag & drop audio/video here or click to browse</div>
-          <input type="file" id="fileInput" accept="audio/*,video/*">
-          <div class="file-name" id="fileName"></div>
-        </div>
-      </div>
-
-      <div id="panel-youtube" style="display:none;">
-        <label for="youtubeUrl">YouTube URL</label>
-        <input type="text" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=...">
-      </div>
-
-      <button class="primary" id="startBtn" style="margin-top:16px;">▶️ Start</button>
-
-      <div class="progress-wrap" id="progressWrap">
-        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-        <div class="progress-label"><span id="progressLabel">Starting...</span><span id="progressPercent">0%</span></div>
-      </div>
-
-      <div class="error" id="errorBox"></div>
-
-      <div class="result" id="resultBox">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
-          <h3 id="resultTitle" style="margin:0;">📝 Transcription</h3>
-          <button class="lang-btn" id="downloadBtn">⬇️ Download .txt</button>
-        </div>
-        <div class="result-meta" id="resultMeta"></div>
-        <div id="translationWarning" style="display:none; color:var(--warning); font-size:0.875rem; margin-bottom:12px;"></div>
-        <div class="text-box" id="resultText"></div>
-
-        <div class="lang-buttons" id="translateButtons">
-          <span style="color:var(--muted); font-size:0.875rem;">Translate result:</span>
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body space-y-4">
+        <div role="tablist" class="tabs tabs-lift">
+          <button role="tab" class="tab tab-active" data-tab="file">Upload file</button>
+          <button role="tab" class="tab" data-tab="youtube">YouTube link</button>
         </div>
 
-        <div class="segments" id="segmentsBox"></div>
+        <div id="panel-file">
+          <div class="dropzone" id="dropzone">
+            <div class="text-lg font-medium">Drag & drop audio/video here or click to browse</div>
+            <input type="file" id="fileInput" accept="audio/*,video/*">
+            <div class="mt-3 text-sm opacity-80" id="fileName"></div>
+          </div>
+        </div>
 
-        <details id="originalDetails" style="margin-top:16px; display:none;">
-          <summary style="color:var(--muted); cursor:pointer;">Original transcription</summary>
-          <div class="text-box" id="originalText" style="margin-top:8px;"></div>
-          <div class="segments" id="originalSegmentsBox"></div>
-        </details>
+        <div id="panel-youtube" style="display:none;">
+          <div class="form-control">
+            <label class="label" for="youtubeUrl"><span class="label-text">YouTube URL</span></label>
+            <input type="text" id="youtubeUrl" class="input input-bordered w-full" placeholder="https://www.youtube.com/watch?v=...">
+          </div>
+        </div>
 
-        <div id="translationResults"></div>
+        <button class="btn btn-primary btn-block" id="startBtn">Start</button>
+
+        <div id="progressWrap" class="hidden space-y-2">
+          <progress class="progress progress-primary w-full" id="progressBar" value="0" max="100"></progress>
+          <div class="flex justify-between text-sm text-base-content/70">
+            <span id="progressLabel">Starting...</span>
+            <span id="progressPercent">0%</span>
+          </div>
+        </div>
+
+        <div id="errorBox" class="alert alert-error hidden" role="alert"></div>
+
+        <div id="resultBox" class="hidden space-y-4">
+          <div class="flex flex-wrap justify-between items-center gap-3">
+            <h3 class="card-title text-lg" id="resultTitle">Transcription</h3>
+            <button class="btn btn-sm btn-outline" id="downloadBtn">Download .txt</button>
+          </div>
+          <div class="text-sm text-base-content/70" id="resultMeta"></div>
+          <div id="translationWarning" class="alert alert-warning hidden text-sm" role="alert"></div>
+          <div class="bg-base-200 rounded-box p-4 text-box" id="resultText"></div>
+
+          <div class="flex flex-wrap gap-2 items-center" id="translateButtons">
+            <span class="text-sm text-base-content/70">Translate result:</span>
+          </div>
+
+          <div id="segmentsBox" class="space-y-2"></div>
+
+          <details id="originalDetails" class="collapse collapse-arrow bg-base-200 rounded-box hidden">
+            <summary class="collapse-title text-sm text-base-content/70">Original transcription</summary>
+            <div class="collapse-content space-y-3">
+              <div class="bg-base-300 rounded-box p-3 text-box" id="originalText"></div>
+              <div id="originalSegmentsBox" class="space-y-2"></div>
+            </div>
+          </details>
+
+          <div id="translationResults" class="space-y-4"></div>
+        </div>
       </div>
     </div>
 
-    <footer>TilTap — local speech-to-text & translation</footer>
+    <footer class="text-center text-sm text-base-content/50 py-4">
+      TilTap — local speech-to-text & translation
+    </footer>
   </div>
 
   <script>
     const API = "";
     const SUPPORTED_LANGS = {
-      ky: "🇰🇬 Кыргызча",
-      tg: "🇹🇯 Тоҷикӣ",
-      uz: "🇺🇿 O'zbekcha",
-      ru: "🇷🇺 Русский",
-      en: "🇬🇧 English",
+      ky: "Kyrgyz",
+      tg: "Tajik",
+      uz: "Uzbek",
+      ru: "Russian",
+      en: "English",
     };
 
     const dropzone = document.getElementById("dropzone");
     const fileInput = document.getElementById("fileInput");
     const fileName = document.getElementById("fileName");
     const youtubeUrl = document.getElementById("youtubeUrl");
-    const tabs = document.querySelectorAll(".tab");
+    const tabs = document.querySelectorAll("[role='tablist'] .tab");
     const panels = { file: document.getElementById("panel-file"), youtube: document.getElementById("panel-youtube") };
     const startBtn = document.getElementById("startBtn");
     const progressWrap = document.getElementById("progressWrap");
-    const progressFill = document.getElementById("progressFill");
+    const progressBar = document.getElementById("progressBar");
     const progressLabel = document.getElementById("progressLabel");
     const progressPercent = document.getElementById("progressPercent");
     const errorBox = document.getElementById("errorBox");
@@ -318,6 +181,7 @@
 
     let currentFile = null;
     let currentJobId = null;
+    let currentRequestNumber = null;
     let currentCleanText = "";
     let currentDetectedLang = "";
     let currentDownloadText = "";
@@ -335,8 +199,8 @@
 
     tabs.forEach((tab) => {
       tab.addEventListener("click", () => {
-        tabs.forEach((t) => t.classList.remove("active"));
-        tab.classList.add("active");
+        tabs.forEach((t) => t.classList.remove("tab-active"));
+        tab.classList.add("tab-active");
         const key = tab.dataset.tab;
         Object.entries(panels).forEach(([k, el]) => {
           el.style.display = k === key ? "block" : "none";
@@ -362,28 +226,30 @@
     }
 
     function resetUI() {
-      errorBox.classList.remove("active");
+      errorBox.classList.add("hidden");
       errorBox.textContent = "";
-      resultBox.classList.remove("active");
+      resultBox.classList.add("hidden");
       resultText.textContent = "";
       segmentsBox.innerHTML = "";
-      originalDetails.style.display = "none";
+      originalDetails.classList.add("hidden");
+      originalDetails.open = false;
       originalText.textContent = "";
       originalSegmentsBox.innerHTML = "";
       translationResults.innerHTML = "";
       translateButtons.style.display = "flex";
       segmentsBox.style.display = "block";
-      progressWrap.classList.add("active");
-      progressFill.style.width = "0%";
+      progressWrap.classList.remove("hidden");
+      progressBar.value = 0;
       progressLabel.textContent = "Starting...";
       progressPercent.textContent = "0%";
       startBtn.disabled = true;
+      currentRequestNumber = null;
     }
 
     function showError(msg) {
       errorBox.textContent = msg;
-      errorBox.classList.add("active");
-      progressWrap.classList.remove("active");
+      errorBox.classList.remove("hidden");
+      progressWrap.classList.add("hidden");
       startBtn.disabled = false;
     }
 
@@ -402,17 +268,17 @@
 
     function updateProgress(progress) {
       const pct = Math.max(0, Math.min(100, progress.percent));
-      progressFill.style.width = pct + "%";
+      progressBar.value = pct;
       progressLabel.textContent = progress.label || "Working...";
       progressPercent.textContent = pct + "%";
     }
 
     function renderTranslateButtons() {
-      translateButtons.innerHTML = '<span style="color:var(--muted); font-size:0.875rem;">Translate result:</span>';
+      translateButtons.innerHTML = '<span class="text-sm text-base-content/70">Translate result:</span>';
       Object.entries(SUPPORTED_LANGS).forEach(([code, label]) => {
         if (code === currentDetectedLang) return;
         const btn = document.createElement("button");
-        btn.className = "lang-btn";
+        btn.className = "btn btn-xs btn-outline";
         btn.textContent = label;
         btn.addEventListener("click", () => translateResult(code));
         translateButtons.appendChild(btn);
@@ -424,12 +290,11 @@
       if (segments.length > 1) {
         const title = document.createElement("h4");
         title.textContent = "Timed segments";
-        title.style.margin = "0 0 8px";
-        title.style.color = "var(--muted)";
+        title.className = "text-sm font-semibold text-base-content/70 mb-2";
         container.appendChild(title);
         segments.forEach((seg) => {
           const div = document.createElement("div");
-          div.className = "segment";
+          div.className = "segment flex gap-3 py-2 border-b border-base-300 last:border-0";
           div.innerHTML = `<time>${formatTime(seg.start)} → ${formatTime(seg.end)}</time><span>${escapeHtml(seg.text)}</span>`;
           container.appendChild(div);
         });
@@ -442,19 +307,19 @@
       currentDetectedLang = result.language;
       const targetLang = document.getElementById("targetLang").value;
 
+      const requestMeta = currentRequestNumber ? ` · Request #${currentRequestNumber}` : "";
       resultMeta.textContent = "Detected: " + (SUPPORTED_LANGS[result.language] || result.language) +
-        " · Segments: " + result.segments.length;
+        " · Segments: " + result.segments.length + requestMeta;
 
-      translationWarning.style.display = "none";
+      translationWarning.classList.add("hidden");
       translationWarning.textContent = "";
       if (job.translationError) {
-        translationWarning.textContent = "⚠️ Translation failed: " + job.translationError;
-        translationWarning.style.display = "block";
+        translationWarning.textContent = "Translation failed: " + job.translationError;
+        translationWarning.classList.remove("hidden");
       }
 
       if (job.translatedText && targetLang !== "none") {
-        // Primary output is the translation (matches Telegram bot behavior).
-        resultTitle.textContent = "🌐 " + (SUPPORTED_LANGS[job.translatedLang] || job.translatedLang);
+        resultTitle.textContent = SUPPORTED_LANGS[job.translatedLang] || job.translatedLang;
         resultText.textContent = job.translatedText;
         currentDownloadText = job.translatedText;
         currentDownloadFilename = "translation_" + Date.now() + ".txt";
@@ -464,10 +329,9 @@
 
         originalText.textContent = currentCleanText;
         renderSegments(originalSegmentsBox, result.segments);
-        originalDetails.style.display = "block";
+        originalDetails.classList.remove("hidden");
       } else {
-        // No translation requested — show transcription as before.
-        resultTitle.textContent = "📝 Transcription";
+        resultTitle.textContent = "Transcription";
         resultText.textContent = currentCleanText;
         currentDownloadText = currentCleanText;
         currentDownloadFilename = "transcription_" + Date.now() + ".txt";
@@ -477,20 +341,25 @@
         renderSegments(segmentsBox, result.segments);
         renderTranslateButtons();
 
-        originalDetails.style.display = "none";
+        originalDetails.classList.add("hidden");
         originalText.textContent = "";
         originalSegmentsBox.innerHTML = "";
       }
 
-      resultBox.classList.add("active");
-      progressWrap.classList.remove("active");
+      resultBox.classList.remove("hidden");
+      progressWrap.classList.add("hidden");
       startBtn.disabled = false;
     }
 
     function showTranslation(lang, text) {
       const div = document.createElement("div");
-      div.className = "translation";
-      div.innerHTML = `<h4>${SUPPORTED_LANGS[lang] || lang}</h4><div class="text-box">${escapeHtml(text)}</div>`;
+      div.className = "card card-compact bg-base-200";
+      div.innerHTML = `
+        <div class="card-body">
+          <h4 class="card-title text-sm">${SUPPORTED_LANGS[lang] || lang}</h4>
+          <div class="bg-base-300 rounded-box p-3 text-box">${escapeHtml(text)}</div>
+        </div>
+      `;
       translationResults.appendChild(div);
     }
 
@@ -554,7 +423,7 @@
       try {
         const sourceLang = document.getElementById("sourceLang").value;
         const targetLang = document.getElementById("targetLang").value;
-        const activeTab = document.querySelector(".tab.active").dataset.tab;
+        const activeTab = document.querySelector(".tab-active").dataset.tab;
 
         let data;
         if (activeTab === "file") {
@@ -586,6 +455,7 @@
         }
 
         currentJobId = data.jobId;
+        currentRequestNumber = data.requestNumber || null;
         listenProgress(currentJobId);
       } catch (err) {
         showError(err.message);
@@ -607,7 +477,6 @@
       };
       es.onerror = () => {
         es.close();
-        // Fallback to polling if SSE fails
         pollJob(jobId);
       };
     }
@@ -647,13 +516,13 @@
     });
 
     function saveLanguagePrefs() {
-      localStorage.setItem("tiltap_source_lang", document.getElementById("sourceLang").value);
-      localStorage.setItem("tiltap_target_lang", document.getElementById("targetLang").value);
+      localStorage.setItem("tiltab_source_lang", document.getElementById("sourceLang").value);
+      localStorage.setItem("tiltab_target_lang", document.getElementById("targetLang").value);
     }
 
     function loadLanguagePrefs() {
-      const savedSource = localStorage.getItem("tiltap_source_lang");
-      const savedTarget = localStorage.getItem("tiltap_target_lang");
+      const savedSource = localStorage.getItem("tiltab_source_lang");
+      const savedTarget = localStorage.getItem("tiltab_target_lang");
       if (savedSource) document.getElementById("sourceLang").value = savedSource;
       if (savedTarget) document.getElementById("targetLang").value = savedTarget;
     }

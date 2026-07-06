@@ -1,0 +1,12 @@
+# Build context is project root; only ship files the Dockerfile copies.
+*
+!gpu-worker
+!gpu-worker/handler.py
+!gpu-worker/requirements.txt
+!models
+!models/whisper-large-v3-turbo-ct2
+!models/whisper-large-v3-turbo-ct2/**
+!models/muhtasham-whisper-tg-ct2
+!models/muhtasham-whisper-tg-ct2/**
+!models/rubai-ct2-int8
+!models/rubai-ct2-int8/**

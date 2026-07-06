@@ -3,10 +3,16 @@ import { config } from "./config";
 import { logger } from "./utils/logger";
 import { migrate, isDbHealthy } from "./db";
 import { initPendingActions } from "./services/telegramService";
+import { cleanupOldTempFiles } from "./utils/tempCleanup";
 
 const PORT = config.PORT;
 
 async function start() {
+  // Clean up orphaned temp files from previous runs before doing anything else.
+  await cleanupOldTempFiles().catch((err) => {
+    logger.warn("Temp cleanup failed during startup", { error: err instanceof Error ? err.message : String(err) });
+  });
+
   try {
     const healthy = await isDbHealthy();
     if (!healthy) {

@@ -104,17 +104,31 @@ export interface TranscriptionResult {
   text: string;
   language: string;
   segments: TranscriptionSegment[];
+  warning?: string;
+  /** STT provider that produced this result (e.g. 'openai', 'groq', 'elevenlabs', 'local', 'remote'). */
+  provider?: string;
+  /** STT model name used by the provider. */
+  model?: string;
+  /** GPU name that processed the job, if applicable. */
+  gpu?: string;
 }
 
 export interface TranslateRequest {
   text: string;
   targetLang: string;
   sourceLang?: string;
+  /** Optional traceability: YouTube/media URL that produced the source text. */
+  sourceUrl?: string;
+  /** Optional traceability: 'text' | 'youtube' | 'audio' | 'telegram' | 'web'. */
+  sourceType?: string;
 }
 
 export interface TranslateResponse {
   translatedText: string;
   detectedLang: string;
+  warning?: string;
+  /** Public request number that the user can quote when reporting errors. */
+  requestId?: number;
 }
 
 export interface InlineKeyboardButton {

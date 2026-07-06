@@ -29,6 +29,19 @@ const envSchema = z.object({
   ELEVENLABS_MODEL_ID: z.string().optional().or(z.literal("")).default("scribe_v2"),
   TILTAB_STT_PROVIDER: z.enum(["openai", "local", "auto", "elevenlabs"]).default("local"),
   TILTAB_STT_SERVICE_URL: z.string().url().optional().or(z.literal("")),
+  TILTAB_GPU_STT_URL: z.string().url().optional().or(z.literal("")),
+  TILTAB_GPU_STT_API_KEY: z.string().optional().or(z.literal("")),
+  TILTAB_GPU_STT_LANGUAGES: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .default("ru,en,uz,tg,ky,auto,multi")
+    .transform((val) =>
+      val
+        ?.split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean) ?? ["ru", "en", "uz", "auto", "multi"]
+    ),
   // Comma-separated list of language codes for which Groq Whisper may be used as a fallback.
   // Default is "en" because Groq Whisper quality drops significantly for non-English languages.
   TILTAB_GROQ_WHISPER_LANGUAGES: z
@@ -53,6 +66,18 @@ const envSchema = z.object({
     .transform((v) => !v || ["1", "true", "yes", "on"].includes(v.toLowerCase())),
   TILTAB_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("gpt-4o-mini"),
   TILTAB_GROQ_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("llama-3.3-70b-versatile"),
+  TILTAB_REVIEW_ENABLED: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .default("true")
+    .transform((v) => !v || ["1", "true", "yes", "on"].includes(v.toLowerCase())),
+  TILTAB_REVIEW_PROVIDER: z.enum(["openai", "groq", "auto"]).default("auto"),
+  TILTAB_REVIEW_MODEL: z.string().optional().or(z.literal("")),
+  TILTAB_TRANSLATION_MAX_TOKENS: z.string().default("4096").transform(Number),
+  TILTAB_REVIEW_MAX_TOKENS: z.string().default("4096").transform(Number),
+  TILTAB_REVIEW_MAX_INPUT_CHARS: z.string().default("4000").transform(Number),
+  TILTAB_ADMIN_TOKEN: z.string().optional().or(z.literal("")),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
   DATABASE_URL: isTest
     ? z.string().default("")
