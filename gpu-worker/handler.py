@@ -19,16 +19,21 @@ Returns:
 """
 
 import base64
+import math
 import os
 import subprocess
+import sys
 import tempfile
+import wave
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 import librosa
 import runpod
 import torch
 from faster_whisper import WhisperModel
+
+import vad_utils
 
 MODEL_PATHS = {
     "ru": "/models/whisper-large-v3-turbo-ct2",
@@ -40,9 +45,9 @@ MODEL_PATHS = {
 }
 
 # The Kyrgyz model uses a custom <|ky|> token (id 51865). It must be loaded
-# with trust_remote_code=True and transcribed with manual 30-second chunking
-# through model.generate(), otherwise the model truncates to the first 30 s
-# and the custom token can send the decoder into a loop.
+# with trust_remote_code=True and transcribed with manual chunking through
+# model.generate(), otherwise the model truncates to the first 30 s and the
+# custom token can send the decoder into a loop.
 KYRGYZ_MODEL_PATH = "/models/kyrgyz-whisper-small-hf"
 KYRGYZ_LANGUAGE_TOKEN_ID = 51865
 
@@ -75,6 +80,14 @@ def _convert_to_wav(input_path: str, output_path: str) -> None:
     )
 
 
+def _audio_duration(wav_path: str) -> float:
+    try:
+        with wave.open(wav_path, "rb") as wf:
+            return wf.getnframes() / wf.getframerate()
+    except Exception:
+        return 0.0
+
+
 def _load_model(model_path: str) -> WhisperModel:
     if model_path not in _models:
         compute_type = os.environ.get("WHISPER_COMPUTE_TYPE", "float16")
@@ -98,7 +111,7 @@ def _load_kyrgyz_bundle(model_path: str) -> dict[str, Any]:
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype = torch.float16 if device == "cuda" else torch.float32
-        print(f"Loading Kyrgyz model from {model_path} on {device} ({dtype})...")
+        print(f"Loading Kyrgyz model from {model_path} on {device} ({dtype})...", file=sys.stderr, flush=True)
         model = AutoModelForSpeechSeq2Seq.from_pretrained(
             model_path,
             torch_dtype=dtype,
@@ -114,9 +127,85 @@ def _load_kyrgyz_bundle(model_path: str) -> dict[str, Any]:
             "device": device,
             "dtype": dtype,
         }
+        print("Kyrgyz model loaded.", file=sys.stderr, flush=True)
     return _kyrgyz_bundle[model_path]
 
 
+# ---------------------------------------------------------------------------
+# VAD configuration
+# ---------------------------------------------------------------------------
+def _vad_enabled() -> bool:
+    return os.environ.get("GPU_VAD_ENABLED", "true").lower() not in ("0", "false", "off")
+
+
+def _float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name, "").strip()
+    try:
+        return float(raw) if raw else default
+    except ValueError:
+        return default
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        return default
+
+
+def _vad_settings() -> Dict[str, Any]:
+    return {
+        "threshold": _float_env("GPU_VAD_THRESHOLD", 0.5),
+        "min_speech_duration_ms": _int_env("GPU_VAD_MIN_SPEECH_DURATION_MS", 250),
+        "min_silence_duration_ms": _int_env("GPU_VAD_MIN_SILENCE_MS", 2000),
+        "speech_pad_ms": _int_env("GPU_VAD_SPEECH_PAD_MS", 200),
+        "max_gap": _float_env("GPU_VAD_MAX_GAP_MS", 2000) / 1000.0,
+        "max_duration": _float_env("GPU_VAD_MAX_CHUNK_SECONDS", 30.0),
+        "overlap": _float_env("GPU_VAD_OVERLAP_SECONDS", 5.0),
+    }
+
+
+def _get_vad_chunks(wav_path: str) -> Optional[List[Dict[str, float]]]:
+    """Return VAD-based audio chunks, or None to fall back to old behaviour."""
+    if not _vad_enabled():
+        return None
+
+    settings = _vad_settings()
+    segments = vad_utils.get_speech_segments(
+        wav_path,
+        threshold=settings["threshold"],
+        min_speech_duration_ms=settings["min_speech_duration_ms"],
+        min_silence_duration_ms=settings["min_silence_duration_ms"],
+        speech_pad_ms=settings["speech_pad_ms"],
+    )
+    if segments is None:
+        print("[vad] VAD failed, falling back to default chunking.", file=sys.stderr, flush=True)
+        return None
+    if not segments:
+        print("[vad] No speech detected.", file=sys.stderr, flush=True)
+        return []
+
+    chunks = vad_utils.merge_speech_segments(
+        segments,
+        max_gap=settings["max_gap"],
+        max_duration=settings["max_duration"],
+        overlap=settings["overlap"],
+    )
+    duration = _audio_duration(wav_path)
+    speech_duration = sum(c["end"] - c["start"] for c in chunks)
+    print(
+        f"[vad] duration={duration:.1f}s chunks={len(chunks)} "
+        f"speech={speech_duration:.1f}s skipped={duration - speech_duration:.1f}s",
+        file=sys.stderr,
+        flush=True,
+    )
+    return chunks
+
+
+# ---------------------------------------------------------------------------
+# Transcription backends
+# ---------------------------------------------------------------------------
 def _transcribe_kyrgyz(wav_path: str) -> dict:
     bundle = _load_kyrgyz_bundle(KYRGYZ_MODEL_PATH)
     model = bundle["model"]
@@ -129,23 +218,33 @@ def _transcribe_kyrgyz(wav_path: str) -> dict:
     if audio.ndim == 0 or len(audio) == 0:
         return {"text": "", "language": "ky", "segments": [], "model": KYRGYZ_MODEL_PATH, "gpu": _get_gpu_name()}
 
-    sr_value = 16000
-    chunk_seconds = 30
-    chunk_samples = chunk_seconds * sr_value
-    forced_decoder_ids = [[1, KYRGYZ_LANGUAGE_TOKEN_ID]]
+    duration = len(audio) / sr
+    chunks = _get_vad_chunks(wav_path)
+    if chunks is None:
+        # Fallback: fixed 30-second sliding windows.
+        chunk_seconds = int(_float_env("GPU_VAD_MAX_CHUNK_SECONDS", 30.0))
+        chunk_samples = chunk_seconds * sr
+        chunks = [
+            {"start": i / sr, "end": min((i + chunk_samples) / sr, duration)}
+            for i in range(0, len(audio), chunk_samples)
+            if min((i + chunk_samples) / sr, duration) - i / sr >= 1.0
+        ]
+        print(f"[ky] VAD disabled/unavailable, using fixed {chunk_seconds}s chunks: {len(chunks)}", file=sys.stderr, flush=True)
 
+    forced_decoder_ids = [[1, KYRGYZ_LANGUAGE_TOKEN_ID]]
     text_parts: list[str] = []
     segments: list[dict] = []
-    for i, start in enumerate(range(0, len(audio), chunk_samples)):
-        chunk = audio[start : start + chunk_samples]
-        if len(chunk) < sr_value:
-            # Very short trailing fragment; skip to avoid noise.
+
+    for chunk_info in chunks:
+        start_sec = chunk_info["start"]
+        end_sec = min(chunk_info["end"], duration)
+        start_sample = int(start_sec * sr)
+        end_sample = int(end_sec * sr)
+        chunk = audio[start_sample:end_sample]
+        if len(chunk) < sr:
             continue
-        inputs = processor(
-            chunk,
-            sampling_rate=sr_value,
-            return_tensors="pt",
-        ).input_features.to(device).to(dtype)
+
+        inputs = processor(chunk, sampling_rate=sr, return_tensors="pt").input_features.to(device).to(dtype)
         predicted_ids = model.generate(
             inputs,
             forced_decoder_ids=forced_decoder_ids,
@@ -155,12 +254,10 @@ def _transcribe_kyrgyz(wav_path: str) -> dict:
         chunk_text = tokenizer.batch_decode(predicted_ids, skip_special_tokens=True)[0].strip()
         if chunk_text:
             text_parts.append(chunk_text)
-        seg_start = start / sr_value
-        seg_end = min((start + len(chunk)) / sr_value, len(audio) / sr_value)
         segments.append(
             {
-                "start": round(seg_start, 3),
-                "end": round(seg_end, 3),
+                "start": round(start_sec, 3),
+                "end": round(end_sec, 3),
                 "text": chunk_text,
             }
         )
@@ -178,38 +275,90 @@ def _transcribe_kyrgyz(wav_path: str) -> dict:
 def _transcribe_with_faster_whisper(wav_path: str, model_path: str, language: str) -> dict:
     whisper_language = None if language in ("auto", "multi") else language
     model = _load_model(model_path)
-    segments_iter, info = model.transcribe(
-        wav_path,
-        language=whisper_language,
-        task="transcribe",
-        beam_size=int(os.environ.get("WHISPER_BEAM_SIZE", "5")),
-        best_of=int(os.environ.get("WHISPER_BEST_OF", "5")),
-        condition_on_previous_text=os.environ.get("WHISPER_CONDITION_ON_PREVIOUS_TEXT", "true").lower()
-        in ("1", "true", "yes"),
-        word_timestamps=os.environ.get("WHISPER_WORD_TIMESTAMPS", "false").lower()
-        in ("1", "true", "yes"),
-        vad_filter=os.environ.get("WHISPER_VAD_FILTER", "true").lower()
-        in ("1", "true", "yes"),
-    )
 
-    segments = []
-    full_text_parts = []
-    for seg in segments_iter:
-        text = seg.text.strip()
-        segments.append(
-            {
-                "start": round(seg.start, 3),
-                "end": round(seg.end, 3),
-                "text": text,
-            }
+    chunks = _get_vad_chunks(wav_path)
+    if chunks is None:
+        # VAD disabled or failed: use faster-whisper's internal VAD filter.
+        segments_iter, info = model.transcribe(
+            wav_path,
+            language=whisper_language,
+            task="transcribe",
+            beam_size=int(os.environ.get("WHISPER_BEAM_SIZE", "5")),
+            best_of=int(os.environ.get("WHISPER_BEST_OF", "5")),
+            condition_on_previous_text=os.environ.get("WHISPER_CONDITION_ON_PREVIOUS_TEXT", "true").lower()
+            in ("1", "true", "yes"),
+            word_timestamps=os.environ.get("WHISPER_WORD_TIMESTAMPS", "false").lower()
+            in ("1", "true", "yes"),
+            vad_filter=os.environ.get("WHISPER_VAD_FILTER", "true").lower()
+            in ("1", "true", "yes"),
         )
-        if text:
-            full_text_parts.append(text)
 
-    full_text = " ".join(full_text_parts)
+        segments = []
+        full_text_parts = []
+        for seg in segments_iter:
+            text = seg.text.strip()
+            segments.append(
+                {
+                    "start": round(seg.start, 3),
+                    "end": round(seg.end, 3),
+                    "text": text,
+                }
+            )
+            if text:
+                full_text_parts.append(text)
+
+        return {
+            "text": " ".join(full_text_parts),
+            "language": info.language or language,
+            "segments": segments,
+            "model": model_path,
+            "gpu": _get_gpu_name(),
+        }
+
+    if not chunks:
+        return {"text": "", "language": language, "segments": [], "model": model_path, "gpu": _get_gpu_name()}
+
+    # Transcribe each VAD chunk separately and shift timestamps back.
+    segments: list[dict] = []
+    full_text_parts: list[str] = []
+    detected_language = whisper_language
+
+    with tempfile.TemporaryDirectory() as chunk_dir:
+        for idx, chunk_info in enumerate(chunks):
+            chunk_path = os.path.join(chunk_dir, f"chunk_{idx:04d}.wav")
+            vad_utils.slice_wav_chunk(wav_path, chunk_path, chunk_info["start"], chunk_info["end"])
+            segments_iter, info = model.transcribe(
+                chunk_path,
+                language=whisper_language,
+                task="transcribe",
+                beam_size=int(os.environ.get("WHISPER_BEAM_SIZE", "5")),
+                best_of=int(os.environ.get("WHISPER_BEST_OF", "5")),
+                condition_on_previous_text=os.environ.get("WHISPER_CONDITION_ON_PREVIOUS_TEXT", "true").lower()
+                in ("1", "true", "yes"),
+                word_timestamps=os.environ.get("WHISPER_WORD_TIMESTAMPS", "false").lower()
+                in ("1", "true", "yes"),
+                vad_filter=False,
+            )
+
+            chunk_offset = chunk_info["start"]
+            for seg in segments_iter:
+                text = seg.text.strip()
+                segments.append(
+                    {
+                        "start": round(chunk_offset + seg.start, 3),
+                        "end": round(chunk_offset + seg.end, 3),
+                        "text": text,
+                    }
+                )
+                if text:
+                    full_text_parts.append(text)
+
+            if detected_language is None and info.language:
+                detected_language = info.language
+
     return {
-        "text": full_text,
-        "language": info.language or language,
+        "text": " ".join(full_text_parts),
+        "language": detected_language or language,
         "segments": segments,
         "model": model_path,
         "gpu": _get_gpu_name(),

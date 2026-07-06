@@ -8,3 +8,4 @@ transformers>=4.36.0
 accelerate>=0.25.0
 soundfile>=0.12.1
 librosa>=0.10.1
+silero-vad>=6.0.0

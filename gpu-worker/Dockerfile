@@ -6,6 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONIOENCODING=utf-8
+ENV TORCH_HOME=/models/.torch_cache
 
 WORKDIR /app
 
@@ -22,8 +23,9 @@ RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
 COPY gpu-worker/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Copy handler
+# Copy handler and VAD utilities
 COPY gpu-worker/handler.py .
+COPY gpu-worker/vad_utils.py .
 
 # Patch faster-whisper to accept the custom Kyrgyz <|ky|> language token used by
 # nineninesix/kyrgyz-whisper-small. The token exists in the model vocabulary; we
@@ -58,6 +60,16 @@ processor = WhisperProcessor.from_pretrained(model_id)
 model.save_pretrained(out_dir)
 processor.save_pretrained(out_dir)
 print("Done.")
+PY
+
+# Pre-download Silero VAD so workers don't need internet at runtime.
+RUN python3 - <<'PY'
+import os
+os.environ.setdefault("TORCH_HOME", "/models/.torch_cache")
+from silero_vad import load_silero_vad
+print("Caching Silero VAD model...")
+load_silero_vad()
+print("Silero VAD cached.")
 PY
 
 ENV WHISPER_DEVICE=cuda
