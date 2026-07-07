@@ -31,6 +31,7 @@ const envSchema = z.object({
   TILTAB_STT_SERVICE_URL: z.string().url().optional().or(z.literal("")),
   TILTAB_GPU_STT_URL: z.string().url().optional().or(z.literal("")),
   TILTAB_GPU_STT_API_KEY: z.string().optional().or(z.literal("")),
+  TILTAB_GPU_STT_TIMEOUT_MS: z.string().default("600000").transform(Number),
   TILTAB_GPU_STT_LANGUAGES: z
     .string()
     .optional()

@@ -1,6 +1,9 @@
+import { spawn } from "child_process";
 import { logger } from "../utils/logger";
 import { config } from "../config";
 import type { TranscriptionResult } from "../types";
+
+const FFMPEG_PATH = require("ffmpeg-static");
 
 // Languages supported by the GPU RunPod worker are controlled by
 // TILTAB_GPU_STT_LANGUAGES.
@@ -87,7 +90,7 @@ async function pollGpuJob(
   abortSignal?: AbortSignal
 ): Promise<RunPodJobResponse> {
   const startTime = Date.now();
-  const maxWaitMs = 600_000; // 10 minutes
+  const maxWaitMs = config.TILTAB_GPU_STT_TIMEOUT_MS;
   let intervalMs = 2_000;
 
   while (Date.now() - startTime < maxWaitMs) {
@@ -125,6 +128,7 @@ async function pollGpuJob(
     intervalMs = Math.min(intervalMs + 1_000, 10_000);
   }
 
+  logger.warn(`GPU STT job ${jobId} timed out after ${maxWaitMs / 1000}s`);
   throw new Error(`GPU STT job ${jobId} timed out after ${maxWaitMs / 1000}s`);
 }
 
@@ -139,17 +143,26 @@ export async function transcribeWithGpu(
     throw new Error("TILTAB_GPU_STT_URL is not configured");
   }
 
-  const audioBase64 = audioBuffer.toString("base64");
   const baseUrl = getRunPodBaseUrl();
+
+  // RunPod /run has a 10 MiB body limit. Long WAV files (e.g. 40 min) exceed
+  // that easily. Compress to MP3 (mono, 32 kbps) before sending; this
+  // keeps a 40-minute file under ~10 MiB base64 while remaining speech-quality.
+  // MP3 is universally supported by ffmpeg without extra codecs.
+  const compressed = await compressAudioForGpu(audioBuffer, abortSignal);
+  const gpuFilename = "audio.mp3";
+  const audioBase64 = compressed.toString("base64");
 
   logger.info("Starting GPU STT request", {
     endpoint,
     baseUrl,
     language,
-    sizeBytes: audioBuffer.length,
+    originalSizeBytes: audioBuffer.length,
+    compressedSizeBytes: compressed.length,
+    gpuFilename,
   });
 
-  const jobId = await submitGpuJob(baseUrl, audioBase64, language, filename, abortSignal);
+  const jobId = await submitGpuJob(baseUrl, audioBase64, language, gpuFilename, abortSignal);
   logger.info("GPU STT job submitted", { jobId });
 
   const data = await pollGpuJob(baseUrl, jobId, abortSignal);
@@ -184,4 +197,61 @@ export async function transcribeWithGpu(
     // Preserve GPU name on result so UI can display it.
     ...(output.gpu ? { gpu: output.gpu } : {}),
   } as TranscriptionResult;
+}
+
+async function compressAudioForGpu(
+  inputBuffer: Buffer,
+  abortSignal?: AbortSignal
+): Promise<Buffer> {
+  // If the buffer is already small enough that base64 won't exceed ~6 MiB raw
+  // (~8 MiB base64), skip compression to save a few hundred milliseconds.
+  if (inputBuffer.length < 6 * 1024 * 1024) {
+    return inputBuffer;
+  }
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(FFMPEG_PATH, [
+      "-hide_banner",
+      "-loglevel", "error",
+      "-i", "pipe:0",
+      "-ar", "16000",
+      "-ac", "1",
+      "-c:a", "libmp3lame",
+      "-b:a", "32k",
+      "-f", "mp3",
+      "pipe:1",
+    ], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    if (abortSignal) {
+      abortSignal.addEventListener("abort", () => {
+        proc.kill("SIGTERM");
+        reject(new Error("GPU audio compression aborted"));
+      });
+    }
+
+    const chunks: Buffer[] = [];
+    let stderr = "";
+
+    proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    proc.stderr.on("data", (data: Buffer) => { stderr += data.toString("utf-8"); });
+
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        return reject(new Error(`GPU audio compression failed (code ${code}): ${stderr}`));
+      }
+      resolve(Buffer.concat(chunks));
+    });
+
+    proc.on("error", (err) => reject(err));
+
+    proc.stdin.write(inputBuffer, (err) => {
+      if (err) {
+        reject(err);
+      } else {
+        proc.stdin.end();
+      }
+    });
+  });
 }
