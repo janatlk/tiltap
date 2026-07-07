@@ -37,24 +37,44 @@
       white-space: nowrap;
       font-size: 0.75rem;
     }
+    .lang-flag {
+      font-size: 1.1em;
+      margin-right: 0.3em;
+    }
   </style>
 </head>
 <body class="min-h-screen bg-base-200 py-8 px-4">
   <div class="max-w-3xl mx-auto space-y-6">
 
     <header class="text-center space-y-2">
-      <h1 class="text-3xl font-bold tracking-tight">TilTap Web</h1>
-      <p class="text-base-content/70">Transcribe audio, video, and YouTube links. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.</p>
-      <a href="/web/admin.html" class="link link-primary text-sm">Admin panel</a>
+      <div class="flex justify-end">
+        <div class="dropdown dropdown-end">
+          <div tabindex="0" role="button" class="btn btn-sm btn-ghost" id="langSwitcherBtn">
+            <span class="lang-flag" id="currentLangFlag">🇬🇧</span>
+            <span id="currentLangLabel">English</span>
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-1 w-52 p-2 shadow-sm">
+            <li><a data-ui-lang="en"><span class="lang-flag">🇬🇧</span>English</a></li>
+            <li><a data-ui-lang="ru"><span class="lang-flag">🇷🇺</span>Русский</a></li>
+            <li><a data-ui-lang="ky"><span class="lang-flag">🇰🇬</span>Кыргызча</a></li>
+            <li><a data-ui-lang="tg"><span class="lang-flag">🇹🇯</span>Тоҷикӣ</a></li>
+            <li><a data-ui-lang="uz"><span class="lang-flag">🇺🇿</span>Oʻzbekcha</a></li>
+          </ul>
+        </div>
+      </div>
+      <h1 class="text-3xl font-bold tracking-tight" data-i18n="title">TilTap Web</h1>
+      <p class="text-base-content/70" data-i18n="subtitle">Transcribe audio, video, and YouTube links. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.</p>
+      <a href="/web/admin.html" class="link link-primary text-sm" data-i18n="adminLink">Admin panel</a>
     </header>
 
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div class="form-control">
-            <label class="label" for="sourceLang"><span class="label-text">Transcription language</span></label>
+            <label class="label" for="sourceLang"><span class="label-text" data-i18n="sourceLangLabel">Transcription language</span></label>
             <select id="sourceLang" class="select select-bordered w-full">
-              <option value="auto">Auto detect</option>
+              <option value="auto" data-i18n="autoDetect">Auto detect</option>
               <option value="ky">Kyrgyz</option>
               <option value="tg">Tajik</option>
               <option value="uz">Uzbek</option>
@@ -63,9 +83,9 @@
             </select>
           </div>
           <div class="form-control">
-            <label class="label" for="targetLang"><span class="label-text">Translate to</span></label>
+            <label class="label" for="targetLang"><span class="label-text" data-i18n="targetLangLabel">Translate to</span></label>
             <select id="targetLang" class="select select-bordered w-full">
-              <option value="none">No translation</option>
+              <option value="none" data-i18n="noTranslation">No translation</option>
               <option value="ky">Kyrgyz</option>
               <option value="tg">Tajik</option>
               <option value="uz">Uzbek</option>
@@ -80,13 +100,13 @@
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body space-y-4">
         <div role="tablist" class="tabs tabs-lift">
-          <button role="tab" class="tab tab-active" data-tab="file">Upload file</button>
-          <button role="tab" class="tab" data-tab="youtube">YouTube link</button>
+          <button role="tab" class="tab tab-active" data-tab="file" data-i18n="tabUpload">Upload file</button>
+          <button role="tab" class="tab" data-tab="youtube" data-i18n="tabYouTube">YouTube link</button>
         </div>
 
         <div id="panel-file">
           <div class="dropzone" id="dropzone">
-            <div class="text-lg font-medium">Drag & drop audio/video here or click to browse</div>
+            <div class="text-lg font-medium" data-i18n="dropzoneText">Drag & drop audio/video here or click to browse</div>
             <input type="file" id="fileInput" accept="audio/*,video/*">
             <div class="mt-3 text-sm opacity-80" id="fileName"></div>
           </div>
@@ -95,7 +115,7 @@
 
         <div id="panel-youtube" style="display:none;">
           <div class="form-control">
-            <label class="label" for="youtubeUrl"><span class="label-text">YouTube URL</span></label>
+            <label class="label" for="youtubeUrl"><span class="label-text" data-i18n="youtubeLabel">YouTube URL</span></label>
             <input type="text" id="youtubeUrl" class="input input-bordered w-full" placeholder="https://www.youtube.com/watch?v=...">
           </div>
           <div id="youtubePreview" class="hidden mt-3 aspect-video">
@@ -103,12 +123,12 @@
           </div>
         </div>
 
-        <button class="btn btn-primary btn-block" id="startBtn">Start</button>
+        <button class="btn btn-primary btn-block" id="startBtn" data-i18n="startBtn">Start</button>
 
         <div id="progressWrap" class="hidden space-y-2">
           <progress class="progress progress-primary w-full" id="progressBar" value="0" max="100"></progress>
           <div class="flex justify-between text-sm text-base-content/70">
-            <span id="progressLabel">Starting...</span>
+            <span id="progressLabel" data-i18n="progressStarting">Starting...</span>
             <span id="progressPercent">0%</span>
           </div>
         </div>
@@ -117,21 +137,21 @@
 
         <div id="resultBox" class="hidden space-y-4">
           <div class="flex flex-wrap justify-between items-center gap-3">
-            <h3 class="card-title text-lg" id="resultTitle">Transcription</h3>
-            <button class="btn btn-sm btn-outline" id="downloadBtn">Download .txt</button>
+            <h3 class="card-title text-lg" id="resultTitle" data-i18n="resultTitle">Transcription</h3>
+            <button class="btn btn-sm btn-outline" id="downloadBtn" data-i18n="downloadBtn">Download .txt</button>
           </div>
           <div class="text-sm text-base-content/70" id="resultMeta"></div>
           <div id="translationWarning" class="alert alert-warning hidden text-sm" role="alert"></div>
           <div class="bg-base-200 rounded-box p-4 text-box" id="resultText"></div>
 
           <div class="flex flex-wrap gap-2 items-center" id="translateButtons">
-            <span class="text-sm text-base-content/70">Translate result:</span>
+            <span class="text-sm text-base-content/70" data-i18n="translateLabel">Translate result:</span>
           </div>
 
           <div id="segmentsBox" class="space-y-2"></div>
 
           <details id="originalDetails" class="collapse collapse-arrow bg-base-200 rounded-box hidden">
-            <summary class="collapse-title text-sm text-base-content/70">Original transcription</summary>
+            <summary class="collapse-title text-sm text-base-content/70" data-i18n="originalSummary">Original transcription</summary>
             <div class="collapse-content space-y-3">
               <div class="bg-base-300 rounded-box p-3 text-box" id="originalText"></div>
               <div id="originalSegmentsBox" class="space-y-2"></div>
@@ -143,12 +163,268 @@
       </div>
     </div>
 
-    <footer class="text-center text-sm text-base-content/50 py-4">
+    <footer class="text-center text-sm text-base-content/50 py-4" data-i18n="footer">
       TilTap — local speech-to-text & translation
     </footer>
   </div>
 
   <script>
+    // ===================== i18n =====================
+    const I18N = {
+      en: {
+        title: "TilTap Web",
+        subtitle: "Transcribe audio, video, and YouTube links. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.",
+        adminLink: "Admin panel",
+        sourceLangLabel: "Transcription language",
+        targetLangLabel: "Translate to",
+        autoDetect: "Auto detect",
+        noTranslation: "No translation",
+        tabUpload: "Upload file",
+        tabYouTube: "YouTube link",
+        dropzoneText: "Drag & drop audio/video here or click to browse",
+        youtubeLabel: "YouTube URL",
+        startBtn: "Start",
+        progressStarting: "Starting...",
+        resultTitle: "Transcription",
+        downloadBtn: "Download .txt",
+        translateLabel: "Translate result:",
+        originalSummary: "Original transcription",
+        footer: "TilTap — local speech-to-text & translation",
+        timedSegments: "Timed segments",
+        detected: "Detected",
+        segments: "Segments",
+        request: "Request",
+        translationFailed: "Translation failed",
+        errorSelectFile: "Please select a file first",
+        errorFileTooLarge: "File is too large ({size} MB). Max allowed is 25 MB.",
+        errorEnterUrl: "Please enter a YouTube URL",
+        errorUploadFailed: "Upload failed. Please check your connection and try again.",
+        errorUploadCancelled: "Upload was cancelled.",
+        errorUploadTimeout: "Upload timed out. The file may be too large or the connection is slow.",
+        errorNotAvailable: "This video is not available. It may be deleted, private, region-blocked, or the URL is incorrect.",
+        errorSignInRequired: "This video requires a YouTube sign-in. The bot cannot download it. Try another video.",
+        errorPrivate: "This is a private video. The bot cannot download it.",
+        errorAgeRestricted: "This video is age-restricted. The bot cannot download it.",
+        errorInvalidUrl: "Invalid YouTube URL.",
+        errorTimeout: "YouTube check timed out. Please try again.",
+        errorJobFailed: "Job failed",
+      },
+      ru: {
+        title: "TilTap Web",
+        subtitle: "Распознавайте аудио, видео и ссылки YouTube. Переводите на кыргызский, таджикский, узбекский, русский или английский.",
+        adminLink: "Панель администратора",
+        sourceLangLabel: "Язык распознавания",
+        targetLangLabel: "Перевести на",
+        autoDetect: "Автоопределение",
+        noTranslation: "Без перевода",
+        tabUpload: "Загрузить файл",
+        tabYouTube: "Ссылка YouTube",
+        dropzoneText: "Перетащите аудио/видео сюда или нажмите для выбора",
+        youtubeLabel: "Ссылка YouTube",
+        startBtn: "Начать",
+        progressStarting: "Запуск...",
+        resultTitle: "Распознавание",
+        downloadBtn: "Скачать .txt",
+        translateLabel: "Перевести результат:",
+        originalSummary: "Оригинальное распознавание",
+        footer: "TilTap — локальное распознавание речи и перевод",
+        timedSegments: "Сегменты по времени",
+        detected: "Определено",
+        segments: "Сегменты",
+        request: "Запрос",
+        translationFailed: "Ошибка перевода",
+        errorSelectFile: "Сначала выберите файл",
+        errorFileTooLarge: "Файл слишком большой ({size} МБ). Максимум 25 МБ.",
+        errorEnterUrl: "Введите ссылку YouTube",
+        errorUploadFailed: "Ошибка загрузки. Проверьте соединение и попробуйте снова.",
+        errorUploadCancelled: "Загрузка отменена.",
+        errorUploadTimeout: "Превышено время загрузки. Файл слишком большой или соединение медленное.",
+        errorNotAvailable: "Видео недоступно. Возможно, оно удалено, приватное, заблокировано в регионе или URL неверный.",
+        errorSignInRequired: "Видео требует входа в YouTube. Бот не может скачать его. Попробуйте другое видео.",
+        errorPrivate: "Это приватное видео. Бот не может скачать его.",
+        errorAgeRestricted: "Видео имеет возрастное ограничение. Бот не может скачать его.",
+        errorInvalidUrl: "Неверная ссылка YouTube.",
+        errorTimeout: "Проверка YouTube превысила время ожидания. Попробуйте снова.",
+        errorJobFailed: "Ошибка задания",
+      },
+      ky: {
+        title: "TilTap Web",
+        subtitle: "Аудио, видео жана YouTube шилтемелерин таанып, кыргызча, тоҷикча, ўзбекча, орусча же англисча которуңуз.",
+        adminLink: "Админ панели",
+        sourceLangLabel: "Таануу тили",
+        targetLangLabel: "Которуу",
+        autoDetect: "Авто аныктоо",
+        noTranslation: "Которуу жок",
+        tabUpload: "Файл жүктөө",
+        tabYouTube: "YouTube шилтемеси",
+        dropzoneText: "Аудио/видеону бул жерге сүйрөп алып келиңиз же басып көрүңүз",
+        youtubeLabel: "YouTube шилтемеси",
+        startBtn: "Баштоо",
+        progressStarting: "Башталууда...",
+        resultTitle: "Таануу",
+        downloadBtn: "Жүктөп алуу .txt",
+        translateLabel: "Жыйынтыкты которуу:",
+        originalSummary: "Баштапкы таануу",
+        footer: "TilTap — жергиликтүү сүйлөмдү таануу жана которуу",
+        timedSegments: "Убакыт боюнча сегменттер",
+        detected: "Аныкталды",
+        segments: "Сегменттер",
+        request: "Суроо",
+        translationFailed: "Которуу ката",
+        errorSelectFile: "Алгач файл тандаңыз",
+        errorFileTooLarge: "Файл өтө чоң ({size} МБ). Максимум 25 МБ.",
+        errorEnterUrl: "YouTube шилтемесин киргизиңиз",
+        errorUploadFailed: "Жүктөө ката. Туташууну текшерип, кайра аракет кылыңыз.",
+        errorUploadCancelled: "Жүктөө токтотулду.",
+        errorUploadTimeout: "Жүктөө убактысы бүттү. Файл өтө чоң же туташуу жай.",
+        errorNotAvailable: "Бул видео жеткиликсиз. Ал өчүрүлгөн, жабык, аймактык блоктоого кабылган же URL туура эмес.",
+        errorSignInRequired: "Бул видео YouTube'га кирүүнү талап кылат. Бот аны жүктөй албайт. Башка видео аракет кылыңыз.",
+        errorPrivate: "Бул жабык видео. Бот аны жүктөй албайт.",
+        errorAgeRestricted: "Бул видео жаш чектөөсү бар. Бот аны жүктөй албайт.",
+        errorInvalidUrl: "Туура эмес YouTube шилтемеси.",
+        errorTimeout: "YouTube текшерүү убактысы бүттү. Кайра аракет кылыңыз.",
+        errorJobFailed: "Тапшырма ката",
+      },
+      tg: {
+        title: "TilTap Web",
+        subtitle: "Аудио, видео ва пайвандҳои YouTube-ро шинос кунед. Ба забони қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ё англисӣ тарҷума кунед.",
+        adminLink: "Панели администратор",
+        sourceLangLabel: "Забони шиносоӣ",
+        targetLangLabel: "Тарҷума ба",
+        autoDetect: "Автошиносӣ",
+        noTranslation: "Бе тарҷума",
+        tabUpload: "Боргузории файл",
+        tabYouTube: "Пайванди YouTube",
+        dropzoneText: "Аудио/видео-ро ба ин ҷо кашида оред ё барои интихоб кардан пахш кунед",
+        youtubeLabel: "Пайванди YouTube",
+        startBtn: "Оғоз",
+        progressStarting: "Оғоз шуда истодааст...",
+        resultTitle: "Шиносоӣ",
+        downloadBtn: "Боргузорӣ .txt",
+        translateLabel: "Тарҷумаи натиҷа:",
+        originalSummary: "Шиносоии аслӣ",
+        footer: "TilTap — шиносоии маҳаллии гуфтор ва тарҷума",
+        timedSegments: "Сегментҳои вақт",
+        detected: "Шинохта шуд",
+        segments: "Сегментҳо",
+        request: "Дархост",
+        translationFailed: "Хатои тарҷума",
+        errorSelectFile: "Аввал файлро интихоб кунед",
+        errorFileTooLarge: "Файл хеле калон аст ({size} МБ). Ҳадди аксар 25 МБ.",
+        errorEnterUrl: "Пайванди YouTube-ро ворид кунед",
+        errorUploadFailed: "Хатои боргузорӣ. Пайвастшавиро тафтиш кунед ва аз нав кӯшиш кунед.",
+        errorUploadCancelled: "Боргузорӣ бекор карда шуд.",
+        errorUploadTimeout: "Вақти боргузорӣ ба охир расид. Файл хеле калон аст ё пайвастшавӣ суст аст.",
+        errorNotAvailable: "Ин видео дастрас нест. Возможно, онро нест кардаанд, хусусӣ, минтақавӣ бастаанд ё пайванд нодуруст аст.",
+        errorSignInRequired: "Ин видео талаб мекунад, ки шумо ба YouTube ворид шавед. Бот онро боргузорӣ карда наметавонад. Видеои дигарро кӯшиш кунед.",
+        errorPrivate: "Ин видеои хусусӣ аст. Бот онро боргузорӣ карда наметавонад.",
+        errorAgeRestricted: "Ин видео дорои маҳдудияти синну сол аст. Бот онро боргузорӣ карда наметавонад.",
+        errorInvalidUrl: "Пайванди нодурусти YouTube.",
+        errorTimeout: "Тафтиши YouTube аз вақт гузашт. Аз нав кӯшиш кунед.",
+        errorJobFailed: "Хатои кор",
+      },
+      uz: {
+        title: "TilTap Web",
+        subtitle: "Audio, video va YouTube havolalarini tanib oling. Qirgʻiz, tojik, oʻzbek, rus yoki ingliz tiliga tarjima qiling.",
+        adminLink: "Admin paneli",
+        sourceLangLabel: "Tanish tili",
+        targetLangLabel: "Tarjima qilish",
+        autoDetect: "Avto aniqlash",
+        noTranslation: "Tarjimasiz",
+        tabUpload: "Fayl yuklash",
+        tabYouTube: "YouTube havolasi",
+        dropzoneText: "Audio/videoni bu yerga sudrab olib keling yoki ko'rish uchun bosing",
+        youtubeLabel: "YouTube havolasi",
+        startBtn: "Boshlash",
+        progressStarting: "Boshlanmoqda...",
+        resultTitle: "Tanish",
+        downloadBtn: "Yuklab olish .txt",
+        translateLabel: "Natijani tarjima qilish:",
+        originalSummary: "Asl tanish",
+        footer: "TilTap — mahalliy nutqni tanish va tarjima",
+        timedSegments: "Vaqt bo'yicha segmentlar",
+        detected: "Aniqlandi",
+        segments: "Segmentlar",
+        request: "So'rov",
+        translationFailed: "Tarjima xatosi",
+        errorSelectFile: "Avval faylni tanlang",
+        errorFileTooLarge: "Fayl juda katta ({size} MB). Maksimum 25 MB.",
+        errorEnterUrl: "YouTube havolasini kiriting",
+        errorUploadFailed: "Yuklash xatosi. Ulanishni tekshirib, qayta urinib ko'ring.",
+        errorUploadCancelled: "Yuklash bekor qilindi.",
+        errorUploadTimeout: "Yuklash vaqti tugadi. Fayl juda katta yoki ulanish sekin.",
+        errorNotAvailable: "Bu video mavjud emas. U o'chirilgan, xususiy, mintaqaviy bloklangan yoki URL noto'g'ri bo'lishi mumkin.",
+        errorSignInRequired: "Bu video YouTube'ga kirishni talab qiladi. Bot uni yuklay olmaydi. Boshqa videoni sinab ko'ring.",
+        errorPrivate: "Bu xususiy video. Bot uni yuklay olmaydi.",
+        errorAgeRestricted: "Bu video yosh chegarasiga ega. Bot uni yuklay olmaydi.",
+        errorInvalidUrl: "Noto'g'ri YouTube havolasi.",
+        errorTimeout: "YouTube tekshiruvi vaqti tugadi. Qayta urinib ko'ring.",
+        errorJobFailed: "Vazifa xatosi",
+      },
+    };
+
+    const UI_LANG_FLAGS = {
+      en: "🇬🇧",
+      ru: "🇷🇺",
+      ky: "🇰🇬",
+      tg: "🇹🇯",
+      uz: "🇺🇿",
+    };
+
+    const UI_LANG_NAMES = {
+      en: "English",
+      ru: "Русский",
+      ky: "Кыргызча",
+      tg: "Тоҷикӣ",
+      uz: "Oʻzbekcha",
+    };
+
+    let currentUiLang = localStorage.getItem("tiltab_ui_lang") || "en";
+
+    function t(key, vars = {}) {
+      const dict = I18N[currentUiLang] || I18N.en;
+      let text = dict[key] || I18N.en[key] || key;
+      Object.entries(vars).forEach(([k, v]) => {
+        text = text.replace(`{${k}}`, v);
+      });
+      return text;
+    }
+
+    function applyI18n() {
+      document.documentElement.lang = currentUiLang;
+      document.querySelectorAll("[data-i18n]").forEach((el) => {
+        const key = el.dataset.i18n;
+        const text = t(key);
+        if (el.tagName === "OPTION") {
+          el.textContent = text;
+        } else if (el.tagName === "INPUT" && el.placeholder) {
+          // keep placeholder, not used here
+        } else {
+          el.textContent = text;
+        }
+      });
+
+      // Update language switcher button
+      const flag = UI_LANG_FLAGS[currentUiLang];
+      const name = UI_LANG_NAMES[currentUiLang];
+      document.getElementById("currentLangFlag").textContent = flag;
+      document.getElementById("currentLangLabel").textContent = name;
+    }
+
+    function setUiLang(lang) {
+      currentUiLang = lang;
+      localStorage.setItem("tiltab_ui_lang", lang);
+      applyI18n();
+    }
+
+    document.querySelectorAll("[data-ui-lang]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        e.preventDefault();
+        setUiLang(el.dataset.uiLang);
+      });
+    });
+
+    // ===================== App =====================
     const API = "";
     const SUPPORTED_LANGS = {
       ky: "Kyrgyz",
@@ -196,10 +472,10 @@
     let currentDownloadFilename = "result.txt";
 
     function ensureSessionId() {
-      let sid = localStorage.getItem("tiltap_session_id");
+      let sid = localStorage.getItem("tiltab_session_id");
       if (!sid) {
         sid = "web_" + Math.random().toString(36).slice(2, 12);
-        localStorage.setItem("tiltap_session_id", sid);
+        localStorage.setItem("tiltab_session_id", sid);
       }
       return sid;
     }
@@ -286,7 +562,7 @@
       segmentsBox.style.display = "block";
       progressWrap.classList.remove("hidden");
       progressBar.value = 0;
-      progressLabel.textContent = "Starting...";
+      progressLabel.textContent = t("progressStarting");
       progressPercent.textContent = "0%";
       startBtn.disabled = true;
       currentRequestNumber = null;
@@ -301,26 +577,26 @@
 
     function mapErrorMessage(error, reason) {
       const code = reason || error;
-      const messages = {
-        not_available: "This video is not available. It may be deleted, private, region-blocked, or the URL is incorrect.",
-        sign_in_required: "This video requires a YouTube sign-in. The bot cannot download it. Try another video.",
-        private: "This is a private video. The bot cannot download it.",
-        age_restricted: "This video is age-restricted. The bot cannot download it.",
-        invalid: "Invalid YouTube URL.",
-        timeout: "YouTube check timed out. Please try again.",
+      const keys = {
+        not_available: "errorNotAvailable",
+        sign_in_required: "errorSignInRequired",
+        private: "errorPrivate",
+        age_restricted: "errorAgeRestricted",
+        invalid: "errorInvalidUrl",
+        timeout: "errorTimeout",
       };
-      return messages[code] || error || "Request failed";
+      return t(keys[code]) || error || t("errorJobFailed");
     }
 
     function updateProgress(progress) {
       const pct = Math.max(0, Math.min(100, progress.percent));
       progressBar.value = pct;
-      progressLabel.textContent = progress.label || "Working...";
+      progressLabel.textContent = progress.label || t("progressStarting");
       progressPercent.textContent = pct + "%";
     }
 
     function renderTranslateButtons() {
-      translateButtons.innerHTML = '<span class="text-sm text-base-content/70">Translate result:</span>';
+      translateButtons.innerHTML = '<span class="text-sm text-base-content/70">' + t("translateLabel") + '</span>';
       Object.entries(SUPPORTED_LANGS).forEach(([code, label]) => {
         if (code === currentDetectedLang) return;
         const btn = document.createElement("button");
@@ -335,7 +611,7 @@
       container.innerHTML = "";
       if (segments.length > 1) {
         const title = document.createElement("h4");
-        title.textContent = "Timed segments";
+        title.textContent = t("timedSegments");
         title.className = "text-sm font-semibold text-base-content/70 mb-2";
         container.appendChild(title);
         segments.forEach((seg) => {
@@ -353,14 +629,14 @@
       currentDetectedLang = result.language;
       const targetLang = document.getElementById("targetLang").value;
 
-      const requestMeta = currentRequestNumber ? ` · Request #${currentRequestNumber}` : "";
-      resultMeta.textContent = "Detected: " + (SUPPORTED_LANGS[result.language] || result.language) +
-        " · Segments: " + result.segments.length + requestMeta;
+      const requestMeta = currentRequestNumber ? " · " + t("request") + " #" + currentRequestNumber : "";
+      resultMeta.textContent = t("detected") + ": " + (SUPPORTED_LANGS[result.language] || result.language) +
+        " · " + t("segments") + ": " + result.segments.length + requestMeta;
 
       translationWarning.classList.add("hidden");
       translationWarning.textContent = "";
       if (job.translationError) {
-        translationWarning.textContent = "Translation failed: " + job.translationError;
+        translationWarning.textContent = t("translationFailed") + ": " + job.translationError;
         translationWarning.classList.remove("hidden");
       }
 
@@ -377,7 +653,7 @@
         renderSegments(originalSegmentsBox, result.segments);
         originalDetails.classList.remove("hidden");
       } else {
-        resultTitle.textContent = "Transcription";
+        resultTitle.textContent = t("resultTitle");
         resultText.textContent = currentCleanText;
         currentDownloadText = currentCleanText;
         currentDownloadFilename = "transcription_" + Date.now() + ".txt";
@@ -439,7 +715,7 @@
         xhr.upload.addEventListener("progress", (e) => {
           if (e.lengthComputable) {
             const pct = Math.max(0, Math.min(95, Math.round((e.loaded / e.total) * 30)));
-            updateProgress({ percent: pct, label: "Uploading file..." });
+            updateProgress({ percent: pct, label: t("progressStarting") });
           }
         });
 
@@ -456,9 +732,9 @@
           }
         });
 
-        xhr.addEventListener("error", () => reject(new Error("Upload failed. Please check your connection and try again.")));
-        xhr.addEventListener("abort", () => reject(new Error("Upload was cancelled.")));
-        xhr.addEventListener("timeout", () => reject(new Error("Upload timed out. The file may be too large or the connection is slow.")));
+        xhr.addEventListener("error", () => reject(new Error(t("errorUploadFailed"))));
+        xhr.addEventListener("abort", () => reject(new Error(t("errorUploadCancelled"))));
+        xhr.addEventListener("timeout", () => reject(new Error(t("errorUploadTimeout"))));
 
         xhr.send(form);
       });
@@ -473,19 +749,19 @@
 
         let data;
         if (activeTab === "file") {
-          if (!currentFile) throw new Error("Please select a file first");
+          if (!currentFile) throw new Error(t("errorSelectFile"));
           if (currentFile.size > MAX_FILE_BYTES) {
-            throw new Error(`File is too large (${(currentFile.size / 1024 / 1024).toFixed(1)} MB). Max allowed is 25 MB.`);
+            throw new Error(t("errorFileTooLarge", { size: (currentFile.size / 1024 / 1024).toFixed(1) }));
           }
           const form = new FormData();
           form.append("file", currentFile);
           form.append("sourceLang", sourceLang);
           form.append("targetLang", targetLang);
           const res = await uploadFileWithProgress(form, API + "/api/web/transcribe");
-          if (!res.ok) throw new Error(mapErrorMessage(res.data.error, res.data.details?.reason) || "Request failed");
+          if (!res.ok) throw new Error(mapErrorMessage(res.data.error, res.data.details?.reason) || t("errorJobFailed"));
           data = res.data;
         } else {
-          if (!youtubeUrl.value.trim()) throw new Error("Please enter a YouTube URL");
+          if (!youtubeUrl.value.trim()) throw new Error(t("errorEnterUrl"));
           const res = await fetch(API + "/api/web/youtube", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -497,7 +773,7 @@
             const text = await res.text().catch(() => "");
             throw new Error(text || `Server returned ${res.status}`);
           }
-          if (!res.ok) throw new Error(mapErrorMessage(data.error, data.details?.reason) || "Request failed");
+          if (!res.ok) throw new Error(mapErrorMessage(data.error, data.details?.reason) || t("errorJobFailed"));
         }
 
         currentJobId = data.jobId;
@@ -518,7 +794,7 @@
           renderResult(job);
         } else if (job.status === "failed") {
           es.close();
-          showError(job.error || "Job failed");
+          showError(job.error || t("errorJobFailed"));
         }
       };
       es.onerror = () => {
@@ -539,7 +815,7 @@
             renderResult(job);
           } else if (job.status === "failed") {
             clearInterval(interval);
-            showError(job.error || "Job failed");
+            showError(job.error || t("errorJobFailed"));
           }
         } catch (err) {
           clearInterval(interval);
@@ -591,6 +867,9 @@
       div.textContent = text;
       return div.innerHTML;
     }
+
+    // Apply i18n on load
+    applyI18n();
   </script>
 </body>
 </html>
