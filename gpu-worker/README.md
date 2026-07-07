@@ -54,7 +54,6 @@ docker push yourdockerhub/tiltap-gpu-stt:latest
     - `KYRGYZ_NORMALIZE_TEXT=false` — normalize Kazakh-lookalike Cyrillic to Kyrgyz and lowercase
     - `KYRGYZ_FILTER_CREDITS=true` — drop subtitle/credit phrases
     - `KYRGYZ_DEDUPE_MIN_CHARS=8` — remove repeated text at chunk boundaries
-    - `KYRGYZ_REPEAT_MIN_WORDS=4` — drop a chunk whose first N words already appear in the output (`0` disables)
 
 ## Latency / cold start
 

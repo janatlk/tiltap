@@ -202,21 +202,6 @@ def _dedupe_chunk_overlap(prev_text: str, curr_text: str, min_chars: int = 8, ma
     return curr_text
 
 
-def _chunk_is_repeat(text: str, existing_text: str, min_words: int = 4) -> bool:
-    """Detect a chunk that re-starts with a phrase already present in the output.
-
-    This catches cases where the model hallucinates an earlier utterance again
-    instead of continuing with new speech.
-    """
-    if min_words <= 0 or not text or not existing_text:
-        return False
-    words = text.split()
-    if len(words) < min_words:
-        return False
-    prefix = " ".join(words[:min_words])
-    return prefix in existing_text
-
-
 def _vad_settings() -> Dict[str, Any]:
     return {
         "threshold": _float_env("GPU_VAD_THRESHOLD", 0.5),
@@ -377,15 +362,13 @@ def _transcribe_kyrgyz(wav_path: str) -> dict:
     ky_normalize = _bool_env("KYRGYZ_NORMALIZE_TEXT", False)
     ky_filter_credits = _bool_env("KYRGYZ_FILTER_CREDITS", True)
     ky_dedupe_min_chars = _int_env("KYRGYZ_DEDUPE_MIN_CHARS", 8)
-    ky_repeat_min_words = _int_env("KYRGYZ_REPEAT_MIN_WORDS", 4)
 
     print(
         f"[ky] decoding opts: beam={ky_beam_size} best_of={ky_best_of} "
         f"condition={ky_condition} no_repeat_ngram={ky_no_repeat_ngram} "
         f"repetition_penalty={ky_repetition_penalty:.2f} temperature={ky_temperature:.2f} "
         f"without_timestamps={ky_without_timestamps} normalize={ky_normalize} "
-        f"filter_credits={ky_filter_credits} dedupe_min={ky_dedupe_min_chars} "
-        f"repeat_min_words={ky_repeat_min_words}",
+        f"filter_credits={ky_filter_credits} dedupe_min={ky_dedupe_min_chars}",
         file=sys.stdout,
         flush=True,
     )
@@ -465,15 +448,6 @@ def _transcribe_kyrgyz(wav_path: str) -> dict:
                 if removed > 0:
                     chunk_text = chunk_text[removed:].lstrip()
                     print(f"[ky] chunk {idx}: removed {removed} overlapping chars", file=sys.stdout, flush=True)
-
-            # Drop chunks that start with a phrase already present in the output.
-            # This catches cross-chunk hallucinations where the model restarts an
-            # earlier sentence instead of continuing.
-            if chunk_text and ky_repeat_min_words > 0:
-                existing_text = " ".join(text_parts)
-                if _chunk_is_repeat(chunk_text, existing_text, min_words=ky_repeat_min_words):
-                    print(f"[ky] chunk {idx}: skipping repeated content", file=sys.stdout, flush=True)
-                    continue
 
             if chunk_text:
                 text_parts.append(chunk_text)

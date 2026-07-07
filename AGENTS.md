@@ -275,7 +275,6 @@ Rejecting a translation updates its status instead of deleting it. Admins can st
 | `KYRGYZ_NORMALIZE_TEXT` | no | Normalize Kazakh-lookalike Cyrillic to Kyrgyz and lowercase (default `false`) |
 | `KYRGYZ_FILTER_CREDITS` | no | Drop subtitle/credit phrases from Kyrgyz output (default `true`) |
 | `KYRGYZ_DEDUPE_MIN_CHARS` | no | Minimum overlap length to remove from chunk boundaries (default `8`) |
-| `KYRGYZ_REPEAT_MIN_WORDS` | no | Drop a chunk if its first N words already appear in the output; `0` disables (default `4`) |
 | `TILTAB_LOCAL_WHISPER_MODEL` | no | Path to local CTranslate2 Whisper model for ru/en/auto/multi (default `models/whisper-large-v3-turbo-ct2`) |
 | `TILTAB_LOCAL_WHISPER_HF_MODEL` | no | Optional HuggingFace-format Whisper fallback directory |
 | `TILTAB_WHISPER_CHUNK_THRESHOLD_SECONDS` | no | Audio length threshold for external time chunking (default `300`) |
