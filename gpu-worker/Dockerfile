@@ -10,10 +10,11 @@ ENV TORCH_HOME=/models/.torch_cache
 
 WORKDIR /app
 
-# Install Python build dependencies and pip
+# Install Python build dependencies, pip, and ffmpeg with Opus + MP3 support
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-dev \
-    build-essential cmake git wget ffmpeg \
+    build-essential cmake git wget \
+    ffmpeg libopus0 libmp3lame0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip/setuptools/wheel
@@ -70,6 +71,46 @@ from silero_vad import load_silero_vad
 print("Caching Silero VAD model...")
 load_silero_vad()
 print("Silero VAD cached.")
+PY
+
+# Some converted CTranslate2 models (e.g. rubai-ct2-int8) do not ship a
+# tokenizer.json. faster-whisper then downloads openai/whisper-tiny at runtime,
+# adding a few seconds to the first warm request. Pre-cache/copy the tokenizer
+# into those model directories so it is available offline.
+ARG HF_TOKEN
+ENV HF_TOKEN=${HF_TOKEN}
+RUN python3 - <<'PY'
+import os
+from pathlib import Path
+import shutil
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+source_id = "openai/whisper-tiny"
+files = ["tokenizer.json", "preprocessor_config.json"]
+try:
+    from huggingface_hub import hf_hub_download
+except Exception as e:
+    print(f"huggingface_hub not available: {e}")
+    hf_hub_download = None
+
+cache_paths = {}
+if hf_hub_download:
+    token = os.environ.get("HF_TOKEN") or None
+    for fname in files:
+        try:
+            cache_paths[fname] = hf_hub_download(source_id, fname, token=token)
+            print(f"Cached {source_id}/{fname}")
+        except Exception as e:
+            print(f"Could not download {source_id}/{fname}: {e}")
+
+for d in ["/models/rubai-ct2-int8", "/models/muhtasham-whisper-tg-ct2", "/models/whisper-large-v3-turbo-ct2"]:
+    p = Path(d)
+    if not p.exists():
+        continue
+    for fname, src in cache_paths.items():
+        dst = p / fname
+        if not dst.exists():
+            shutil.copy(src, dst)
+            print(f"Copied {fname} -> {d}")
 PY
 
 ENV WHISPER_DEVICE=cuda
