@@ -118,7 +118,7 @@ Routing per language is based on the hard benchmark of real YouTube clips (`test
 
 | Language | Primary model | Fallback chain | Hard char/word | Notes |
 |----------|---------------|----------------|----------------|-------|
-| `ky` | Whisper `nineninesix/kyrgyz-whisper-small` (CT2 float16) on RunPod GPU | Vosk `vosk-model-ky-0.42` (CPU, if GPU disabled) | — | The GPU worker patches faster-whisper to accept the custom `<|ky|>` token. |
+| `ky` | Whisper `nineninesix/kyrgyz-whisper-small` converted to CTranslate2 float16 on RunPod GPU | Vosk `vosk-model-ky-0.42` (CPU, if GPU fails/times out) | — | The GPU worker patches faster-whisper to accept the custom `<|ky|>` token and decodes with `beam_size=1`, `condition_on_previous_text=False`, `without_timestamps=True`, `no_repeat_ngram_size=3`, `temperature=0.0`. CPU fallback is automatic when the GPU worker fails or is disabled. |
 | `tg` | Fine-tuned Whisper `models/whisper-tajik-finetuned-ct2` | Local Whisper `models/whisper-large-v3-turbo-ct2` → Vosk small tg | 94.3% / 94.4% | Local Whisper needs enough RAM; on low-memory machines it falls back to Vosk small. |
 | `uz` | Whisper fine-tuned Rubai `models/rubai-ct2-int8` (files < 600 s) | Local Whisper `models/whisper-large-v3-turbo-ct2` → Vosk small uz | 81.4% / 67.9% | Best known local Uzbek model. |
 | `ru` | Local Whisper `models/whisper-large-v3-turbo-ct2` | Vosk small ru | — | Large-v3-turbo handles Russian better than the small Vosk model and avoids English bias. |
@@ -129,9 +129,10 @@ Latest run: `python benchmark.py test_audio/hard_manifest.json` (2026-07-02).
 
 ### Chunking
 
-- **Kyrgyz GPU**: long audio is handled by the GPU worker; the backend sends the full file and relies on faster-whisper internally.
+- **Kyrgyz GPU**: long audio is handled by the GPU worker. Silero VAD splits at natural pauses (`GPU_VAD_MIN_SILENCE_MS=500`, `GPU_VAD_MAX_CHUNK_SECONDS=15`, `GPU_VAD_OVERLAP_SECONDS=0.5`) into ≤15 s chunks, which are transcribed one at a time with faster-whisper. Identical text at chunk boundaries (from the small overlap) is deduplicated inside the handler. If the GPU worker fails or times out, the backend automatically falls back to local Vosk.
 - **Whisper (ru/en/auto/multi and VAD-disabled tg/uz)**: very long audio (> `TILTAB_WHISPER_CHUNK_THRESHOLD_SECONDS`, default 300 s) is split into overlapping time chunks (`TILTAB_WHISPER_CHUNK_SECONDS` default 300 s, overlap 5 s). Each chunk is transcribed independently, timestamps are shifted back, and boundary segments are deduplicated. This keeps conditioning from drifting on long podcasts/interviews. When VAD is enabled, chunks are based on detected speech regions instead.
 - **Kyrgyz CPU fallback (Vosk)**: if the GPU path is unavailable, long audio is split into sliding 25-second windows with 5-second overlap; timestamps are corrected and overlapping words are deduplicated.
+- **RunPod upload compression**: the `/run` body has a 10 MiB limit. Files ≥ 6 MiB are re-encoded to MP3 (mono, 16 kHz, 32 kbps) before base64 upload. The re-encoding writes the input to a temporary file first; MP4/M4A containers cannot be reliably demuxed from a non-seekable pipe, and piping them produced empty/corrupt MP3s that caused `ffmpeg conversion failed` on the GPU worker.
 
 Environment controls:
 - `TILTAB_LOCAL_WHISPER_MODEL` — path to CTranslate2 model (default `models/whisper-large-v3-turbo-ct2`).
@@ -254,6 +255,27 @@ Rejecting a translation updates its status instead of deleting it. Admins can st
 | `TILTAB_REVIEW_MAX_INPUT_CHARS` | no | Skip the review step when source + translated text exceeds this length (default `4000`) |
 | `TILTAB_ADMIN_TOKEN` | **yes** | Required to open `/web/admin.html` and to call `/api/admin/*` endpoints. Without it the admin UI and API return `401`. |
 | `TILTAB_STT_PROVIDER` | no | `local` (default), `auto`, `openai`, or `elevenlabs` |
+| `TILTAB_GPU_STT_URL` | no | RunPod GPU STT endpoint URL (e.g. `https://api.runpod.ai/v2/xxx/runsync`). When set, supported languages are offloaded to GPU. |
+| `TILTAB_GPU_STT_API_KEY` | no | RunPod endpoint API key |
+| `TILTAB_GPU_STT_LANGUAGES` | no | Comma-separated list of languages routed to GPU (default `ru,en,uz,tg,ky,auto,multi`) |
+| `TILTAB_GPU_STT_TIMEOUT_MS` | no | Backend polling timeout for a GPU STT job (default `600000` = 10 min) |
+| `GPU_VAD_MIN_SILENCE_MS` | no | Silero VAD minimum silence to split chunks on the GPU worker (default `1500`) |
+| `GPU_VAD_MAX_CHUNK_SECONDS` | no | Maximum chunk length on the GPU worker (default `30`) |
+| `GPU_VAD_OVERLAP_SECONDS` | no | Padding overlap added to each GPU worker VAD chunk (default `5`) |
+| `GPU_JOB_TIMEOUT_SECONDS` | no | Worker-side hard timeout for a single GPU job (default `900`) |
+| `KYRGYZ_BEAM_SIZE` | no | Kyrgyz model beam size on GPU worker (default `1`) |
+| `KYRGYZ_BEST_OF` | no | Kyrgyz model `best_of` on GPU worker (default `1`) |
+| `KYRGYZ_CONDITION_ON_PREVIOUS_TEXT` | no | Whether to condition Kyrgyz decoding on previous text (default `false`) |
+| `KYRGYZ_NO_REPEAT_NGRAM_SIZE` | no | Kyrgyz model `no_repeat_ngram_size` (default `3`) |
+| `KYRGYZ_REPETITION_PENALTY` | no | Kyrgyz model repetition penalty (default `1.0`) |
+| `KYRGYZ_TEMPERATURE` | no | Kyrgyz model temperature (default `0.0`) |
+| `KYRGYZ_WITHOUT_TIMESTAMPS` | no | Disable timestamp tokens for Kyrgyz (default `true`) |
+| `KYRGYZ_MAX_NEW_TOKENS` | no | Hard cap on Kyrgyz output tokens, `0` = no cap (default `0`) |
+| `KYRGYZ_MAX_NEW_TOKENS_PER_SECOND` | no | Dynamic token cap per chunk second, `0` = disabled (default `0`) |
+| `KYRGYZ_NORMALIZE_TEXT` | no | Normalize Kazakh-lookalike Cyrillic to Kyrgyz and lowercase (default `false`) |
+| `KYRGYZ_FILTER_CREDITS` | no | Drop subtitle/credit phrases from Kyrgyz output (default `true`) |
+| `KYRGYZ_DEDUPE_MIN_CHARS` | no | Minimum overlap length to remove from chunk boundaries (default `8`) |
+| `KYRGYZ_REPEAT_MIN_WORDS` | no | Drop a chunk if its first N words already appear in the output; `0` disables (default `4`) |
 | `TILTAB_LOCAL_WHISPER_MODEL` | no | Path to local CTranslate2 Whisper model for ru/en/auto/multi (default `models/whisper-large-v3-turbo-ct2`) |
 | `TILTAB_LOCAL_WHISPER_HF_MODEL` | no | Optional HuggingFace-format Whisper fallback directory |
 | `TILTAB_WHISPER_CHUNK_THRESHOLD_SECONDS` | no | Audio length threshold for external time chunking (default `300`) |
@@ -281,6 +303,8 @@ Production runs on a Hetzner CX43 (8 vCPU / 16 GB RAM / 160 GB NVMe, hel2) with 
 - `DATABASE_URL`
 
 Optional:
+- `TILTAB_GPU_STT_URL` / `TILTAB_GPU_STT_API_KEY` / `TILTAB_GPU_STT_TIMEOUT_MS` (RunPod GPU offloading)
+- GPU worker tuning: `GPU_VAD_MIN_SILENCE_MS`, `GPU_VAD_MAX_CHUNK_SECONDS`, `GPU_VAD_OVERLAP_SECONDS`, `GPU_JOB_TIMEOUT_SECONDS`, plus Kyrgyz knobs (`KYRGYZ_*`) listed above.
 - `OPENAI_API_KEY` (Tajik cleanup / translation primary)
 - `GROQ_API_KEY` (cleanup / translation fallback)
 - `TILTAB_CLEANUP_PROVIDER` / `TILTAB_CLEANUP_MODEL`

@@ -14,6 +14,8 @@ models/*
 !models/muhtasham-whisper-tg-ct2/**
 !models/rubai-ct2-int8
 !models/rubai-ct2-int8/**
+!models/kyrgyz-whisper-small-ct2
+!models/kyrgyz-whisper-small-ct2/**
 poller_offset.txt
 tmp
 test_audio/cache

@@ -28,40 +28,17 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 COPY gpu-worker/handler.py .
 COPY gpu-worker/vad_utils.py .
 
-# Patch faster-whisper to accept the custom Kyrgyz <|ky|> language token used by
-# nineninesix/kyrgyz-whisper-small. The token exists in the model vocabulary; we
-# just need to add "ky" to the internal language-code whitelist.
-RUN for f in /usr/local/lib/python3.*/dist-packages/faster_whisper/tokenizer.py; do \
-      sed -i 's/    "af",/    "af",\n    "ky",/' "$f"; \
-    done
-
 # Models baked into the image. Place them in /models.
 # Build context must contain the model directories relative to ARGs below.
 ARG WHISPER_TURBO_DIR=models/whisper-large-v3-turbo-ct2
 ARG TAJIK_DIR=models/muhtasham-whisper-tg-ct2
 ARG UZBEK_DIR=models/rubai-ct2-int8
+ARG KYRGYZ_DIR=models/kyrgyz-whisper-small-ct2
 
 COPY ${WHISPER_TURBO_DIR} /models/whisper-large-v3-turbo-ct2
 COPY ${TAJIK_DIR} /models/muhtasham-whisper-tg-ct2
 COPY ${UZBEK_DIR} /models/rubai-ct2-int8
-
-# Download the original HuggingFace model for Kyrgyz. The Colab reference
-# pipeline uses transformers with chunk_length_s=30 / batch_size=8, which gives
-# much better quality on real-world Kyrgyz audio than the CTranslate2/faster-
-# whisper conversion. We keep the faster-whisper path for ru/en/uz/tg.
-RUN python3 - <<'PY'
-import os
-os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-from transformers import WhisperForConditionalGeneration, WhisperProcessor
-model_id = "nineninesix/kyrgyz-whisper-small"
-out_dir = "/models/kyrgyz-whisper-small-hf"
-print(f"Downloading {model_id} to {out_dir}...")
-model = WhisperForConditionalGeneration.from_pretrained(model_id)
-processor = WhisperProcessor.from_pretrained(model_id)
-model.save_pretrained(out_dir)
-processor.save_pretrained(out_dir)
-print("Done.")
-PY
+COPY ${KYRGYZ_DIR} /models/kyrgyz-whisper-small-ct2
 
 # Pre-download Silero VAD so workers don't need internet at runtime.
 RUN python3 - <<'PY'
@@ -73,8 +50,8 @@ load_silero_vad()
 print("Silero VAD cached.")
 PY
 
-# Some converted CTranslate2 models (e.g. rubai-ct2-int8) do not ship a
-# tokenizer.json. faster-whisper then downloads openai/whisper-tiny at runtime,
+# Some converted CTranslate2 models do not ship a tokenizer.json.
+# faster-whisper then downloads openai/whisper-tiny at runtime,
 # adding a few seconds to the first warm request. Pre-cache/copy the tokenizer
 # into those model directories so it is available offline.
 ARG HF_TOKEN
@@ -102,7 +79,8 @@ if hf_hub_download:
         except Exception as e:
             print(f"Could not download {source_id}/{fname}: {e}")
 
-for d in ["/models/rubai-ct2-int8", "/models/muhtasham-whisper-tg-ct2", "/models/whisper-large-v3-turbo-ct2"]:
+for d in ["/models/rubai-ct2-int8", "/models/muhtasham-whisper-tg-ct2",
+          "/models/whisper-large-v3-turbo-ct2", "/models/kyrgyz-whisper-small-ct2"]:
     p = Path(d)
     if not p.exists():
         continue

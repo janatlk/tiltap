@@ -35,8 +35,30 @@ export async function transcribeAudio(
   // GPU offloading for supported languages (ru/en/uz/tg/ky/auto/multi). GPU is
   // cheaper and faster than CPU inference on the Hetzner box for heavy files.
   if (isGpuSttEnabled() && normalizedLang && isGpuSttLanguageSupported(normalizedLang)) {
-    const result = await transcribeWithGpu(audioBuffer, filename, normalizedLang, abortSignal);
-    return normalizeTranscriptionResult(result);
+    try {
+      const result = await transcribeWithGpu(audioBuffer, filename, normalizedLang, abortSignal);
+      return normalizeTranscriptionResult(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn("GPU STT failed, falling back to local hybrid", {
+        error: msg,
+        language: normalizedLang,
+        filename,
+      });
+      const result = await runHybridTranscription(
+        audioBuffer,
+        filename,
+        language,
+        onProcessStart,
+        onProgress,
+        abortSignal
+      );
+      return normalizeTranscriptionResult({
+        ...result,
+        provider: "local",
+        model: getLocalModelName(language),
+      });
+    }
   }
 
   // Priority local models hosted on the remote STT server (uz is too heavy for Render/Starter RAM).
@@ -291,7 +313,7 @@ function getLocalModelName(language?: string): string {
     case "uz":
       return process.env.TILTAB_LOCAL_WHISPER_MODEL_UZ || "rubai-ct2-int8";
     case "ky":
-      return process.env.TILTAB_LOCAL_VOSK_MODEL_KY || "vosk-model-ky-0.42";
+      return process.env.TILTAB_LOCAL_WHISPER_MODEL_KY || "kyrgyz-whisper-small-ct2";
     case "ru":
     case "en":
     case "auto":

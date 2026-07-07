@@ -1,4 +1,7 @@
-import { spawn } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
+import { mkdtemp, readFile, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { extname, join } from "path";
 import { logger } from "../utils/logger";
 import { config } from "../config";
 import type { TranscriptionResult } from "../types";
@@ -149,16 +152,25 @@ export async function transcribeWithGpu(
   // that easily. Compress to MP3 (mono, 32 kbps) before sending; this
   // keeps a 40-minute file under ~10 MiB base64 while remaining speech-quality.
   // MP3 is universally supported by ffmpeg without extra codecs.
-  const compressed = await compressAudioForGpu(audioBuffer, abortSignal);
-  const gpuFilename = "audio.mp3";
-  const audioBase64 = compressed.toString("base64");
+  //
+  // Compression uses temporary files rather than pipes because MP4/M4A
+  // containers often have their metadata (moov atom) at the end and cannot be
+  // reliably demuxed from a non-seekable pipe. With a real file ffmpeg can seek
+  // and produces a valid MP3 every time.
+  let gpuBuffer = audioBuffer;
+  let gpuFilename = filename || "audio.bin";
+  if (audioBuffer.length >= 6 * 1024 * 1024) {
+    gpuBuffer = await compressAudioForGpu(audioBuffer, filename, abortSignal);
+    gpuFilename = "audio.mp3";
+  }
+  const audioBase64 = gpuBuffer.toString("base64");
 
   logger.info("Starting GPU STT request", {
     endpoint,
     baseUrl,
     language,
     originalSizeBytes: audioBuffer.length,
-    compressedSizeBytes: compressed.length,
+    gpuSizeBytes: gpuBuffer.length,
     gpuFilename,
   });
 
@@ -201,6 +213,7 @@ export async function transcribeWithGpu(
 
 async function compressAudioForGpu(
   inputBuffer: Buffer,
+  filename: string,
   abortSignal?: AbortSignal
 ): Promise<Buffer> {
   // If the buffer is already small enough that base64 won't exceed ~6 MiB raw
@@ -209,49 +222,76 @@ async function compressAudioForGpu(
     return inputBuffer;
   }
 
-  return new Promise((resolve, reject) => {
-    const proc = spawn(FFMPEG_PATH, [
+  const tmpDir = await mkdtemp(join(tmpdir(), "tiltap-gpu-"));
+  const inputExt = extname(filename) || ".bin";
+  const inputPath = join(tmpDir, `input${inputExt}`);
+  const outputPath = join(tmpDir, "output.mp3");
+  let proc: ChildProcess | null = null;
+
+  const cleanup = async () => {
+    try {
+      await rm(tmpDir, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors.
+    }
+  };
+
+  try {
+    await writeFile(inputPath, inputBuffer);
+
+    proc = spawn(FFMPEG_PATH, [
       "-hide_banner",
       "-loglevel", "error",
-      "-i", "pipe:0",
+      "-i", inputPath,
       "-ar", "16000",
       "-ac", "1",
       "-c:a", "libmp3lame",
       "-b:a", "32k",
       "-f", "mp3",
-      "pipe:1",
-    ], {
-      stdio: ["pipe", "pipe", "pipe"],
+      outputPath,
+    ]);
+
+    const abortListener = () => {
+      proc?.kill("SIGTERM");
+    };
+    if (abortSignal) {
+      abortSignal.addEventListener("abort", abortListener);
+    }
+
+    let stderr = "";
+    proc.stderr?.on("data", (data: Buffer) => {
+      stderr += data.toString("utf-8");
+    });
+
+    const code = await new Promise<number | null>((resolve, reject) => {
+      proc!.on("error", reject);
+      proc!.on("close", resolve);
     });
 
     if (abortSignal) {
-      abortSignal.addEventListener("abort", () => {
-        proc.kill("SIGTERM");
-        reject(new Error("GPU audio compression aborted"));
-      });
+      abortSignal.removeEventListener("abort", abortListener);
     }
 
-    const chunks: Buffer[] = [];
-    let stderr = "";
+    if (code !== 0) {
+      throw new Error(`GPU audio compression failed (code ${code}): ${stderr}`);
+    }
 
-    proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
-    proc.stderr.on("data", (data: Buffer) => { stderr += data.toString("utf-8"); });
-
-    proc.on("close", (code) => {
-      if (code !== 0) {
-        return reject(new Error(`GPU audio compression failed (code ${code}): ${stderr}`));
-      }
-      resolve(Buffer.concat(chunks));
+    const outputBuffer = await readFile(outputPath);
+    if (outputBuffer.length < 1024) {
+      throw new Error(
+        `GPU audio compression produced tiny output (${outputBuffer.length} bytes); ` +
+          `input format may be unsupported. stderr: ${stderr}`
+      );
+    }
+    return outputBuffer;
+  } catch (err) {
+    logger.error("GPU audio compression error", {
+      error: err instanceof Error ? err.message : String(err),
+      filename,
+      inputSizeBytes: inputBuffer.length,
     });
-
-    proc.on("error", (err) => reject(err));
-
-    proc.stdin.write(inputBuffer, (err) => {
-      if (err) {
-        reject(err);
-      } else {
-        proc.stdin.end();
-      }
-    });
-  });
+    throw err;
+  } finally {
+    await cleanup();
+  }
 }

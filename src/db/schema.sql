@@ -174,6 +174,34 @@ CREATE INDEX IF NOT EXISTS idx_web_jobs_created_at ON web_jobs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_web_jobs_status ON web_jobs(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_web_jobs_request_number ON web_jobs(request_number);
 
+-- Telegram/media transcription audit log.
+-- Mirrors translation_requests: every transcription attempt (successful or failed)
+-- gets a public request_number from the shared sequence.
+CREATE TABLE IF NOT EXISTS transcription_requests (
+  id SERIAL PRIMARY KEY,
+  request_number BIGINT NOT NULL UNIQUE DEFAULT nextval('translation_request_number_seq'),
+  telegram_chat_id BIGINT,
+  telegram_message_id BIGINT,
+  source_type VARCHAR(20),      -- 'telegram_media' | 'youtube' | 'tiktok' | 'instagram'
+  source_url TEXT,
+  filename VARCHAR(255),
+  language VARCHAR(10),
+  full_text TEXT,
+  segments_json JSONB NOT NULL DEFAULT '[]',
+  provider VARCHAR(20),
+  model VARCHAR(100),
+  gpu VARCHAR(50),
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  error_message TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  completed_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS idx_transcription_requests_number ON transcription_requests(request_number);
+CREATE INDEX IF NOT EXISTS idx_transcription_requests_created_at ON transcription_requests(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_transcription_requests_status ON transcription_requests(status, created_at DESC);
+
 -- Migration safety net for older databases
 ALTER TABLE web_jobs ADD COLUMN IF NOT EXISTS request_number BIGINT DEFAULT nextval('translation_request_number_seq');
 ALTER TABLE web_jobs ALTER COLUMN request_number SET NOT NULL;
@@ -196,6 +224,25 @@ ALTER TABLE web_jobs ADD COLUMN IF NOT EXISTS progress_label VARCHAR(100);
 ALTER TABLE web_jobs ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 ALTER TABLE web_jobs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 ALTER TABLE web_jobs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;
+
+-- Migration safety net for transcription_requests on older databases
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS telegram_chat_id BIGINT;
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS telegram_message_id BIGINT;
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS source_type VARCHAR(20);
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS source_url TEXT;
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS filename VARCHAR(255);
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS language VARCHAR(10);
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS full_text TEXT;
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS segments_json JSONB DEFAULT '[]';
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS provider VARCHAR(20);
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS model VARCHAR(100);
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS gpu VARCHAR(50);
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending';
+ALTER TABLE transcription_requests ALTER COLUMN status SET NOT NULL;
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS error_message TEXT;
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+ALTER TABLE transcription_requests ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;
 
 CREATE TABLE IF NOT EXISTS cleanup_cache (
   id SERIAL PRIMARY KEY,
