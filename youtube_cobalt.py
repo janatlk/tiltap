@@ -175,7 +175,7 @@ def validate_via_cobalt(url: str, download_mode: str = "auto") -> dict:
                     reason = "sign_in_required"
                 elif "age" in code.lower():
                     reason = "age_restricted"
-                elif "unavailable" in code.lower() or "not.found" in code.lower():
+                elif "unavailable" in code.lower() or "not.found" in code.lower() or "all_instances_failed" in code.lower():
                     reason = "not_available"
                 elif "bot" in code.lower() or "turnstile" in code.lower():
                     reason = "bot_detected"
