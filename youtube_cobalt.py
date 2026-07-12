@@ -24,6 +24,7 @@ DEFAULT_COBALT_APIS = [
 ]
 
 COBALT_TIMEOUT = 45
+COBALT_VALIDATE_TIMEOUT = int(os.environ.get("COBALT_VALIDATE_TIMEOUT", "12"))
 DOWNLOAD_TIMEOUT = 300
 
 
@@ -51,13 +52,13 @@ def _cobalt_error_text(data: dict) -> str:
     return f"Cobalt error: {code} (service: {service})"
 
 
-def _request_stream(url: str, payload: dict) -> dict:
+def _request_stream(url: str, payload: dict, timeout: int | None = None) -> dict:
     """POST to a Cobalt API and return the JSON response."""
     resp = requests.post(
         url,
         json=payload,
         headers={"Accept": "application/json", "Content-Type": "application/json"},
-        timeout=COBALT_TIMEOUT,
+        timeout=timeout if timeout is not None else COBALT_TIMEOUT,
     )
     resp.raise_for_status()
     return resp.json()
@@ -148,15 +149,30 @@ def validate_via_cobalt(url: str, download_mode: str = "auto") -> dict:
     last_error = "No Cobalt API URLs configured"
     for api in _api_urls():
         try:
-            data = _request_stream(api, payload)
+            # Use a short timeout for validation so a single slow/dead instance
+            # does not exhaust the caller's timeout budget.
+            resp = requests.post(
+                api,
+                json=payload,
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+                timeout=COBALT_VALIDATE_TIMEOUT,
+            )
 
-            if data.get("status") in ("tunnel", "redirect"):
+            # Try to parse Cobalt's JSON error body even on 4xx/5xx.
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+
+            if resp.ok and data.get("status") in ("tunnel", "redirect"):
                 return {"ok": True, "title": "", "duration": 0, "uploader": ""}
 
-            if data.get("status") == "error":
-                code = data.get("error", {}).get("code", "unknown")
+            if data.get("status") == "error" or not resp.ok:
+                code = data.get("error", {}).get("code", "unknown") if data.get("error") else f"http_{resp.status_code}"
                 reason = "unknown"
-                if "login" in code.lower():
+                if "jwt" in code.lower() or "auth" in code.lower():
+                    reason = "cobalt_auth_required"
+                elif "login" in code.lower():
                     reason = "sign_in_required"
                 elif "age" in code.lower():
                     reason = "age_restricted"
@@ -164,10 +180,15 @@ def validate_via_cobalt(url: str, download_mode: str = "auto") -> dict:
                     reason = "not_available"
                 elif "bot" in code.lower() or "turnstile" in code.lower():
                     reason = "bot_detected"
-                last_error = _cobalt_error_text(data)
+                last_error = _cobalt_error_text(data) if data.get("error") else f"HTTP {resp.status_code}"
+                # Surface the Cobalt reason instead of hiding it behind unknown.
+                if reason != "unknown":
+                    return {"ok": False, "reason": reason, "error": last_error}
                 continue
 
             last_error = f"Cobalt unexpected status: {data.get('status')}"
+        except requests.Timeout as e:
+            last_error = f"Cobalt API timed out ({api}): {e}"
         except requests.RequestException as e:
             last_error = f"Cobalt API request failed ({api}): {e}"
         except Exception as e:

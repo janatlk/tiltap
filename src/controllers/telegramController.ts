@@ -739,6 +739,20 @@ function getYouTubeErrorMessage(reason: string | undefined, lang: SupportedLangu
       en: "❌ Video validation took too long. Possible network or YouTube issues.",
       ru: "❌ Проверка видео заняла слишком много времени. Возможны проблемы с сетью или YouTube.",
     },
+    missing_deps: {
+      ky: "❌ Видеону текшерүүчү куралдар табылган жок. Администратор yt-dlp жана requests орнотконун текшерсин.",
+      tg: "❌ Воситаҳои санҷиши видео ёфт нашуданд. Администратор yt-dlp ва requests-ро насб кардааст, тафтиш кунад.",
+      uz: "❌ Video tekshirish vositalari topilmadi. Administrator yt-dlp va requests o'rnatganini tekshirsin.",
+      en: "❌ Video validation tools are missing. Please ask the admin to install yt-dlp and requests.",
+      ru: "❌ Не найдены инструменты для проверки видео. Попросите администратора установить yt-dlp и requests.",
+    },
+    cobalt_auth_required: {
+      ky: "❌ Көчүрүү кызматына кирүү үчүн аутентификация талап кылынат. Администраторго жеке Cobalt серверин орнотууну сураныңыз.",
+      tg: "❌ Барои дастрасӣ ба хидмати боргирӣ аутентификатсия лозим аст. Администраторро барои насби сервери хусусии Cobalt дастгирӣ кунед.",
+      uz: "❌ Yuklab olish xizmatiga kirish uchun autentifikatsiya talab qilinadi. Administratordan shaxsiy Cobalt serverini o'rnatishni so'rang.",
+      en: "❌ The download service now requires authentication. Please ask the admin to deploy a private Cobalt server.",
+      ru: "❌ Сервис скачивания теперь требует аутентификации. Попросите администратора развернуть приватный сервер Cobalt.",
+    },
     unknown: {
       ky: "❌ Видеону текшерүү мүмкүн болгон жок. Шилтеме туура эмес же видео жеткиликтүү эмес.",
       tg: "❌ Санҷиши видео иҷро нашуд. Эҳтимол пайванд нодуруст аст ё видео дастрас нест.",

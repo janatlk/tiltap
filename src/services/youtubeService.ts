@@ -14,6 +14,18 @@ export interface MediaValidation {
   title?: string;
   duration?: number;
   reason?: string;
+  error?: string;
+}
+
+function detectMissingDependency(stderr: string): boolean {
+  const text = stderr.toLowerCase();
+  return (
+    text.includes("modulenotfounderror") ||
+    text.includes("no module named") ||
+    text.includes("command not found") ||
+    text.includes("'python' is not recognized") ||
+    text.includes("'python3' is not recognized")
+  );
 }
 
 export function isSupportedMediaUrl(url: string): boolean {
@@ -61,19 +73,43 @@ export async function validateMediaUrl(url: string): Promise<MediaValidation> {
       clearTimeout(timeout);
       if (settled) return;
       if (code !== 0) {
-        resolve({ ok: false, reason: "unknown" });
+        const reason = detectMissingDependency(stderr) ? "missing_deps" : "unknown";
+        logger.warn("validateMediaUrl process exited with non-zero code", {
+          url,
+          code,
+          reason,
+          stderr: stderr.trim(),
+          stdoutTail: stdout.trim().slice(-500),
+        });
+        resolve({ ok: false, reason });
         return;
       }
       try {
         const data = JSON.parse(stdout.trim().split("\n").pop() || "{}") as MediaValidation;
+        if (!data.ok) {
+          logger.warn("validateMediaUrl validation failed", {
+            url,
+            reason: data.reason,
+            error: data.error,
+            stderr: stderr.trim(),
+          });
+        }
         resolve(data);
-      } catch {
+      } catch (parseErr) {
+        logger.warn("validateMediaUrl failed to parse JSON", {
+          url,
+          code,
+          stdout,
+          stderr: stderr.trim(),
+          error: parseErr,
+        });
         resolve({ ok: false, reason: "unknown" });
       }
     });
-    proc.on("error", () => {
+    proc.on("error", (err) => {
       clearTimeout(timeout);
       if (settled) return;
+      logger.error("validateMediaUrl failed to spawn process", { url, error: err });
       resolve({ ok: false, reason: "unknown" });
     });
   });
