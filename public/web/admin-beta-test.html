@@ -46,6 +46,7 @@
       <h1 class="text-3xl font-bold tracking-tight">Beta STT Test</h1>
       <a href="/web/admin.html" class="btn btn-sm btn-ghost">Back to admin</a>
     </header>
+    <div class="text-xs text-base-content/60" id="buildInfo">Loading build info…</div>
 
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body">
@@ -197,6 +198,17 @@
     let currentTab = "file";
     let currentMode = "single";
     let models = [];
+
+    fetch("/web/build-info.json")
+      .then((r) => r.json())
+      .then((info) => {
+        const built = new Date(info.builtAt);
+        const text = `Last build: ${built.toLocaleString()} · commit ${info.commit}${info.message ? " · " + info.message : ""}`;
+        document.getElementById("buildInfo").textContent = text;
+      })
+      .catch(() => {
+        document.getElementById("buildInfo").textContent = "Build info unavailable";
+      });
 
     function getStoredToken() { return localStorage.getItem("tiltab_admin_token") || ""; }
     adminToken.value = getStoredToken();

@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc && node scripts/copy-schema.js",
+    "build": "tsc && node scripts/copy-schema.js && node scripts/write-build-info.js",
     "start": "node dist/server.js",
     "test": "node --env-file=.env.test --test dist/__tests__/**/*.test.js"
   },
