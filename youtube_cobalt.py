@@ -15,11 +15,10 @@ import requests
 # Community instances that currently allow unauthenticated YouTube audio
 # downloads (Turnstile disabled).  Override with COBALT_API_URL or
 # COBALT_API_URLS (comma-separated).
+# Last verified: api.cobalt.liubquanti.click returns tunnels for YouTube
+# from Hetzner; most other public instances now require JWT or are blocked.
 DEFAULT_COBALT_APIS = [
-    "https://api.cobalt.blackcat.sweeux.org/",
-    "https://dog.kittycat.boo/",
-    "https://fox.kittycat.boo/",
-    "https://cobaltapi.kittycat.boo/",
+    "https://api.cobalt.liubquanti.click/",
     "https://rue-cobalt.xenon.zone/",
 ]
 
