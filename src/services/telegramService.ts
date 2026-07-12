@@ -70,8 +70,8 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     ky: "<b>Жардам</b>\n\n<b>Файл жиберүү:</b> аудио, видео, үн каттуу же документ жибериңиз. Бот тилди сурайт, андан кийин иштей баштайт.\n\n<b>Шилтемелер:</b> YouTube, TikTok, Instagram Reels шилтемелерин түз эле жибериңиз.\n\n<b>Тил орнотуулар:</b> «Орнотуулар» менен интерфейстин тилин жана которуу үчүн демейки тилди тандаңыз.\n\n<b>Командаалар:</b>\n/start — негизки меню\n/help — бул жардам\n/settings — тил орнотуулар\n/stop — активдүү процессти токтотуу",
     tg: "<b>Кӯмак</b>\n\n<b>Фиристодани файл:</b> аудио, видео ё файл фиристед. Бот забонро пурсонда, сипас корро оғоз мекунад.\n\n<b>Пайвандҳо:</b> мустақиман YouTube, TikTok, Instagram Reels фиристед.\n\n<b>Танзимоти забон:</b> тавассути «Танзимот» забони интерфейс ва забони пешфарзи тарҷумаро интихоб кунед.\n\n<b>Дастурҳо:</b>\n/start — менюи асосӣ\n/help — ин кӯмак\n/settings — танзимоти забон\n/stop — қатъ кардани раванди фаъол",
     uz: "<b>Yordam</b>\n\n<b>Fayl yuborish:</b> audio, video yoki hujjat yuboring. Bot tilni so'raydi, keyin ishlaydi.\n\n<b>Havolalar:</b> YouTube, TikTok, Instagram Reels havolalarini to'g'ridan-to'g'ri yuboring.\n\n<b>Til sozlamalari:</b> «Sozlamalar» orqali interfeys tilini va tarjima uchun standart tilni tanlang.\n\n<b>Buyruqlar:</b>\n/start — asosiy menyu\n/help — bu yordam\n/settings — til sozlamalari\n/stop — faol jarayonni to'xtatish",
-    en: "<b>Help</b>\n\n<b>Send a file:</b> send audio, video, voice, or a document. The bot will ask for the language, then start working.\n\n<b>Links:</b> send YouTube, TikTok, or Instagram Reels links directly.\n\n<b>Language settings:</b> use Settings to choose the interface language and default translation language.\n\n<b>Commands:</b>\n/start — main menu\n/help — this help\n/settings — language settings\n/stop — stop active process",
-    ru: "<b>Помощь</b>\n\n<b>Отправьте файл:</b> аудио, видео, голосовое или документ. Бот спросит язык, затем начнёт работу.\n\n<b>Ссылки:</b> отправляйте ссылки на YouTube, TikTok или Instagram Reels напрямую.\n\n<b>Настройки языка:</b> через «Настройки» выберите язык интерфейса и язык перевода по умолчанию.\n\n<b>Команды:</b>\n/start — главное меню\n/help — эта помощь\n/settings — настройки языка\n/stop — остановить активный процесс",
+    en: "<b>Help</b>\n\n<b>Send a file:</b> send audio, video, voice, or a document. The bot will ask for the language, then start working.\n\n<b>Links:</b> send YouTube, TikTok, or Instagram Reels links directly.\n\n<b>Language settings:</b> use Settings to choose the interface language and default translation language.\n\n<b>Commands:</b>\n/start — main menu\n/help — this help\n/settings — language settings\n/translate — translate text\n/stop — stop active process",
+    ru: "<b>Помощь</b>\n\n<b>Отправьте файл:</b> аудио, видео, голосовое или документ. Бот спросит язык, затем начнёт работу.\n\n<b>Ссылки:</b> отправляйте ссылки на YouTube, TikTok или Instagram Reels напрямую.\n\n<b>Настройки языка:</b> через «Настройки» выберите язык интерфейса и язык перевода по умолчанию.\n\n<b>Команды:</b>\n/start — главное меню\n/help — эта помощь\n/settings — настройки языка\n/translate — перевести текст\n/stop — остановить активный процесс",
   },
   chooseInterfaceLanguage: {
     ky: "Интерфейстин тилин тандаңыз:",
@@ -430,6 +430,27 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     en: "No translation",
     ru: "Без перевода",
   },
+  translateTextButton: {
+    ky: "Текст которуу",
+    tg: "Тарҷумаи матн",
+    uz: "Matn tarjima",
+    en: "Translate text",
+    ru: "Перевести текст",
+  },
+  sendTextToTranslate: {
+    ky: "Которула турган текстти жибериңиз:",
+    tg: "Матни тарҷумаашро фиристед:",
+    uz: "Tarjima qilinadigan matnni yuboring:",
+    en: "Send me the text to translate:",
+    ru: "Отправьте текст для перевода:",
+  },
+  chooseTranslationTargetLanguage: {
+    ky: "Текстти кайсы тилге которолосуңуз?",
+    tg: "Матнро ба кадом забон тарҷума кунам?",
+    uz: "Matnni qaysi tilga tarjima qilay?",
+    en: "What language should I translate the text into?",
+    ru: "На какой язык перевести текст?",
+  },
 };
 
 export function t(key: keyof typeof TRANSLATIONS, lang: SupportedLanguage, vars?: Record<string, string>): string {
@@ -582,8 +603,14 @@ export interface PendingYouTube {
   createdAt: number;
 }
 
-export type PendingAction = PendingMedia | PendingYouTube;
-type PendingActionWithId = (PendingMedia | PendingYouTube) & { actionId: string };
+export interface PendingTranslateText {
+  type: "translate_text";
+  targetLanguage: SupportedLanguage;
+  createdAt: number;
+}
+
+export type PendingAction = PendingMedia | PendingYouTube | PendingTranslateText;
+type PendingActionWithId = (PendingMedia | PendingYouTube | PendingTranslateText) & { actionId: string };
 
 const pendingActions = new Map<number, PendingActionWithId>();
 const PENDING_TTL_MS = 60 * 60 * 1000; // 60 minutes
@@ -600,6 +627,14 @@ function rowToPendingAction(row: PendingActionRow): PendingActionWithId {
       sourceLanguage: (payload.sourceLanguage as any) ?? "ru",
       targetLanguage: (payload.targetLanguage as any) ?? "none",
       buffer: row.buffer ?? Buffer.alloc(0),
+      createdAt: new Date(row.created_at).getTime(),
+    } as PendingActionWithId;
+  }
+  if (row.action_type === "translate_text") {
+    return {
+      type: "translate_text",
+      actionId: row.action_id,
+      targetLanguage: (payload.targetLanguage as any) ?? "ru",
       createdAt: new Date(row.created_at).getTime(),
     } as PendingActionWithId;
   }
@@ -935,6 +970,7 @@ export async function answerCallbackQuery(callbackQueryId: string, text?: string
 export function createMainKeyboard(lang: SupportedLanguage): { inline_keyboard: InlineKeyboardButton[][] } {
   return {
     inline_keyboard: [
+      [{ text: t("translateTextButton", lang), callback_data: "action:translate_text" }],
       [
         { text: t("settingsMenu", lang).split("\n")[0], callback_data: "action:settings" },
         { text: t("helpButton", lang), callback_data: "action:help" },
@@ -982,7 +1018,7 @@ export function createSourceLanguageKeyboard(
 }
 
 export function createTargetLanguageKeyboard(
-  action: "default" | `confirm:${string}`,
+  action: "default" | `confirm:${string}` | `translate_text:${string}`,
   lang: SupportedLanguage,
   backAction = "action:settings"
 ): { inline_keyboard: InlineKeyboardButton[][] } {

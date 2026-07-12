@@ -98,7 +98,7 @@ def main():
                 result = th.transcribe_whisper(
                     str(wav_path), "ru", th.local_whisper_model_path(),
                     progress_label="Русский распознаю",
-                    initial_prompt="Распознай речь на русском языке. Сохраняй русские слова и произношение.",
+                    initial_prompt=th.RUSSIAN_INITIAL_PROMPT,
                 )
             elif lang == "en":
                 result = th.transcribe_whisper(str(wav_path), "en", th.local_whisper_model_path(), progress_label="English transcribing")

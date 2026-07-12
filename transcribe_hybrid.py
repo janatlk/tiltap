@@ -39,6 +39,29 @@ FFMPEG_PATH = None
 # This is a local CTranslate2 conversion of openai/whisper-large-v3-turbo.
 LOCAL_WHISPER_MODEL = os.environ.get("TILTAB_LOCAL_WHISPER_MODEL", "models/whisper-large-v3-turbo-ct2")
 
+# Initial prompts passed to faster-whisper to prime style, script, and
+# guardrails. Keep them short (< ~100 tokens) because they are repeated per
+# VAD chunk on the CPU path and per VAD chunk on the GPU worker.
+DEFAULT_INITIAL_PROMPT = (
+    "Transcribe the spoken words accurately. "
+    "Preserve names, numbers, and loanwords. "
+    "Do not translate or add explanations."
+)
+RUSSIAN_INITIAL_PROMPT = (
+    "Распознай речь на русском языке. "
+    "Сохраняй имена собственные, числа и заимствованные слова. "
+    "Не переводи и не добавляй пояснений."
+)
+UZBEK_INITIAL_PROMPT = (
+    "Бу ўзбекча матн. Илтимос, аниқ ёзиб беринг. "
+    "Русча ёки инглизча сўзларни фақат айтилганда сақла."
+)
+TAJIK_INITIAL_PROMPT = (
+    "Ин матни тоҷикӣ аст. Лутфан, дақиқ нависед. "
+    "Номҳо, рақамҳо ва калимаҳори русӣ ё англисиро "
+    "агар гуфта шуда бошанд, нигоҳ дор."
+)
+
 # Force UTF-8 on Windows
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -256,6 +279,79 @@ def collapse_consecutive_repeats(text: str, max_repeats: int = 3) -> str:
             i += 1
 
     return " ".join(result)
+
+
+def _normalize_word_for_dedup(word: str) -> str:
+    """Strip punctuation and lowercase a word for boundary comparison."""
+    return re.sub(r"[^\w]", "", word).lower()
+
+
+def _longest_common_suffix_prefix(words_a, words_b, max_len=None):
+    """Return length of longest common word sequence at end of a and start of b."""
+    if not words_a or not words_b:
+        return 0
+    max_len = max_len or min(len(words_a), len(words_b))
+    max_len = min(max_len, len(words_a), len(words_b))
+    for length in range(max_len, 0, -1):
+        suffix = [_normalize_word_for_dedup(w) for w in words_a[-length:]]
+        prefix = [_normalize_word_for_dedup(w) for w in words_b[:length]]
+        if suffix == prefix:
+            return length
+    return 0
+
+
+def deduplicate_segment_boundaries(segments, max_time_gap=2.0, min_common_words=2, max_common_words=12):
+    """Remove repeated word sequences at boundaries of adjacent/overlapping segments.
+
+    Whisper (especially with condition_on_previous_text) often emits the same
+    words at the end of one segment and the start of the next. This function
+    detects such overlaps and strips the duplicated prefix from the later
+    segment. Empty segments after trimming are dropped.
+    """
+    if not segments:
+        return []
+    segments = sorted(segments, key=lambda s: s.get("start", 0.0))
+    deduped = [segments[0]]
+    for seg in segments[1:]:
+        last = deduped[-1]
+        gap = seg.get("start", 0.0) - last.get("end", 0.0)
+        # Allow segments that overlap or are very close in time.
+        if gap <= max_time_gap:
+            words_last = last.get("text", "").split()
+            words_seg = seg.get("text", "").split()
+            common = _longest_common_suffix_prefix(
+                words_last,
+                words_seg,
+                max_len=min(max_common_words, len(words_last), len(words_seg)),
+            )
+            # Also allow single-word boundary duplicates if the word is long
+            # enough and the segments actually overlap in time. This catches
+            # cases like "...обычного сегмента." / "сегмента типа..." while
+            # avoiding removal of short function words.
+            time_overlap = max(0.0, min(seg["end"], last["end"]) - max(seg["start"], last["start"]))
+            allow_single_word = (
+                common == 1
+                and words_last
+                and words_seg
+                and len(_normalize_word_for_dedup(words_last[-1])) > 3
+                and time_overlap > 0.2
+            )
+            if common >= min_common_words or allow_single_word:
+                remaining = words_seg[common:]
+                if remaining:
+                    seg["text"] = " ".join(remaining)
+                    # If the segments overlap in time, push the start forward so
+                    # the cleaned segment does not begin before the previous one.
+                    if seg["start"] < last["end"]:
+                        seg["start"] = last["end"]
+                    deduped.append(seg)
+                # If nothing remains, drop the duplicated segment entirely.
+                continue
+        deduped.append(seg)
+
+    for new_id, seg in enumerate(deduped):
+        seg["id"] = new_id
+    return deduped
 
 
 # ---------------------------------------------------------------------------
@@ -522,8 +618,7 @@ def transcribe_whisper(
 
     _emit(0, f"{progress_label}: загрузка модели...")
 
-    default_prompt = "Transcribe the spoken words accurately, including any loanwords from other languages."
-    prompt = initial_prompt if initial_prompt else default_prompt
+    prompt = initial_prompt if initial_prompt else DEFAULT_INITIAL_PROMPT
 
     # Fine-tuned models are often more stable with greedy decoding, but allow override.
     beam_size = _whisper_beam_size(conservative)
@@ -760,10 +855,15 @@ def transcribe_whisper_time_chunked(
                 continue
         deduped.append(seg)
 
+    # Remove repeated words/phrases at segment boundaries. This is common when
+    # Whisper re-decodes the tail of one chunk at the start of the next.
+    deduped = deduplicate_segment_boundaries(deduped)
+
     for new_id, seg in enumerate(deduped):
         seg["id"] = new_id
 
-    full_text = normalize_repeated_punctuation(" ".join(full_text_parts))
+    # Rebuild full text from cleaned segments so boundary dedup is reflected.
+    full_text = normalize_repeated_punctuation(" ".join(s["text"] for s in deduped if s.get("text", "").strip()))
     full_text = collapse_consecutive_repeats(full_text)
     emit_progress(100, progress_label)
     return {
@@ -885,10 +985,15 @@ def transcribe_whisper_with_vad(
         deduped.append(seg)
     all_segments = deduped
 
+    # Remove repeated words/phrases at segment boundaries produced by VAD chunk
+    # overlap or Whisper's previous-text conditioning.
+    all_segments = deduplicate_segment_boundaries(all_segments)
+
     for new_id, seg in enumerate(all_segments):
         seg["id"] = new_id
 
-    full_text = normalize_repeated_punctuation(" ".join(full_text_parts))
+    # Rebuild full text from cleaned segments so boundary dedup is reflected.
+    full_text = normalize_repeated_punctuation(" ".join(s["text"] for s in all_segments if s.get("text", "").strip()))
     full_text = collapse_consecutive_repeats(full_text)
     emit_progress(100, progress_label)
     return {
@@ -1097,6 +1202,7 @@ def transcribe_tajik(wav_path: str):
                 fine_tuned_path,
                 progress_label="Тоҷикӣ распознаю",
                 conservative=conservative_tg,
+                initial_prompt=TAJIK_INITIAL_PROMPT,
             )
             fine_quality = detect_hallucination(fine["text"], fine["segments"], "tg")
             fine["quality"] = fine_quality
@@ -1135,6 +1241,7 @@ def transcribe_tajik(wav_path: str):
                 "tg",
                 local_whisper_model_path(),
                 progress_label="Тоҷикӣ (fallback) распознаю",
+                initial_prompt=TAJIK_INITIAL_PROMPT,
             )
             fallback_quality = detect_hallucination(fallback["text"], fallback["segments"], "tg")
             fallback["quality"] = fallback_quality
@@ -1199,7 +1306,7 @@ def transcribe_uzbek(wav_path: str):
                 "uz",
                 rubai_path,
                 progress_label="O'zbekcha Rubai распознаю",
-                initial_prompt="Bu o'zbekcha matn. Iltimos, aniq yozib bering.",
+                initial_prompt=UZBEK_INITIAL_PROMPT,
             )
             rubai_quality = detect_hallucination(rubai_result["text"], rubai_result["segments"], "uz")
             rubai_result["quality"] = rubai_quality
@@ -1224,7 +1331,7 @@ def transcribe_uzbek(wav_path: str):
                 "uz",
                 fallback_path,
                 progress_label="O'zbekcha Whisper fallback",
-                initial_prompt="Bu o'zbekcha matn. Iltimos, aniq yozib bering.",
+                initial_prompt=UZBEK_INITIAL_PROMPT,
             )
             whisper_quality = detect_hallucination(whisper_result["text"], whisper_result["segments"], "uz")
             whisper_result["quality"] = whisper_quality
@@ -1405,7 +1512,7 @@ def main():
                 "ru",
                 local_whisper_model_path(),
                 progress_label="Русский распознаю",
-                initial_prompt="Распознай речь на русском языке. Сохраняй русские слова и произношение.",
+                initial_prompt=RUSSIAN_INITIAL_PROMPT,
             )
 
         elif language == "uz":

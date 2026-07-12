@@ -92,7 +92,7 @@ for d in ["/models/rubai-ct2-int8", "/models/muhtasham-whisper-tg-ct2",
 PY
 
 ENV WHISPER_DEVICE=cuda
-ENV WHISPER_COMPUTE_TYPE=float16
+ENV WHISPER_COMPUTE_TYPE=int8
 ENV WHISPER_BEAM_SIZE=5
 ENV WHISPER_VAD_FILTER=true
 ENV KYRGYZ_HF_BATCH_SIZE=8

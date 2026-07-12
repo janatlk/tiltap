@@ -81,6 +81,26 @@ def _get_gpu_name() -> str:
         return "unknown"
 
 
+def _decode_whisper_bytes(text: str) -> str:
+    """Fix Whisper byte-level token leakage.
+
+    Some CT2/faster-whisper runs (especially float16 GPU) emit raw UTF-8 bytes
+    encoded as cp1251-looking characters instead of decoded text. If the bytes
+    form valid UTF-8, decode them; otherwise leave the text untouched.
+    """
+    if not text:
+        return text
+    try:
+        raw_bytes = text.encode("cp1251")
+        decoded = raw_bytes.decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+    # Only use the decoded form if it actually differs (sanity check).
+    if decoded == text:
+        return text
+    return decoded
+
+
 def _convert_to_wav(input_path: str, output_path: str) -> None:
     result = subprocess.run(
         ["ffmpeg", "-y", "-i", input_path, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", output_path],
@@ -358,7 +378,12 @@ def _transcribe_kyrgyz(wav_path: str) -> dict:
     ky_max_new_tokens = _int_env("KYRGYZ_MAX_NEW_TOKENS", 0)
     ky_max_tokens_per_sec = _float_env("KYRGYZ_MAX_NEW_TOKENS_PER_SECOND", 0.0)
     ky_prefix = os.environ.get("KYRGYZ_PREFIX", "")
-    ky_initial_prompt = os.environ.get("KYRGYZ_INITIAL_PROMPT", "")
+    # Default prompt primes Cyrillic Kyrgyz output and tells the model to keep
+    # Russian/English words only when they are actually spoken.
+    ky_initial_prompt = os.environ.get(
+        "KYRGYZ_INITIAL_PROMPT",
+        "Бул кыргызча текст. Сөздөрдү так жаз, орусча/англисча сөздөрдү айтылганда гана калтыр.",
+    )
     ky_normalize = _bool_env("KYRGYZ_NORMALIZE_TEXT", False)
     ky_filter_credits = _bool_env("KYRGYZ_FILTER_CREDITS", True)
     ky_dedupe_min_chars = _int_env("KYRGYZ_DEDUPE_MIN_CHARS", 8)
@@ -425,6 +450,8 @@ def _transcribe_kyrgyz(wav_path: str) -> dict:
                     chunk_text_parts.append(text)
 
             chunk_text = " ".join(chunk_text_parts)
+            # Some GPU/float16 runs return raw byte-level tokens as text.
+            chunk_text = _decode_whisper_bytes(chunk_text)
             if not chunk_text:
                 continue
 
@@ -499,7 +526,7 @@ def _transcribe_with_faster_whisper(wav_path: str, model_path: str, language: st
         segments = []
         full_text_parts = []
         for seg in segments_iter:
-            text = seg.text.strip()
+            text = _decode_whisper_bytes(seg.text.strip())
             segments.append(
                 {
                     "start": round(seg.start, 3),
@@ -545,7 +572,7 @@ def _transcribe_with_faster_whisper(wav_path: str, model_path: str, language: st
 
             chunk_offset = chunk_info["start"]
             for seg in segments_iter:
-                text = seg.text.strip()
+                text = _decode_whisper_bytes(seg.text.strip())
                 segments.append(
                     {
                         "start": round(chunk_offset + seg.start, 3),

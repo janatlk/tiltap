@@ -68,7 +68,7 @@ def _transcribe_local(wav_path: str, language: str) -> dict:
             "ru",
             th.local_whisper_model_path(),
             progress_label="Русский распознаю",
-            initial_prompt="Распознай речь на русском языке. Сохраняй русские слова и произношение.",
+            initial_prompt=th.RUSSIAN_INITIAL_PROMPT,
         )
     if language == "en":
         return th.transcribe_whisper(wav_path, "en", th.local_whisper_model_path(), progress_label="English transcribing")

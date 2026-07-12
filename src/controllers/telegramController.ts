@@ -51,6 +51,7 @@ import {
   escapeHtml,
   type SupportedLanguage,
   type PendingAction,
+  type PendingTranslateText,
   type UserPreferences,
   LANGUAGE_LABELS,
   LANGUAGE_FLAGS,
@@ -153,8 +154,14 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
     return;
   }
 
-  // Plain text with no context — show help/main menu
+  // Plain text — check for an active translate-text action first
   if (!media) {
+    const pending = getPendingAction(chatId);
+    if (pending?.type === "translate_text") {
+      clearPendingAction(chatId);
+      await processTextTranslation(chatId, text, pending.targetLanguage, prefs);
+      return;
+    }
     await sendMainMenu(chatId, prefs);
     return;
   }
@@ -248,6 +255,10 @@ async function handleCommand(
       }
       break;
 
+    case "/translate":
+      await startTranslateTextFlow(chatId, userPrefs, args || undefined);
+      break;
+
     case "/stop":
       await stopActiveProcess(chatId);
       break;
@@ -305,6 +316,73 @@ async function askYouTubeLink(chatId: number, prefs: UserPreferences): Promise<v
     createdAt: Date.now(),
   });
   await sendTextMessage(chatId, t("sendYoutubeLink", lang), { replyMarkup: createMainKeyboard(lang) });
+}
+
+async function startTranslateTextFlow(chatId: number, prefs: UserPreferences, initialText?: string): Promise<void> {
+  const lang = prefs.interfaceLanguage;
+  const targetLang = prefs.targetLanguage === "none" ? undefined : prefs.targetLanguage;
+
+  if (initialText && targetLang) {
+    await processTextTranslation(chatId, initialText, targetLang, prefs);
+    return;
+  }
+
+  const actionId = setPendingAction(chatId, {
+    type: "translate_text",
+    targetLanguage: targetLang ?? "ru",
+    createdAt: Date.now(),
+  });
+
+  await sendTextMessage(chatId, t("chooseTranslationTargetLanguage", lang), {
+    replyMarkup: createTargetLanguageKeyboard(`translate_text:${actionId}`, lang, "action:main"),
+  });
+}
+
+async function processTextTranslation(
+  chatId: number,
+  text: string,
+  targetLang: SupportedLanguage,
+  prefs: UserPreferences
+): Promise<void> {
+  const lang = prefs.interfaceLanguage;
+  const statusMessageId = await sendTextMessage(chatId, t("translating", lang), {
+    replyMarkup: createMainKeyboard(lang),
+  });
+
+  try {
+    const result = await translateText({
+      text,
+      targetLang,
+      sourceUrl: undefined,
+      sourceType: "telegram_text",
+    });
+
+    const caption = result.requestId ? `#${result.requestId}` : "";
+    const outputText = result.translatedText;
+
+    if (outputText.length > TEXT_FILE_THRESHOLD) {
+      const fs = await import("fs/promises");
+      const buffer = Buffer.from(outputText, "utf-8");
+      await sendDocument(chatId, buffer, caption || "translation.txt", undefined, createMainKeyboard(lang));
+    } else {
+      await sendTextMessage(chatId, escapeHtml(outputText), { replyMarkup: createMainKeyboard(lang) });
+    }
+
+    if (statusMessageId) {
+      try {
+        await deleteMessage(chatId, statusMessageId);
+      } catch (err) {
+        logger.debug("Failed to delete translation status message", { error: err });
+      }
+    }
+  } catch (err) {
+    logger.error("Text translation failed", { error: err, chatId });
+    await sendTextMessage(
+      chatId,
+      t("translationFailed", lang, { error: err instanceof Error ? err.message : String(err) }),
+      { replyMarkup: createMainKeyboard(lang) }
+    );
+  }
 }
 
 async function editYouTubeLinkPrompt(chatId: number, messageId: number, prefs: UserPreferences): Promise<void> {
@@ -374,7 +452,7 @@ function buildConfirmationText(lang: SupportedLanguage, sourceLang: SupportedLan
 async function editConfirmationMessage(chatId: number, messageId: number, prefs: UserPreferences): Promise<void> {
   const lang = prefs.interfaceLanguage;
   const pending = getPendingAction(chatId);
-  if (!pending) return;
+  if (!pending || pending.type === "translate_text") return;
 
   const text = buildConfirmationText(lang, pending.sourceLanguage ?? prefs.sourceLanguage, pending.targetLanguage ?? prefs.targetLanguage, pending.type === "youtube" ? pending.title : undefined);
   await editMessageText(chatId, messageId, text, { replyMarkup: createConfirmationKeyboard(pending.actionId, lang, pending.targetLanguage ?? prefs.targetLanguage) });
@@ -401,6 +479,12 @@ async function startPendingAction(chatId: number, force = false): Promise<void> 
         ],
       },
     });
+    return;
+  }
+
+  if (pending.type === "translate_text") {
+    clearPendingAction(chatId);
+    await sendMainMenu(chatId, prefs);
     return;
   }
 
@@ -1145,6 +1229,14 @@ async function handleCallbackQuery(callbackQuery: {
       }
       await setUserTargetLanguage(chatId, normalized);
       await editConfirmationMessage(chatId, messageId, prefs);
+    } else if (action === "translate_text" && actionId) {
+      const pending = getPendingAction(chatId);
+      if (pending && pending.type === "translate_text" && pending.actionId === actionId) {
+        if (normalized !== "none") {
+          updatePendingAction(chatId, { targetLanguage: normalized });
+        }
+      }
+      await sendTextMessage(chatId, t("sendTextToTranslate", lang), { replyMarkup: createMainKeyboard(lang) });
     }
     return;
   }
@@ -1263,6 +1355,11 @@ async function handleCallbackQuery(callbackQuery: {
 
   if (data === "action:help") {
     await editMessageText(chatId, messageId, t("help", lang), { replyMarkup: createMainKeyboard(lang) });
+    return;
+  }
+
+  if (data === "action:translate_text") {
+    await startTranslateTextFlow(chatId, prefs);
     return;
   }
 

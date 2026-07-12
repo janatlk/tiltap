@@ -102,6 +102,7 @@
         <div role="tablist" class="tabs tabs-lift">
           <button role="tab" class="tab tab-active" data-tab="file" data-i18n="tabUpload">Upload file</button>
           <button role="tab" class="tab" data-tab="youtube" data-i18n="tabYouTube">YouTube link</button>
+          <button role="tab" class="tab" data-tab="text" data-i18n="tabTranslate">Translate text</button>
         </div>
 
         <div id="panel-file">
@@ -120,6 +121,13 @@
           </div>
           <div id="youtubePreview" class="hidden mt-3 aspect-video">
             <iframe id="youtubeIframe" class="w-full h-full rounded-box" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          </div>
+        </div>
+
+        <div id="panel-text" style="display:none;">
+          <div class="form-control">
+            <label class="label" for="translateText"><span class="label-text" data-i18n="translateTextLabel">Text to translate</span></label>
+            <textarea id="translateText" class="textarea textarea-bordered w-full" rows="6" data-i18n-placeholder="translateTextPlaceholder" placeholder="Enter text to translate..."></textarea>
           </div>
         </div>
 
@@ -181,8 +189,12 @@
         noTranslation: "No translation",
         tabUpload: "Upload file",
         tabYouTube: "YouTube link",
+        tabTranslate: "Translate text",
         dropzoneText: "Drag & drop audio/video here or click to browse",
         youtubeLabel: "YouTube URL",
+        translateTextLabel: "Text to translate",
+        translateTextPlaceholder: "Enter text to translate...",
+        translateTextButton: "Translate",
         startBtn: "Start",
         progressStarting: "Starting...",
         resultTitle: "Transcription",
@@ -198,6 +210,7 @@
         errorSelectFile: "Please select a file first",
         errorFileTooLarge: "File is too large ({size} MB). Max allowed is 25 MB.",
         errorEnterUrl: "Please enter a YouTube URL",
+        errorEnterText: "Please enter text to translate",
         errorUploadFailed: "Upload failed. Please check your connection and try again.",
         errorUploadCancelled: "Upload was cancelled.",
         errorUploadTimeout: "Upload timed out. The file may be too large or the connection is slow.",
@@ -219,8 +232,12 @@
         noTranslation: "Без перевода",
         tabUpload: "Загрузить файл",
         tabYouTube: "Ссылка YouTube",
+        tabTranslate: "Перевести текст",
         dropzoneText: "Перетащите аудио/видео сюда или нажмите для выбора",
         youtubeLabel: "Ссылка YouTube",
+        translateTextLabel: "Текст для перевода",
+        translateTextPlaceholder: "Введите текст для перевода...",
+        translateTextButton: "Перевести",
         startBtn: "Начать",
         progressStarting: "Запуск...",
         resultTitle: "Распознавание",
@@ -236,6 +253,7 @@
         errorSelectFile: "Сначала выберите файл",
         errorFileTooLarge: "Файл слишком большой ({size} МБ). Максимум 25 МБ.",
         errorEnterUrl: "Введите ссылку YouTube",
+        errorEnterText: "Введите текст для перевода",
         errorUploadFailed: "Ошибка загрузки. Проверьте соединение и попробуйте снова.",
         errorUploadCancelled: "Загрузка отменена.",
         errorUploadTimeout: "Превышено время загрузки. Файл слишком большой или соединение медленное.",
@@ -257,8 +275,12 @@
         noTranslation: "Которуу жок",
         tabUpload: "Файл жүктөө",
         tabYouTube: "YouTube шилтемеси",
+        tabTranslate: "Текст которуу",
         dropzoneText: "Аудио/видеону бул жерге сүйрөп алып келиңиз же басып көрүңүз",
         youtubeLabel: "YouTube шилтемеси",
+        translateTextLabel: "Которула турган текст",
+        translateTextPlaceholder: "Которула турган текстти киргизиңиз...",
+        translateTextButton: "Которуу",
         startBtn: "Баштоо",
         progressStarting: "Башталууда...",
         resultTitle: "Таануу",
@@ -274,6 +296,7 @@
         errorSelectFile: "Алгач файл тандаңыз",
         errorFileTooLarge: "Файл өтө чоң ({size} МБ). Максимум 25 МБ.",
         errorEnterUrl: "YouTube шилтемесин киргизиңиз",
+        errorEnterText: "Которула турган текстти киргизиңиз",
         errorUploadFailed: "Жүктөө ката. Туташууну текшерип, кайра аракет кылыңыз.",
         errorUploadCancelled: "Жүктөө токтотулду.",
         errorUploadTimeout: "Жүктөө убактысы бүттү. Файл өтө чоң же туташуу жай.",
@@ -295,8 +318,12 @@
         noTranslation: "Бе тарҷума",
         tabUpload: "Боргузории файл",
         tabYouTube: "Пайванди YouTube",
+        tabTranslate: "Тарҷумаи матн",
         dropzoneText: "Аудио/видео-ро ба ин ҷо кашида оред ё барои интихоб кардан пахш кунед",
         youtubeLabel: "Пайванди YouTube",
+        translateTextLabel: "Матни тарҷума",
+        translateTextPlaceholder: "Матни тарҷумаашро ворид кунед...",
+        translateTextButton: "Тарҷума",
         startBtn: "Оғоз",
         progressStarting: "Оғоз шуда истодааст...",
         resultTitle: "Шиносоӣ",
@@ -312,6 +339,7 @@
         errorSelectFile: "Аввал файлро интихоб кунед",
         errorFileTooLarge: "Файл хеле калон аст ({size} МБ). Ҳадди аксар 25 МБ.",
         errorEnterUrl: "Пайванди YouTube-ро ворид кунед",
+        errorEnterText: "Матни тарҷумаашро воред",
         errorUploadFailed: "Хатои боргузорӣ. Пайвастшавиро тафтиш кунед ва аз нав кӯшиш кунед.",
         errorUploadCancelled: "Боргузорӣ бекор карда шуд.",
         errorUploadTimeout: "Вақти боргузорӣ ба охир расид. Файл хеле калон аст ё пайвастшавӣ суст аст.",
@@ -333,8 +361,12 @@
         noTranslation: "Tarjimasiz",
         tabUpload: "Fayl yuklash",
         tabYouTube: "YouTube havolasi",
+        tabTranslate: "Matn tarjima",
         dropzoneText: "Audio/videoni bu yerga sudrab olib keling yoki ko'rish uchun bosing",
         youtubeLabel: "YouTube havolasi",
+        translateTextLabel: "Tarjima qilinadigan matn",
+        translateTextPlaceholder: "Tarjima qilinadigan matnni kiriting...",
+        translateTextButton: "Tarjima",
         startBtn: "Boshlash",
         progressStarting: "Boshlanmoqda...",
         resultTitle: "Tanish",
@@ -350,6 +382,7 @@
         errorSelectFile: "Avval faylni tanlang",
         errorFileTooLarge: "Fayl juda katta ({size} MB). Maksimum 25 MB.",
         errorEnterUrl: "YouTube havolasini kiriting",
+        errorEnterText: "Tarjima qilinadigan matnni kiriting",
         errorUploadFailed: "Yuklash xatosi. Ulanishni tekshirib, qayta urinib ko'ring.",
         errorUploadCancelled: "Yuklash bekor qilindi.",
         errorUploadTimeout: "Yuklash vaqti tugadi. Fayl juda katta yoki ulanish sekin.",
@@ -403,6 +436,10 @@
           el.textContent = text;
         }
       });
+      document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+        const key = el.dataset.i18nPlaceholder;
+        el.placeholder = t(key);
+      });
 
       // Update language switcher button
       const flag = UI_LANG_FLAGS[currentUiLang];
@@ -439,7 +476,8 @@
     const fileName = document.getElementById("fileName");
     const youtubeUrl = document.getElementById("youtubeUrl");
     const tabs = document.querySelectorAll("[role='tablist'] .tab");
-    const panels = { file: document.getElementById("panel-file"), youtube: document.getElementById("panel-youtube") };
+    const panels = { file: document.getElementById("panel-file"), youtube: document.getElementById("panel-youtube"), text: document.getElementById("panel-text") };
+    const sourceLangWrap = document.getElementById("sourceLang").closest(".form-control");
     const startBtn = document.getElementById("startBtn");
     const progressWrap = document.getElementById("progressWrap");
     const progressBar = document.getElementById("progressBar");
@@ -489,6 +527,8 @@
         Object.entries(panels).forEach(([k, el]) => {
           el.style.display = k === key ? "block" : "none";
         });
+        sourceLangWrap.style.display = key === "text" ? "none" : "block";
+        startBtn.textContent = key === "text" ? t("translateTextButton") || t("startBtn") : t("startBtn");
       });
     });
 
@@ -748,6 +788,26 @@
         const activeTab = document.querySelector(".tab-active").dataset.tab;
 
         let data;
+        if (activeTab === "text") {
+          const text = document.getElementById("translateText").value.trim();
+          if (!text) throw new Error(t("errorEnterText"));
+          if (targetLang === "none") throw new Error(t("errorEnterText"));
+          const res = await fetch(API + "/api/web/translate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, targetLang }),
+          });
+          try {
+            data = await res.json();
+          } catch {
+            const text = await res.text().catch(() => "");
+            throw new Error(text || `Server returned ${res.status}`);
+          }
+          if (!res.ok) throw new Error(data.error || t("translationFailed"));
+          renderDirectTranslation(data, targetLang);
+          return;
+        }
+
         if (activeTab === "file") {
           if (!currentFile) throw new Error(t("errorSelectFile"));
           if (currentFile.size > MAX_FILE_BYTES) {
@@ -782,6 +842,28 @@
       } catch (err) {
         showError(err.message);
       }
+    }
+
+    function renderDirectTranslation(data, targetLang) {
+      currentCleanText = data.translatedText;
+      currentDetectedLang = data.detectedLang;
+      currentRequestNumber = data.requestId || null;
+      currentDownloadText = data.translatedText;
+      currentDownloadFilename = "translation_" + Date.now() + ".txt";
+
+      resultTitle.textContent = SUPPORTED_LANGS[targetLang] || targetLang;
+      resultText.textContent = data.translatedText;
+      resultMeta.textContent = (data.requestId ? t("request") + " #" + data.requestId : "") +
+        (data.warning ? " · " + data.warning : "");
+      translationWarning.classList.add("hidden");
+      translateButtons.style.display = "none";
+      segmentsBox.style.display = "none";
+      originalDetails.classList.add("hidden");
+      translationResults.innerHTML = "";
+
+      resultBox.classList.remove("hidden");
+      progressWrap.classList.add("hidden");
+      startBtn.disabled = false;
     }
 
     function listenProgress(jobId) {
