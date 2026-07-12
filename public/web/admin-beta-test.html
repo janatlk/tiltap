@@ -48,6 +48,40 @@
     </header>
     <div class="text-xs text-base-content/60" id="buildInfo">Loading build info…</div>
 
+    <div class="card bg-base-100 shadow-sm border border-primary/20">
+      <div class="card-body space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="card-title text-lg">Cobalt API Manager</h2>
+          <span class="text-xs text-base-content/60" id="cobaltStatus">Loading…</span>
+        </div>
+        <p class="text-sm opacity-80">Add community Cobalt API instances without Turnstile. The list is applied immediately and persists across restarts.</p>
+
+        <div class="flex flex-col sm:flex-row gap-2">
+          <input type="text" id="newCobaltUrl" class="input input-bordered flex-1" placeholder="https://api.cobalt.example.com/">
+          <button id="addCobaltUrlBtn" class="btn btn-primary">Add</button>
+        </div>
+
+        <div class="form-control max-w-xl">
+          <label class="label" for="cobaltTestUrl"><span class="label-text text-xs">Test video URL</span></label>
+          <input type="text" id="cobaltTestUrl" class="input input-bordered w-full" value="https://www.youtube.com/watch?v=dQw4w9WgXcQ">
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr><th>URL</th><th>Status</th><th class="text-right">Actions</th></tr>
+            </thead>
+            <tbody id="cobaltUrlsTable"></tbody>
+          </table>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button id="testAllCobaltBtn" class="btn btn-sm btn-secondary">Test all</button>
+          <button id="resetCobaltBtn" class="btn btn-sm btn-ghost">Reset to defaults</button>
+        </div>
+      </div>
+    </div>
+
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body">
         <div class="form-control max-w-xl">
@@ -210,9 +244,137 @@
         document.getElementById("buildInfo").textContent = "Build info unavailable";
       });
 
+    // Cobalt API Manager
+    const cobaltUrlsTable = document.getElementById("cobaltUrlsTable");
+    const newCobaltUrl = document.getElementById("newCobaltUrl");
+    const addCobaltUrlBtn = document.getElementById("addCobaltUrlBtn");
+    const cobaltTestUrl = document.getElementById("cobaltTestUrl");
+    const testAllCobaltBtn = document.getElementById("testAllCobaltBtn");
+    const resetCobaltBtn = document.getElementById("resetCobaltBtn");
+    const cobaltStatus = document.getElementById("cobaltStatus");
+    let cobaltUrls = [];
+
+    async function cobaltApi(path, options = {}) {
+      const res = await fetch("/api/admin/cobalt" + path, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Admin-Token": adminToken.value,
+          ...options.headers,
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      return data;
+    }
+
+    function renderCobaltUrls() {
+      cobaltUrlsTable.innerHTML = "";
+      if (cobaltUrls.length === 0) {
+        cobaltUrlsTable.innerHTML = '<tr><td colspan="3" class="opacity-60">No custom Cobalt APIs configured. Using built-in defaults.</td></tr>';
+      }
+      cobaltUrls.forEach((url, idx) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td class="font-mono text-xs break-all">${escapeHtml(url)}</td>
+          <td class="cobalt-status" data-idx="${idx}">—</td>
+          <td class="text-right space-x-1">
+            <button class="btn btn-xs btn-outline test-cobalt" data-idx="${idx}">Test</button>
+            <button class="btn btn-xs btn-error btn-outline remove-cobalt" data-idx="${idx}">Remove</button>
+          </td>
+        `;
+        cobaltUrlsTable.appendChild(tr);
+      });
+      cobaltStatus.textContent = `${cobaltUrls.length} custom URL(s)`;
+    }
+
+    async function loadCobaltConfig() {
+      try {
+        const data = await cobaltApi("");
+        cobaltUrls = data.urls || [];
+        renderCobaltUrls();
+      } catch (err) {
+        cobaltStatus.textContent = "Error loading config";
+        console.error(err);
+      }
+    }
+
+    async function saveCobaltConfig() {
+      await cobaltApi("", { method: "POST", body: JSON.stringify({ urls: cobaltUrls }) });
+      renderCobaltUrls();
+    }
+
+    async function testCobaltUrl(url, statusCell) {
+      statusCell.textContent = "Testing…";
+      statusCell.className = "cobalt-status";
+      try {
+        const data = await cobaltApi("/test", { method: "POST", body: JSON.stringify({ url, testUrl: cobaltTestUrl.value }) });
+        if (data.ok) {
+          statusCell.textContent = `✅ OK (${data.latencyMs}ms)`;
+          statusCell.classList.add("text-success");
+        } else {
+          statusCell.textContent = `❌ ${data.error || data.status || "failed"}`;
+          statusCell.classList.add("text-error");
+        }
+      } catch (err) {
+        statusCell.textContent = `❌ ${err.message}`;
+        statusCell.classList.add("text-error");
+      }
+    }
+
+    addCobaltUrlBtn.addEventListener("click", async () => {
+      const url = newCobaltUrl.value.trim();
+      if (!url) return;
+      try {
+        new URL(url);
+      } catch {
+        alert("Invalid URL");
+        return;
+      }
+      if (!cobaltUrls.includes(url)) {
+        cobaltUrls.push(url);
+        await saveCobaltConfig();
+      }
+      newCobaltUrl.value = "";
+    });
+
+    cobaltUrlsTable.addEventListener("click", async (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      const idx = Number(btn.dataset.idx);
+      if (btn.classList.contains("remove-cobalt")) {
+        cobaltUrls.splice(idx, 1);
+        await saveCobaltConfig();
+      } else if (btn.classList.contains("test-cobalt")) {
+        const cell = cobaltUrlsTable.querySelector(`.cobalt-status[data-idx="${idx}"]`);
+        await testCobaltUrl(cobaltUrls[idx], cell);
+      }
+    });
+
+    testAllCobaltBtn.addEventListener("click", async () => {
+      for (let i = 0; i < cobaltUrls.length; i++) {
+        const cell = cobaltUrlsTable.querySelector(`.cobalt-status[data-idx="${i}"]`);
+        await testCobaltUrl(cobaltUrls[i], cell);
+      }
+    });
+
+    resetCobaltBtn.addEventListener("click", async () => {
+      if (!confirm("Remove all custom Cobalt APIs and revert to built-in defaults?")) return;
+      cobaltUrls = [];
+      await saveCobaltConfig();
+    });
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[c]);
+    }
+
     function getStoredToken() { return localStorage.getItem("tiltab_admin_token") || ""; }
     adminToken.value = getStoredToken();
-    adminToken.addEventListener("change", () => localStorage.setItem("tiltab_admin_token", adminToken.value));
+    adminToken.addEventListener("change", () => {
+      localStorage.setItem("tiltab_admin_token", adminToken.value);
+      loadCobaltConfig();
+    });
+    loadCobaltConfig();
 
     async function loadModels() {
       try {

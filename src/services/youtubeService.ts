@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { logger } from "../utils/logger";
 import { transcribeAudio, type TranscriptionProgress } from "./transcriptionService";
+import { getCobaltApiUrlsEnv } from "./cobaltConfigService";
 import type { TranscriptionResult } from "../types";
 
 const FFMPEG_PATH = require("ffmpeg-static");
@@ -15,6 +16,15 @@ export interface MediaValidation {
   duration?: number;
   reason?: string;
   error?: string;
+}
+
+function getCobaltEnv(): NodeJS.ProcessEnv {
+  const cobaltUrls = getCobaltApiUrlsEnv();
+  return {
+    ...process.env,
+    PYTHONIOENCODING: "utf-8",
+    ...(cobaltUrls ? { COBALT_API_URLS: cobaltUrls } : {}),
+  };
 }
 
 function detectMissingDependency(stderr: string): boolean {
@@ -45,7 +55,7 @@ export async function validateMediaUrl(url: string): Promise<MediaValidation> {
   return new Promise((resolve) => {
     const proc = spawn(PYTHON_PATH, ["validate_youtube.py", url], {
       cwd: process.cwd(),
-      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+      env: getCobaltEnv(),
     });
 
     let stdout = "";
@@ -131,7 +141,7 @@ export async function downloadMediaAudio(
   const pid = await new Promise<number>((resolve, reject) => {
     const proc = spawn(PYTHON_PATH, ["download_youtube.py", url, FFMPEG_PATH, tmpWav], {
       cwd: process.cwd(),
-      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+      env: getCobaltEnv(),
     });
 
     if (abortSignal) {

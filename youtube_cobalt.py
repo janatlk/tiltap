@@ -19,7 +19,6 @@ import requests
 # from Hetzner; most other public instances now require JWT or are blocked.
 DEFAULT_COBALT_APIS = [
     "https://api.cobalt.liubquanti.click/",
-    "https://rue-cobalt.xenon.zone/",
 ]
 
 COBALT_TIMEOUT = 45

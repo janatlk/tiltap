@@ -360,3 +360,59 @@ export async function getLiveProcesses(_req: Request, res: Response): Promise<vo
     res.status(500).json({ error: "Internal server error" });
   }
 }
+
+import {
+  getConfiguredCobaltUrls,
+  setConfiguredCobaltUrls,
+  testCobaltApiUrl,
+} from "../services/cobaltConfigService";
+
+export async function getCobaltConfig(req: Request, res: Response): Promise<void> {
+  if (!isAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    const urls = getConfiguredCobaltUrls();
+    res.json({ urls, configured: urls.length > 0 });
+  } catch (err) {
+    logger.error("Admin get cobalt config error", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+export async function saveCobaltConfig(req: Request, res: Response): Promise<void> {
+  if (!isAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    const urls = Array.isArray(req.body.urls) ? req.body.urls : [];
+    const saved = setConfiguredCobaltUrls(urls);
+    logger.info("Cobalt API URLs updated", { count: saved.length, urls: saved });
+    res.json({ urls: saved, configured: saved.length > 0 });
+  } catch (err) {
+    logger.error("Admin save cobalt config error", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+export async function testCobaltConfig(req: Request, res: Response): Promise<void> {
+  if (!isAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    const url = String(req.body.url || "");
+    const testUrl = req.body.testUrl ? String(req.body.testUrl) : undefined;
+    if (!url) {
+      res.status(400).json({ error: "Missing url" });
+      return;
+    }
+    const result = await testCobaltApiUrl(url, testUrl);
+    res.json(result);
+  } catch (err) {
+    logger.error("Admin test cobalt config error", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Internal server error" });
+  }
+}

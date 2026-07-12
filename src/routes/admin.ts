@@ -12,6 +12,9 @@ import {
   listWebJobs,
   getWebJobByRequestNumber,
   getLiveProcesses,
+  getCobaltConfig,
+  saveCobaltConfig,
+  testCobaltConfig,
 } from "../controllers/adminController";
 
 const router = Router();
@@ -32,5 +35,9 @@ router.post("/translations/:hash/:lang/confirm", confirmTranslationEntry);
 router.post("/translations/confirm", confirmTranslationEntry);
 router.post("/translations/:hash/:lang/reject", rejectTranslationEntry);
 router.delete("/translations/:hash/:lang", deleteTranslationEntry);
+
+router.get("/cobalt", getCobaltConfig);
+router.post("/cobalt", saveCobaltConfig);
+router.post("/cobalt/test", testCobaltConfig);
 
 export default router;
