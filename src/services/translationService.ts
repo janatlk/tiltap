@@ -3,11 +3,18 @@ import { config } from "../config";
 import type { TranslateRequest, TranslateResponse } from "../types";
 import { normalizeLanguageCodeOrKeep } from "../utils/languageCodes";
 import { latinToCyrillic } from "../utils/uzbekTransliteration";
+import { similarity } from "../utils/textSimilarity";
 import { createHash } from "crypto";
 import * as translationRepo from "../db/repos/translationRepo";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const AZURE_TRANSLATOR_API_VERSION = "3.0";
+
+// Azure Translator character cost (USD per character).
+const AZURE_TRANSLATOR_COST_PER_CHAR = 10 / 1_000_000;
+// Yandex Translate character cost (USD per character).
+const YANDEX_TRANSLATE_COST_PER_CHAR = 4.101_638_688 / 1_000_000;
 
 const languageNames: Record<string, string> = {
   ru: "Russian",
@@ -163,6 +170,158 @@ async function translateWithLingva(req: TranslateRequest): Promise<TranslateResp
   return {
     translatedText: translatedChunks.join("\n\n"),
     detectedLang: source === "auto" ? "auto" : source,
+    costUsd: 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Azure Translator — cheap paid NMT fallback
+// ---------------------------------------------------------------------------
+
+function mapAzureLanguage(code: string | undefined): string {
+  if (!code || code === "auto" || code === "multi") return "auto";
+  const normalized = normalizeLanguageCodeOrKeep(code) ?? code;
+  // Azure uses ISO 639-1 codes like Lingva/Google.
+  if (normalized === "uz_cyrl") return "uz";
+  return normalized;
+}
+
+async function translateWithAzure(req: TranslateRequest): Promise<TranslateResponse> {
+  const key = config.AZURE_TRANSLATOR_KEY;
+  if (!key) {
+    throw new Error("AZURE_TRANSLATOR_KEY is not configured");
+  }
+
+  const endpoint = (config.AZURE_TRANSLATOR_ENDPOINT || "https://api.cognitive.microsofttranslator.com").replace(/\/$/, "");
+  const region = config.AZURE_TRANSLATOR_REGION;
+  const source = mapAzureLanguage(req.sourceLang);
+  const target = mapAzureLanguage(req.targetLang);
+  const chunkSize = 5000; // Azure max request size is 50K chars; keep chunks safe.
+  const chunks = chunkText(req.text, chunkSize);
+
+  logger.info("Azure Translator started", { chunks: chunks.length, target, source });
+
+  const params = new URLSearchParams({ "api-version": AZURE_TRANSLATOR_API_VERSION, to: target });
+  if (source !== "auto") params.set("from", source);
+  const url = `${endpoint}/translate?${params.toString()}`;
+
+  const translatedChunks: string[] = [];
+  let totalChars = 0;
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    totalChars += chunk.length;
+    const headers: Record<string, string> = {
+      "Ocp-Apim-Subscription-Key": key,
+      "Content-Type": "application/json",
+    };
+    if (region && region.toLowerCase() !== "global") {
+      headers["Ocp-Apim-Subscription-Region"] = region;
+    }
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify([{ Text: chunk }]),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Azure Translator failed (${res.status}): ${body}`);
+    }
+
+    const data = (await res.json()) as Array<{
+      translations: Array<{ text: string; to: string }>;
+    }>;
+    const text = data[0]?.translations?.[0]?.text;
+    if (typeof text !== "string") {
+      throw new Error("Azure Translator returned unexpected response format");
+    }
+    translatedChunks.push(text);
+  }
+
+  const costUsd = totalChars * AZURE_TRANSLATOR_COST_PER_CHAR;
+  logger.info("Azure Translator finished", { chunks: chunks.length, totalChars, costUsd });
+
+  return {
+    translatedText: translatedChunks.join("\n\n"),
+    detectedLang: source === "auto" ? "auto" : source,
+    costUsd,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Yandex Translate — cheap paid NMT fallback, strong for Russian pairs
+// ---------------------------------------------------------------------------
+
+function mapYandexLanguage(code: string | undefined): string {
+  if (!code || code === "auto" || code === "multi") return "auto";
+  const normalized = normalizeLanguageCodeOrKeep(code) ?? code;
+  if (normalized === "uz_cyrl") return "uz";
+  return normalized;
+}
+
+async function translateWithYandex(req: TranslateRequest): Promise<TranslateResponse> {
+  const key = config.YANDEX_TRANSLATE_API_KEY;
+  if (!key) {
+    throw new Error("YANDEX_TRANSLATE_API_KEY is not configured");
+  }
+
+  const endpoint = (config.YANDEX_TRANSLATE_ENDPOINT || "https://translate.api.cloud.yandex.net/translate/v2/translate").replace(/\/$/, "");
+  const folderId = config.YANDEX_TRANSLATE_FOLDER_ID;
+  const source = mapYandexLanguage(req.sourceLang);
+  const target = mapYandexLanguage(req.targetLang);
+
+  // Yandex recommends max ~10K chars per request.
+  const chunkSize = 5000;
+  const chunks = chunkText(req.text, chunkSize);
+
+  logger.info("Yandex Translate started", { chunks: chunks.length, target, source });
+
+  const translatedChunks: string[] = [];
+  let totalChars = 0;
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    totalChars += chunk.length;
+
+    const body: Record<string, unknown> = {
+      targetLanguageCode: target,
+      texts: [chunk],
+      format: "PLAIN_TEXT",
+    };
+    if (source !== "auto") body.sourceLanguageCode = source;
+    if (folderId) body.folderId = folderId;
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Api-Key ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Yandex Translate failed (${res.status}): ${text}`);
+    }
+
+    const data = (await res.json()) as { translations: Array<{ text: string }> };
+    const translated = data.translations?.[0]?.text;
+    if (typeof translated !== "string") {
+      throw new Error("Yandex Translate returned unexpected response format");
+    }
+    translatedChunks.push(translated);
+  }
+
+  const costUsd = totalChars * YANDEX_TRANSLATE_COST_PER_CHAR;
+  logger.info("Yandex Translate finished", { chunks: chunks.length, totalChars, costUsd });
+
+  return {
+    translatedText: translatedChunks.join("\n\n"),
+    detectedLang: source === "auto" ? "auto" : source,
+    costUsd,
   };
 }
 
@@ -177,40 +336,11 @@ function buildSystemPrompt(targetName: string, sourceName?: string): string {
       : `into ${targetName}`;
 
   return (
-    "You are a highly disciplined translator. Your sole task is to translate the SOURCE text " +
-    sourceHint +
-    ".\n\n" +
-    "The SOURCE text will be provided in the next user message inside <SOURCE></SOURCE> tags. " +
-    "Follow these rules precisely:\n\n" +
-    "1. Complete translation: translate every sentence and every word. Do not omit anything. " +
-    "Do not leave any fragments in the source language.\n" +
-    "2. Sentence-level fidelity: preserve the sentence structure of the source. " +
-    "Do not merge two source sentences into one. Do not split one source sentence into several " +
-    "unless the grammar of " +
-    targetName +
-    " absolutely requires it.\n" +
-    "3. No additions or inferences: do not add explanations, headings, summaries, commentary, " +
-    "or background information. Do not infer facts, emotions, judgements, or causes that are not " +
-    "explicitly present in the source.\n" +
-    "4. Preserve names and proper nouns: keep names of people, places, organizations, books, " +
-    "brands, and abbreviations accurate. Use the established " +
-    targetName +
-    " form when one exists " +
-    "(for example, the writer Mo Yan should be rendered as Мо Янь in Russian). " +
-    "If no established form exists, transliterate consistently. Do not invent, shorten, " +
-    "normalize, or replace names.\n" +
-    "5. Consistent terminology: choose one target-language equivalent for each recurring term " +
-    "and use it throughout the text. Do not switch synonyms arbitrarily.\n" +
-    "6. Preserve tone and register: translate interviews as interviews, spoken style as spoken, " +
-    "formal text as formal. Do not make the text more ideological, more emotional, or more literary " +
-    "than the source.\n" +
-    "7. Preserve repetitions: if the source repeats a phrase or question, keep the repetition. " +
-    "Do not delete duplicates unless they are obvious speech-disfluency artifacts.\n" +
-    "8. Numbers and dates: keep them exact and in the same order as the source.\n" +
-    "9. Ambiguous or unclear words: translate literally rather than guessing or smoothing over.\n" +
-    "10. Ideological neutrality: do not intensify, soften, or reframe meaning. " +
-    "For example, do not turn 'certain risks for humanity' into 'a threat to the nation'.\n\n" +
-    "Output only the translation. No markdown, no XML tags, no code fences, no explanations."
+    `Translate the SOURCE text ${sourceHint}. ` +
+    "Rules: translate every sentence and word; preserve sentence structure and repetitions; " +
+    "keep names, numbers, and dates accurate; use established target-language forms for names when they exist; " +
+    "do not add, omit, infer, reframe, or explain. " +
+    "Output only the translation, no markdown, no XML, no notes."
   );
 }
 
@@ -227,7 +357,7 @@ function buildPayload(
       { role: "system", content: buildSystemPrompt(targetName, sourceName) },
       {
         role: "user",
-        content: `<SOURCE>\n${text}\n</SOURCE>\n\nTranslate the SOURCE text exactly according to the rules above.`,
+        content: `<SOURCE>\n${text}\n</SOURCE>`,
       },
     ],
     temperature: 0.0,
@@ -244,7 +374,7 @@ async function callTranslationProvider(
   payload: object,
   providerName: string,
   maxTokens?: number
-): Promise<string> {
+): Promise<{ text: string; costUsd: number }> {
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -268,7 +398,7 @@ async function callTranslationProvider(
 
   const model = (payload as { model?: string }).model ?? data.model ?? "unknown";
   const completionTokens = data.usage?.completion_tokens ?? 0;
-  logTranslationCost(providerName.toLowerCase(), model, data.usage?.prompt_tokens ?? 0, completionTokens);
+  const costUsd = logTranslationCost(providerName.toLowerCase(), model, data.usage?.prompt_tokens ?? 0, completionTokens);
 
   if (maxTokens && completionTokens >= maxTokens) {
     logger.warn(`${providerName} translation hit max_tokens and may be truncated`, {
@@ -279,18 +409,28 @@ async function callTranslationProvider(
     throw new TranslationTruncatedError(providerName);
   }
 
-  return data.choices[0]?.message?.content?.trim() ?? "";
+  return { text: data.choices[0]?.message?.content?.trim() ?? "", costUsd };
 }
 
-function logTranslationCost(provider: string, model: string, promptTokens: number, completionTokens: number) {
+function logTranslationCost(provider: string, model: string, promptTokens: number, completionTokens: number): number {
   const prices: Record<string, { prompt: number; completion: number }> = {
     "gpt-4o-mini": { prompt: 0.15, completion: 0.6 },
     "gpt-4o": { prompt: 2.5, completion: 10.0 },
-    "llama-3.3-70b-versatile": { prompt: 0, completion: 0 },
+    "gpt-4.1-mini": { prompt: 0.4, completion: 1.6 },
+    "gpt-4.1": { prompt: 2.0, completion: 8.0 },
+    "llama-3.3-70b-versatile": { prompt: 0.59, completion: 0.79 },
   };
   const price = prices[model] ?? { prompt: 0, completion: 0 };
   const costUsd = (promptTokens * price.prompt + completionTokens * price.completion) / 1_000_000;
   logger.info("Translation cost", { provider, model, promptTokens, completionTokens, costUsd: Math.round(costUsd * 1e6) / 1e6 });
+  return costUsd;
+}
+
+// Avoid over-allocating output tokens: the translation is roughly the same size
+// as the source, so reserve input-length/3 plus a small margin, capped by the
+// user-configured limit.
+function estimateMaxTokens(text: string, cap: number): number {
+  return Math.min(cap, Math.max(256, Math.ceil(text.length / 3) + 256));
 }
 
 function isRetryableError(status: number, body: string): boolean {
@@ -329,18 +469,18 @@ async function translateWithOpenAI(
   }
 
   const model = config.TILTAB_TRANSLATION_MODEL || "gpt-4o-mini";
-  const maxTokens = config.TILTAB_TRANSLATION_MAX_TOKENS || 4096;
+  const maxTokens = estimateMaxTokens(req.text, config.TILTAB_TRANSLATION_MAX_TOKENS || 4096);
 
   if (openaiKey) {
     try {
-      const translatedText = await callTranslationProvider(
+      const { text: translatedText, costUsd } = await callTranslationProvider(
         OPENAI_API_URL,
         openaiKey,
         buildPayload(targetName, sourceName, req.text, model, maxTokens),
         "OpenAI",
         maxTokens
       );
-      logger.info("Translated with OpenAI", { targetLang: req.targetLang, model });
+      logger.info("Translated with OpenAI", { targetLang: req.targetLang, model, costUsd });
       await translationRepo.saveTranslationCache({
         sourceHash: hash,
         sourceText: req.text,
@@ -349,8 +489,9 @@ async function translateWithOpenAI(
         translatedText,
         provider: "openai",
         model,
+        costUsd,
       });
-      return { translatedText, detectedLang: sourceLang };
+      return { translatedText, detectedLang: sourceLang, costUsd };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       logger.warn("OpenAI translation failed", { error: errorMessage, fallbackToGroq: Boolean(groqKey) });
@@ -368,14 +509,14 @@ async function translateWithOpenAI(
 
   const groqModel = config.TILTAB_GROQ_TRANSLATION_MODEL;
   try {
-    const translatedText = await callTranslationProvider(
+    const { text: translatedText, costUsd } = await callTranslationProvider(
       GROQ_API_URL,
       groqKey,
       buildPayload(targetName, sourceName, req.text, groqModel, maxTokens),
       "Groq",
       maxTokens
     );
-    logger.info("Translated with Groq fallback", { targetLang: req.targetLang, model: groqModel });
+    logger.info("Translated with Groq fallback", { targetLang: req.targetLang, model: groqModel, costUsd });
     await translationRepo.saveTranslationCache({
       sourceHash: hash,
       sourceText: req.text,
@@ -384,22 +525,12 @@ async function translateWithOpenAI(
       translatedText,
       provider: "groq",
       model: groqModel,
+      costUsd,
     });
-    return { translatedText, detectedLang: sourceLang };
+    return { translatedText, detectedLang: sourceLang, costUsd };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.warn("OpenAI and Groq translation failed, trying free fallback", { error: msg });
-
-    const isTajikTranslation = req.targetLang === "tg" || sourceLang === "tg";
-    if (config.LINGVA_TRANSLATE_URL && !isTajikTranslation) {
-      const fallback = await translateWithLingva(req);
-      return {
-        translatedText: fallback.translatedText,
-        detectedLang: fallback.detectedLang,
-        warning: `Groq translation failed (${msg}). Used free Lingva/Google Translate fallback — quality may be lower.`,
-      };
-    }
-
+    logger.warn("OpenAI and Groq translation failed", { error: msg });
     throw err;
   }
 }
@@ -413,17 +544,17 @@ async function translateWithGroq(req: TranslateRequest): Promise<TranslateRespon
   const sourceLang = normalizeLanguageCodeOrKeep(req.sourceLang) ?? "auto";
   const sourceName = sourceLang === "auto" ? undefined : (languageNames[sourceLang] ?? sourceLang);
 
-  const maxTokens = config.TILTAB_TRANSLATION_MAX_TOKENS || 4096;
+  const maxTokens = estimateMaxTokens(req.text, config.TILTAB_TRANSLATION_MAX_TOKENS || 4096);
   try {
-    const translatedText = await callTranslationProvider(
+    const { text: translatedText, costUsd } = await callTranslationProvider(
       GROQ_API_URL,
       groqKey,
       buildPayload(targetName, sourceName, req.text, config.TILTAB_GROQ_TRANSLATION_MODEL, maxTokens),
       "Groq",
       maxTokens
     );
-    logger.info("Translated with Groq", { targetLang: req.targetLang });
-    return { translatedText, detectedLang: sourceLang };
+    logger.info("Translated with Groq", { targetLang: req.targetLang, costUsd });
+    return { translatedText, detectedLang: sourceLang, costUsd };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn("Groq translation failed, trying free fallback", { error: msg });
@@ -464,6 +595,32 @@ const sourceSpecificLetters: Record<string, string> = {
   uz_cyrl: "ўқғҳ",
 };
 
+const COMMON_UNTRANSLATED_TERMS = new Set([
+  "google",
+  "translate",
+  "google translate",
+  "youtube",
+  "instagram",
+  "tiktok",
+  "facebook",
+  "whatsapp",
+  "telegram",
+  "twitter",
+  "x",
+  "netflix",
+  "amazon",
+  "apple",
+  "microsoft",
+  "openai",
+  "chatgpt",
+  "gpt",
+  "ai",
+]);
+
+function isCommonUntranslatedTerm(word: string): boolean {
+  return COMMON_UNTRANSLATED_TERMS.has(word.toLowerCase().replace(/[^a-zа-яёўқғҳңөүӯӣҷ0-9]/gi, ""));
+}
+
 function detectUntranslatedFragments(
   text: string,
   sourceLang: string,
@@ -489,12 +646,12 @@ function detectUntranslatedFragments(
 
   if (sourceScript === "cyrillic" && targetScript === "latin") {
     const words = text.match(/[\u0400-\u04FF]{3,}/g);
-    if (words) words.forEach((w) => fragments.add(w));
+    if (words) words.filter((w) => !isCommonUntranslatedTerm(w)).forEach((w) => fragments.add(w));
   }
 
   if (sourceScript === "latin" && targetScript === "cyrillic") {
     const words = text.match(/[a-zA-Z]{4,}/g);
-    if (words) words.forEach((w) => fragments.add(w));
+    if (words) words.filter((w) => !isCommonUntranslatedTerm(w)).forEach((w) => fragments.add(w));
   }
 
   return Array.from(fragments).slice(0, 10);
@@ -509,24 +666,15 @@ function buildReviewPayload(
   maxTokens?: number
 ): object {
   const prompt =
-    `You are a senior translation quality reviewer. A text was translated from ${sourceName} into ${targetName}.\n\n` +
-    `Review the current translation against the source. Produce a corrected translation that fixes ONLY these issues:\n` +
-    `1. Untranslated fragments still in ${sourceName}. Translate them into ${targetName}.\n` +
-    `2. Inconsistent names, places, or terms (e.g. "Issyk-Kul forum" vs "forum in Issyk-Kul"). Pick one standard form and use it throughout.\n` +
-    `3. Hallucinated or invented names that do not appear in the source. Remove or replace them with [?].\n` +
-    `4. Awkward or ungrammatical phrasing in ${targetName}.\n\n` +
-    `Rules:\n` +
-    `- Preserve the original meaning exactly. Do NOT summarize, expand, or change the message.\n` +
-    `- Do NOT translate names of people, places, organizations, or brands unless there is a well-established ${targetName} form.\n` +
-    `- Keep numbers, dates, and proper nouns accurate.\n` +
-    `- Maintain paragraph structure.\n` +
-    `- Return a JSON object with exactly these keys:\n` +
-    `  - "corrected": the full corrected translation in ${targetName}\n` +
-    `  - "issues": a short array of issue types you found (e.g. ["untranslated fragment", "inconsistent name"]), or []\n` +
-    `  - "warning": a concise user-facing sentence in ${targetName} summarizing the problem, or null if no significant issue remains\n` +
-    `- Output ONLY valid JSON, no markdown, no explanations.\n\n` +
-    `Source (${sourceName}):\n${sourceText}\n\n` +
-    `Current translation (${targetName}):\n${translatedText}`;
+    `Review a translation from ${sourceName} to ${targetName}. ` +
+    `You may fix only: untranslated fragments, inconsistent names/terms, invented names, or awkward phrasing. ` +
+    `Preserve meaning exactly; do not add, remove, reframe, or explain. ` +
+    `If the translation is already accurate and natural, return corrected identical to the Translation, issues=[], warning=null. ` +
+    `Return warning only when a concrete problem remains that a user should know about. ` +
+    `Do not warn about minor style differences or awkward phrasing that you have already corrected. ` +
+    `Return JSON: {"corrected":"...","issues":[],"warning":null|string}. No markdown.\n\n` +
+    `Source:\n${sourceText}\n\n` +
+    `Translation:\n${translatedText}`;
 
   const payload: Record<string, unknown> = {
     model,
@@ -567,10 +715,11 @@ function parseReviewResponse(raw: string): {
 async function reviewTranslation(
   req: TranslateRequest,
   translatedText: string,
-  providerName: "groq" | "openai"
-): Promise<{ reviewedText: string; warning?: string }> {
+  providerName: "groq" | "openai",
+  previousCostUsd = 0
+): Promise<{ reviewedText: string; warning?: string; costUsd: number }> {
   if (!config.TILTAB_REVIEW_ENABLED) {
-    return { reviewedText: translatedText };
+    return { reviewedText: translatedText, costUsd: previousCostUsd };
   }
 
   const sourceLang = normalizeLanguageCodeOrKeep(req.sourceLang) ?? "auto";
@@ -586,7 +735,7 @@ async function reviewTranslation(
       combinedLength,
       maxReviewInputChars,
     });
-    return { reviewedText: translatedText };
+    return { reviewedText: translatedText, costUsd: previousCostUsd };
   }
 
   const url = providerName === "groq" ? GROQ_API_URL : OPENAI_API_URL;
@@ -597,36 +746,51 @@ async function reviewTranslation(
       : config.TILTAB_REVIEW_MODEL || config.TILTAB_TRANSLATION_MODEL || "gpt-4o-mini";
 
   if (!key) {
-    return { reviewedText: translatedText };
+    return { reviewedText: translatedText, costUsd: previousCostUsd };
   }
 
-  const maxTokens = config.TILTAB_REVIEW_MAX_TOKENS || 4096;
-  const raw = await callTranslationProvider(
+  const maxTokens = estimateMaxTokens(req.text + translatedText, config.TILTAB_REVIEW_MAX_TOKENS || 4096);
+  const { text: raw, costUsd: reviewCostUsd } = await callTranslationProvider(
     url,
     key,
     buildReviewPayload(req.text, translatedText, sourceName, targetName, model, maxTokens),
     `${providerName}-review`,
     maxTokens
   );
+  const totalCostUsd = previousCostUsd + reviewCostUsd;
   const parsed = parseReviewResponse(raw);
-  logger.info("Translation review complete", {
+
+  let reviewedText = parsed.corrected || translatedText;
+  const reviewSimilarity = similarity(translatedText, reviewedText);
+  if (reviewSimilarity < 0.75) {
+    logger.warn("Review changed translation too much; discarding correction", {
+      sourceLang,
+      targetLang: req.targetLang,
+      provider: providerName,
+      similarity: reviewSimilarity,
+    });
+    reviewedText = translatedText;
+  }
+
+  logger.info("Translation review complete", { totalCostUsd, reviewCostUsd,
     sourceLang,
     targetLang: req.targetLang,
     provider: providerName,
     issues: parsed.issues,
   });
 
-  const heuristicFragments = detectUntranslatedFragments(
-    parsed.corrected || translatedText,
-    sourceLang,
-    req.targetLang
-  );
-  let warning = parsed.warning ?? undefined;
-  if (!warning && heuristicFragments.length > 0) {
-    warning = `В переводе могут остаться непереведённые фрагменты: ${heuristicFragments.join(", ")}.`;
+  const heuristicFragments = detectUntranslatedFragments(reviewedText, sourceLang, req.targetLang);
+  let warning: string | undefined;
+  if (parsed.issues.length > 0 || heuristicFragments.length > 0) {
+    warning = parsed.warning ?? undefined;
+    if (!warning && heuristicFragments.length > 0) {
+      warning = `В переводе могут остаться непереведённые фрагменты: ${heuristicFragments.join(", ")}.`;
+    }
+  } else if (parsed.warning) {
+    logger.info("Ignoring generic review warning", { warning: parsed.warning, sourceLang, targetLang: req.targetLang });
   }
 
-  return { reviewedText: parsed.corrected || translatedText, warning };
+  return { reviewedText, warning, costUsd: totalCostUsd };
 }
 
 function mockTranslation(req: TranslateRequest): TranslateResponse {
@@ -634,6 +798,7 @@ function mockTranslation(req: TranslateRequest): TranslateResponse {
   return {
     translatedText: `[MOCK TRANSLATION to ${req.targetLang}]\n\n${req.text}`,
     detectedLang: "auto",
+    costUsd: 0,
   };
 }
 
@@ -681,7 +846,7 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
   // Use OpenAI first; Lingva is not good enough for Tajik.
   const isTajikTranslation = translateReq.targetLang === "tg" || translateReq.sourceLang === "tg";
 
-  let result: TranslateResponse;
+  let result: TranslateResponse | undefined;
 
   // If Daniel's module URL is configured, try to proxy to it first.
   // If it fails, fall through to the normal provider chain instead of failing the request.
@@ -709,32 +874,96 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
 
   // Normal provider chain (no translation module or module failed).
   const provider = config.TILTAB_TRANSLATION_PROVIDER;
+  const hasOpenAi = Boolean(config.OPENAI_API_KEY);
+  const hasGroq = Boolean(config.GROQ_API_KEY);
+  const hasAzure = Boolean(config.AZURE_TRANSLATOR_KEY);
+  const hasYandex = Boolean(config.YANDEX_TRANSLATE_API_KEY);
+  const hasLingva = Boolean(config.LINGVA_TRANSLATE_URL);
+
+  // Tajik and Uzbek Cyrillic strongly prefer LLMs because of script/entity handling.
+  const prefersLlm = isTajikTranslation || translateReq.targetLang === "uz_cyrl";
+
+  async function tryLingva(): Promise<TranslateResponse> {
+    if (!hasLingva) throw new Error("Lingva not configured");
+    return await translateWithLingva(translateReq);
+  }
+  async function tryAzure(): Promise<TranslateResponse> {
+    if (!hasAzure) throw new Error("Azure Translator not configured");
+    return await translateWithAzure(translateReq);
+  }
+  async function tryYandex(): Promise<TranslateResponse> {
+    if (!hasYandex) throw new Error("Yandex Translate not configured");
+    return await translateWithYandex(translateReq);
+  }
+  async function tryOpenAI(): Promise<TranslateResponse> {
+    if (!hasOpenAi && !hasGroq) throw new Error("No LLM provider configured");
+    return await translateWithOpenAI(translateReq);
+  }
 
   if (provider === "lingva" && !isTajikTranslation) {
-    result = await translateWithLingva(translateReq);
+    result = await tryLingva();
+  } else if (provider === "azure") {
+    result = await tryAzure();
+  } else if (provider === "yandex") {
+    result = await tryYandex();
   } else if (provider === "openai") {
-    result = await translateWithOpenAI(translateReq);
+    result = await tryOpenAI();
   } else if (provider === "groq") {
     result = await translateWithGroq(translateReq);
   } else if (provider === "mock") {
     result = mockTranslation(translateReq);
-  } else if (isTajikTranslation && (config.OPENAI_API_KEY || config.GROQ_API_KEY)) {
-    result = await translateWithOpenAI(translateReq);
-  } else if (config.LINGVA_TRANSLATE_URL) {
-    try {
-      result = await translateWithLingva(translateReq);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn("Lingva translation failed, falling back", { error: msg });
-      if (config.OPENAI_API_KEY || config.GROQ_API_KEY) {
-        result = await translateWithOpenAI(translateReq);
-      } else {
-        result = mockTranslation(translateReq);
+  } else if (prefersLlm && (hasOpenAi || hasGroq)) {
+    // Tajik / uz_cyrl: use LLM first for best script/entity handling.
+    result = await tryOpenAI();
+  } else {
+    // Default auto chain: free → cheap paid NMT → LLM → mock.
+    const errors: string[] = [];
+    if (hasLingva) {
+      try {
+        result = await tryLingva();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn("Lingva translation failed, trying next provider", { error: msg });
+        errors.push(`Lingva: ${msg}`);
       }
     }
-  } else if (config.OPENAI_API_KEY || config.GROQ_API_KEY) {
-    result = await translateWithOpenAI(translateReq);
-  } else {
+    if (!result && hasYandex) {
+      try {
+        result = await tryYandex();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn("Yandex translation failed, trying next provider", { error: msg });
+        errors.push(`Yandex: ${msg}`);
+      }
+    }
+    if (!result && hasAzure) {
+      try {
+        result = await tryAzure();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn("Azure translation failed, trying next provider", { error: msg });
+        errors.push(`Azure: ${msg}`);
+      }
+    }
+    if (!result && (hasOpenAi || hasGroq)) {
+      try {
+        result = await tryOpenAI();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.warn("OpenAI/Groq translation failed", { error: msg });
+        errors.push(`LLM: ${msg}`);
+      }
+    }
+    if (!result) {
+      if (errors.length > 0) {
+        logger.error("All translation providers failed", { errors });
+      }
+      result = mockTranslation(translateReq);
+    }
+  }
+
+  // TypeScript narrowing: by this point result is always assigned.
+  if (!result) {
     result = mockTranslation(translateReq);
   }
 
@@ -779,15 +1008,19 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
       preferredReviewProvider === "openai" && config.GROQ_API_KEY ? "groq" :
       preferredReviewProvider === "groq" && config.OPENAI_API_KEY ? "openai" : undefined;
 
-    let reviewed: { reviewedText: string; warning?: string } = { reviewedText: result.translatedText };
+    const initialCostUsd = result.costUsd ?? 0;
+    let reviewed: { reviewedText: string; warning?: string; costUsd: number } = {
+      reviewedText: result.translatedText,
+      costUsd: initialCostUsd,
+    };
     try {
-      reviewed = await reviewTranslation(translateReq, result.translatedText, preferredReviewProvider);
+      reviewed = await reviewTranslation(translateReq, result.translatedText, preferredReviewProvider, initialCostUsd);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.warn("Preferred review provider failed", { provider: preferredReviewProvider, error: msg });
       if (fallbackProvider) {
         try {
-          reviewed = await reviewTranslation(translateReq, result.translatedText, fallbackProvider);
+          reviewed = await reviewTranslation(translateReq, result.translatedText, fallbackProvider, initialCostUsd);
         } catch (err2) {
           const msg2 = err2 instanceof Error ? err2.message : String(err2);
           logger.warn("Fallback review provider also failed", { provider: fallbackProvider, error: msg2 });
@@ -796,6 +1029,7 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
     }
 
     result.translatedText = reviewed.reviewedText;
+    result.costUsd = reviewed.costUsd;
     if (reviewed.warning) {
       result.warning = result.warning ? `${result.warning} ${reviewed.warning}` : reviewed.warning;
     }
@@ -848,6 +1082,7 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
         sourceUrl: translateReq.sourceUrl,
         sourceType: translateReq.sourceType,
         requestNumber,
+        costUsd: 0,
       }).catch((logErr) => {
         logger.error("Failed to log translation request", { error: logErr instanceof Error ? logErr.message : String(logErr) });
       });
@@ -878,6 +1113,7 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
       sourceUrl: translateReq.sourceUrl,
       sourceType: translateReq.sourceType,
       requestNumber,
+      costUsd: result.costUsd,
     });
 
     await translationRepo.saveTranslationRequest({
@@ -892,6 +1128,7 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
       sourceUrl: translateReq.sourceUrl,
       sourceType: translateReq.sourceType,
       requestNumber,
+      costUsd: result.costUsd,
     }).catch((logErr) => {
       logger.error("Failed to log translation request", { error: logErr instanceof Error ? logErr.message : String(logErr) });
     });
@@ -927,6 +1164,7 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
       sourceUrl: translateReq.sourceUrl,
       sourceType: translateReq.sourceType,
       requestNumber,
+      costUsd: 0,
     }).catch((logErr) => {
       logger.error("Failed to log translation error", { error: logErr instanceof Error ? logErr.message : String(logErr) });
     });
@@ -943,6 +1181,7 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
       sourceUrl: translateReq.sourceUrl,
       sourceType: translateReq.sourceType,
       requestNumber,
+      costUsd: 0,
     }).catch((logErr) => {
       logger.error("Failed to log translation request", { error: logErr instanceof Error ? logErr.message : String(logErr) });
     });

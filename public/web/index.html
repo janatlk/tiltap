@@ -184,6 +184,7 @@
         subtitle: "Transcribe audio, video, and YouTube links. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.",
         adminLink: "Admin panel",
         sourceLangLabel: "Transcription language",
+        sourceLanguageLabel: "Source language",
         targetLangLabel: "Translate to",
         autoDetect: "Auto detect",
         noTranslation: "No translation",
@@ -227,6 +228,7 @@
         subtitle: "Распознавайте аудио, видео и ссылки YouTube. Переводите на кыргызский, таджикский, узбекский, русский или английский.",
         adminLink: "Панель администратора",
         sourceLangLabel: "Язык распознавания",
+        sourceLanguageLabel: "Язык оригинала",
         targetLangLabel: "Перевести на",
         autoDetect: "Автоопределение",
         noTranslation: "Без перевода",
@@ -270,6 +272,7 @@
         subtitle: "Аудио, видео жана YouTube шилтемелерин таанып, кыргызча, тоҷикча, ўзбекча, орусча же англисча которуңуз.",
         adminLink: "Админ панели",
         sourceLangLabel: "Таануу тили",
+        sourceLanguageLabel: "Баштапкы тил",
         targetLangLabel: "Которуу",
         autoDetect: "Авто аныктоо",
         noTranslation: "Которуу жок",
@@ -313,6 +316,7 @@
         subtitle: "Аудио, видео ва пайвандҳои YouTube-ро шинос кунед. Ба забони қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ё англисӣ тарҷума кунед.",
         adminLink: "Панели администратор",
         sourceLangLabel: "Забони шиносоӣ",
+        sourceLanguageLabel: "Забони манбаъ",
         targetLangLabel: "Тарҷума ба",
         autoDetect: "Автошиносӣ",
         noTranslation: "Бе тарҷума",
@@ -356,6 +360,7 @@
         subtitle: "Audio, video va YouTube havolalarini tanib oling. Qirgʻiz, tojik, oʻzbek, rus yoki ingliz tiliga tarjima qiling.",
         adminLink: "Admin paneli",
         sourceLangLabel: "Tanish tili",
+        sourceLanguageLabel: "Manba tili",
         targetLangLabel: "Tarjima qilish",
         autoDetect: "Avto aniqlash",
         noTranslation: "Tarjimasiz",
@@ -527,7 +532,9 @@
         Object.entries(panels).forEach(([k, el]) => {
           el.style.display = k === key ? "block" : "none";
         });
-        sourceLangWrap.style.display = key === "text" ? "none" : "block";
+        sourceLangWrap.style.display = "block";
+        document.querySelector('label[for="sourceLang"] span').textContent =
+          key === "text" ? t("sourceLanguageLabel") : t("sourceLangLabel");
         startBtn.textContent = key === "text" ? t("translateTextButton") || t("startBtn") : t("startBtn");
       });
     });
@@ -792,10 +799,11 @@
           const text = document.getElementById("translateText").value.trim();
           if (!text) throw new Error(t("errorEnterText"));
           if (targetLang === "none") throw new Error(t("errorEnterText"));
+          const sourceLang = document.getElementById("sourceLang").value;
           const res = await fetch(API + "/api/web/translate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, targetLang }),
+            body: JSON.stringify({ text, targetLang, sourceLang: sourceLang === "auto" ? undefined : sourceLang }),
           });
           try {
             data = await res.json();

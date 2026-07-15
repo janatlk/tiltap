@@ -127,6 +127,8 @@ export interface TranslateResponse {
   translatedText: string;
   detectedLang: string;
   warning?: string;
+  /** Estimated provider cost in USD for this translation. */
+  costUsd?: number;
   /** Public request number that the user can quote when reporting errors. */
   requestId?: number;
 }

@@ -31,6 +31,7 @@ export interface TranslationCacheEntry {
   source_url: string | null;
   source_type: string | null;
   request_number: number | null;
+  cost_usd: number | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -136,13 +137,14 @@ export async function saveTranslationCache(payload: {
   sourceUrl?: string;
   sourceType?: string;
   requestNumber?: number;
+  costUsd?: number;
 }): Promise<TranslationCacheEntry> {
   const sourceHash = payload.sourceHash ?? hashText(payload.sourceText);
   return queryOne<TranslationCacheEntry>(
     `INSERT INTO translation_cache
        (source_hash, source_text, source_lang, target_lang, translated_text, provider, model,
-        status, source_url, source_type, request_number)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9, $10)
+        status, source_url, source_type, request_number, cost_usd)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9, $10, $11)
      ON CONFLICT (source_hash, target_lang) DO UPDATE SET
        translated_text = EXCLUDED.translated_text,
        source_lang = COALESCE(EXCLUDED.source_lang, translation_cache.source_lang),
@@ -152,6 +154,7 @@ export async function saveTranslationCache(payload: {
        source_url = COALESCE(EXCLUDED.source_url, translation_cache.source_url),
        source_type = COALESCE(EXCLUDED.source_type, translation_cache.source_type),
        request_number = COALESCE(EXCLUDED.request_number, translation_cache.request_number),
+       cost_usd = COALESCE(EXCLUDED.cost_usd, translation_cache.cost_usd),
        updated_at = NOW()
      RETURNING *`,
     [
@@ -165,6 +168,7 @@ export async function saveTranslationCache(payload: {
       payload.sourceUrl ?? null,
       payload.sourceType ?? null,
       payload.requestNumber ?? null,
+      payload.costUsd ?? null,
     ]
   ) as Promise<TranslationCacheEntry>;
 }
@@ -260,13 +264,14 @@ export async function logTranslationError(payload: {
   sourceUrl?: string;
   sourceType?: string;
   requestNumber?: number;
+  costUsd?: number;
 }): Promise<TranslationCacheEntry | null> {
   const sourceHash = payload.sourceHash ?? hashText(payload.sourceText);
   return queryOne<TranslationCacheEntry>(
     `INSERT INTO translation_cache
        (source_hash, source_text, source_lang, target_lang, translated_text, provider, model,
-        status, error_message, error_at, source_url, source_type, request_number)
-     VALUES ($1, $2, $3, $4, '', $5, $6, 'error', $7, NOW(), $8, $9, $10)
+        status, error_message, error_at, source_url, source_type, request_number, cost_usd)
+     VALUES ($1, $2, $3, $4, '', $5, $6, 'error', $7, NOW(), $8, $9, $10, $11)
      ON CONFLICT (source_hash, target_lang) DO UPDATE SET
        status = 'error',
        error_message = EXCLUDED.error_message,
@@ -274,6 +279,7 @@ export async function logTranslationError(payload: {
        source_url = COALESCE(EXCLUDED.source_url, translation_cache.source_url),
        source_type = COALESCE(EXCLUDED.source_type, translation_cache.source_type),
        request_number = COALESCE(EXCLUDED.request_number, translation_cache.request_number),
+       cost_usd = COALESCE(EXCLUDED.cost_usd, translation_cache.cost_usd),
        updated_at = NOW()
      RETURNING *`,
     [
@@ -287,6 +293,7 @@ export async function logTranslationError(payload: {
       payload.sourceUrl ?? null,
       payload.sourceType ?? null,
       payload.requestNumber ?? null,
+      payload.costUsd ?? null,
     ]
   );
 }
@@ -370,13 +377,14 @@ export async function saveTranslationRequest(payload: {
   sourceUrl?: string;
   sourceType?: string;
   requestNumber?: number;
+  costUsd?: number;
 }): Promise<void> {
   const sourceHash = payload.sourceHash ?? hashText(payload.sourceText);
   await queryOne(
     `INSERT INTO translation_requests
        (request_number, source_hash, source_text, source_lang, target_lang, translated_text, provider, model,
-        status, error_message, source_url, source_type)
-     VALUES (COALESCE($12, nextval('translation_request_number_seq')), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        status, error_message, source_url, source_type, cost_usd)
+     VALUES (COALESCE($12, nextval('translation_request_number_seq')), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $13)`,
     [
       sourceHash,
       payload.sourceText,
@@ -390,6 +398,7 @@ export async function saveTranslationRequest(payload: {
       payload.sourceUrl ?? null,
       payload.sourceType ?? null,
       payload.requestNumber ?? null,
+      payload.costUsd ?? null,
     ]
   );
 }

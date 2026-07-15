@@ -137,6 +137,8 @@ CREATE TABLE IF NOT EXISTS translation_requests (
 ALTER TABLE translation_requests ADD COLUMN IF NOT EXISTS source_lang VARCHAR(10);
 ALTER TABLE translation_requests ADD COLUMN IF NOT EXISTS request_number BIGINT DEFAULT nextval('translation_request_number_seq');
 ALTER TABLE translation_requests ALTER COLUMN request_number SET NOT NULL;
+ALTER TABLE translation_requests ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(12, 6);
+ALTER TABLE translation_cache ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(12, 6);
 
 CREATE INDEX IF NOT EXISTS idx_translation_requests_created_at ON translation_requests(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_translation_requests_hash_lang ON translation_requests(source_hash, target_lang);

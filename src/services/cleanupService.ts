@@ -56,6 +56,12 @@ export async function cleanupTranscription(
 
   const systemPrompt = buildSystemPrompt(language);
   const userPrompt = text;
+  // Cap cleanup output roughly to input size plus a small margin; this avoids
+  // over-allocating tokens on short transcripts while still allowing larger outputs.
+  const maxTokens = Math.min(
+    4096,
+    Math.max(256, Math.ceil(text.length / 3) + 256)
+  );
 
   const providers = buildProviderChain(lang);
   if (providers.length === 0) {
@@ -65,7 +71,7 @@ export async function cleanupTranscription(
 
   for (const provider of providers) {
     try {
-      const result = await callProvider(provider, systemPrompt, userPrompt);
+      const result = await callProvider(provider, systemPrompt, userPrompt, maxTokens);
       if (result && isCleanupSane(text, result.cleanedText)) {
         logger.info("STT cleanup complete", { provider: result.provider, model: result.model, language: lang });
         await cleanupRepo.saveCleanup({
@@ -96,29 +102,20 @@ interface ProviderSpec {
   name: "groq" | "openai" | "gemini";
 }
 
-function buildProviderChain(language: string): ProviderSpec[] {
+function buildProviderChain(_language: string): ProviderSpec[] {
   const forced = config.TILTAB_CLEANUP_PROVIDER;
-  if (forced && forced !== "none") {
-    if (hasProviderKey(forced)) {
-      return [{ name: forced }];
-    }
-    logger.warn(`Forced cleanup provider ${forced} has no API key configured`);
+
+  // Cleanup is a sensitive, conservative edit. Use only the configured provider
+  // (default OpenAI / gpt-4o-mini) and return the raw transcript if it fails.
+  if (forced && forced !== "none" && hasProviderKey(forced)) {
+    return [{ name: forced as ProviderSpec["name"] }];
   }
 
-  const chain: ProviderSpec[] = [];
-
-  // Tajik uses Gemini primary when available, then OpenAI, then Groq.
-  if (language === "tg") {
-    if (config.GEMINI_API_KEY) chain.push({ name: "gemini" });
-    if (config.OPENAI_API_KEY) chain.push({ name: "openai" });
-    if (config.GROQ_API_KEY) chain.push({ name: "groq" });
-    return chain;
+  if (config.OPENAI_API_KEY) {
+    return [{ name: "openai" }];
   }
 
-  if (config.GEMINI_API_KEY) chain.push({ name: "gemini" });
-  if (config.GROQ_API_KEY) chain.push({ name: "groq" });
-  if (config.OPENAI_API_KEY) chain.push({ name: "openai" });
-  return chain;
+  return [];
 }
 
 function hasProviderKey(name: string): boolean {
@@ -137,15 +134,16 @@ function hasProviderKey(name: string): boolean {
 async function callProvider(
   provider: ProviderSpec,
   systemPrompt: string,
-  userPrompt: string
+  userPrompt: string,
+  maxTokens: number
 ): Promise<CleanupResult | null> {
   switch (provider.name) {
     case "groq":
-      return callGroq(systemPrompt, userPrompt);
+      return callGroq(systemPrompt, userPrompt, maxTokens);
     case "openai":
-      return callOpenAI(systemPrompt, userPrompt);
+      return callOpenAI(systemPrompt, userPrompt, maxTokens);
     case "gemini":
-      return callGemini(systemPrompt, userPrompt);
+      return callGemini(systemPrompt, userPrompt, maxTokens);
     default:
       return null;
   }
@@ -155,7 +153,7 @@ async function callProvider(
 // Groq
 // ---------------------------------------------------------------------------
 
-async function callGroq(systemPrompt: string, userPrompt: string): Promise<CleanupResult | null> {
+async function callGroq(systemPrompt: string, userPrompt: string, maxTokens: number): Promise<CleanupResult | null> {
   if (!config.GROQ_API_KEY) return null;
 
   const model = config.TILTAB_CLEANUP_MODEL || "llama-3.3-70b-versatile";
@@ -172,7 +170,7 @@ async function callGroq(systemPrompt: string, userPrompt: string): Promise<Clean
         { role: "user", content: userPrompt },
       ],
       temperature: 0.0,
-      max_tokens: 4096,
+      max_tokens: maxTokens,
     }),
   });
 
@@ -194,7 +192,7 @@ async function callGroq(systemPrompt: string, userPrompt: string): Promise<Clean
 // OpenAI
 // ---------------------------------------------------------------------------
 
-async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<CleanupResult | null> {
+async function callOpenAI(systemPrompt: string, userPrompt: string, maxTokens: number): Promise<CleanupResult | null> {
   if (!config.OPENAI_API_KEY) return null;
 
   const model = config.TILTAB_CLEANUP_MODEL || "gpt-4o-mini";
@@ -211,7 +209,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<Cle
         { role: "user", content: userPrompt },
       ],
       temperature: 0.0,
-      max_tokens: 4096,
+      max_tokens: maxTokens,
     }),
   });
 
@@ -233,7 +231,7 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<Cle
 // Gemini
 // ---------------------------------------------------------------------------
 
-async function callGemini(systemPrompt: string, userPrompt: string): Promise<CleanupResult | null> {
+async function callGemini(systemPrompt: string, userPrompt: string, maxTokens: number): Promise<CleanupResult | null> {
   if (!config.GEMINI_API_KEY) return null;
 
   const model = config.TILTAB_CLEANUP_MODEL || "gemini-1.5-flash";
@@ -250,7 +248,7 @@ async function callGemini(systemPrompt: string, userPrompt: string): Promise<Cle
         { role: "user", content: userPrompt },
       ],
       temperature: 0.0,
-      max_tokens: 4096,
+      max_tokens: maxTokens,
     }),
   });
 
@@ -335,96 +333,41 @@ function languageName(code: string): string {
 
 function buildSystemPrompt(language: string): string {
   const base =
-    "You are a conservative STT transcript editor. " +
-    "Your ONLY job is to clean up the raw transcript. " +
-    "Do NOT translate. Do NOT change the meaning. Do NOT rephrase. Do NOT add explanations. " +
-    "Do NOT add markdown. Return ONLY the cleaned text.";
+    "Clean up the STT transcript. Do not translate, rephrase, explain, or add markdown. " +
+    "Return only the cleaned text.";
 
-  const strictRules =
-    "\n\nUniversal constraints (apply to every edit):\n" +
-    "- Preserve the original meaning exactly. Do not add, remove, summarize, or infer information.\n" +
-    "- Keep every sentence in its original order. Do not merge or split sentences.\n" +
-    "- Maintain paragraph structure whenever possible.\n" +
-    "- Add only minimal punctuation necessary for readability.\n" +
-    "- Remove only obvious duplicated words caused by transcription errors.\n" +
-    "- If you are not highly confident that a word is incorrect, leave it unchanged.\n" +
-    "- Do not correct factual errors unless they are obvious transcription mistakes.\n" +
-    "- Do not change names, verb tenses, numbers, or dates.\n" +
-    "- Do not reorder words unless necessary to fix obvious STT errors.\n" +
-    "- Do not translate code-switched words; keep them exactly as they appear.\n" +
-    "- When in doubt, prefer leaving an error unchanged over introducing a new one."
+  const rules =
+    "\n- Preserve meaning, sentence order, and paragraph structure." +
+    "\n- Add minimal punctuation only." +
+    "\n- Remove only obvious duplicated words from transcription errors." +
+    "\n- Keep names, numbers, dates, and code-switched words unchanged." +
+    "\n- When unsure, leave the text as is.";
 
   const lang = language.split("+")[0];
 
   if (lang === "tg") {
     return (
-      `${base}\n\n` +
-      "Language: Tajik (Cyrillic script)." +
-      `${strictRules}\n\n` +
-      "Tajik-specific rules:\n" +
-      "1. Output must be clean Tajik Cyrillic.\n" +
-      "2. Convert any Arabic/Persian script leaks to Tajik Cyrillic.\n" +
-      "3. Fix dates: use ordinal suffixes -ум/-юm. Examples: '1-ум', '2-юм', '3-юм', '12-ум', '13-ум', '22-юм', '23-юм'. '23 май' → '23-юми май'; '23.05.2024' → '23-юми майи соли 2024'.\n" +
-      "4. Attach the object clitic 'ро' to the preceding word: 'мо ро' → 'моро', 'Аллоҳи меҳрабон ро' → 'Аллоҳи меҳрабонро'.\n" +
-      "5. Normalize common names/places to standard Tajik spellings: Конибодом, Душанбе, Хуҷанд, Маҳбуба Ахмедова, Нозанин Ахмедова, Абдуфаттоҳ Иброҳимов, Қурбонгул Иброҳимова, Радиои Озоди, Хонаи муқаддас.\n" +
-      "6. If a segment is crying, laughter, applause, music, or unintelligible, replace it with [плач], [кулол], [аплодисменты], [музыка], or [неразборчиво] respectively.\n" +
-      "7. Do NOT rephrase sentences or change the intended meaning."
+      `${base}\nLanguage: Tajik (Cyrillic).${rules}\n` +
+      "- Output clean Tajik Cyrillic; convert Arabic/Persian script leaks.\n" +
+      "- Dates: use -ум/-юм ordinals (e.g. 23 май → 23-юми май).\n" +
+      "- Attach 'ро' to the preceding word.\n" +
+      "- Normalize common names/places to standard Tajik forms.\n" +
+      "- Mark noise as [плач], [кулол], [аплодисменты], [музыка], [неразборчиво]."
     );
   }
-
   if (lang === "ky") {
-    return (
-      `${base}\n\n` +
-      "Language: Kyrgyz (Cyrillic script)." +
-      `${strictRules}\n\n` +
-      "Kyrgyz-specific rules:\n" +
-      "1. Add punctuation and fix capitalization only.\n" +
-      "2. Fix obvious spelling typos (one or two letters) if they are clearly wrong.\n" +
-      "3. Capitalize proper nouns (country names, cities, people, organizations).\n" +
-      "4. Mark obvious noise/garbage as [неразборчиво].\n" +
-      "5. Do NOT rephrase sentences or change the intended meaning."
-    );
+    return `${base}\nLanguage: Kyrgyz (Cyrillic).${rules}\n- Add sentence punctuation (periods, commas) at natural pauses; do not change words.\n- Capitalize the first word of each sentence and proper nouns; mark noise as [неразборчиво].`;
   }
 
   if (lang === "uz" || lang === "uz_cyrl") {
-    return (
-      `${base}\n\n` +
-      "Language: Uzbek (Latin script)." +
-      `${strictRules}\n\n` +
-      "Uzbek-specific rules:\n" +
-      "1. Add punctuation and fix capitalization only.\n" +
-      "2. Fix obvious spelling typos (one or two letters) if they are clearly wrong.\n" +
-      "3. Capitalize proper nouns.\n" +
-      "4. Mark obvious noise/garbage as [неразборчиво].\n" +
-      "5. Do NOT rephrase sentences or change the intended meaning."
-    );
+    return `${base}\nLanguage: Uzbek (Latin).${rules}\n- Add sentence punctuation at natural pauses; do not change words.\n- Capitalize the first word of each sentence and proper nouns; mark noise as [неразборчиво].`;
   }
 
   if (lang === "ru") {
-    return (
-      `${base}\n\n` +
-      "Language: Russian." +
-      `${strictRules}\n\n` +
-      "Russian-specific rules:\n" +
-      "1. Add punctuation and fix capitalization only.\n" +
-      "2. Fix obvious spelling typos (one or two letters) if they are clearly wrong.\n" +
-      "3. Preserve any Kyrgyz/Uzbek/English code-switching exactly as it appears.\n" +
-      "4. Mark obvious noise/garbage as [неразборчиво].\n" +
-      "5. Do NOT rephrase sentences or change the intended meaning."
-    );
+    return `${base}\nLanguage: Russian.${rules}\n- Preserve Kyrgyz/Uzbek/English code-switching; mark noise as [неразборчиво].`;
   }
 
-  return (
-    `${base}\n\n` +
-    `Language: ${languageName(language)}.` +
-    `${strictRules}\n\n` +
-    "Generic rules:\n" +
-    "1. Add proper punctuation and fix capitalization.\n" +
-    "2. Fix obvious spelling typos only if they are clearly wrong.\n" +
-    "3. Preserve any code-switching or loanwords exactly as they appear.\n" +
-    "4. Mark obvious noise/garbage as [unintelligible].\n" +
-    "5. Do NOT translate, do NOT change names, do NOT change meaning, do NOT rephrase sentences."
-  );
+  return `${base}\nLanguage: ${languageName(language)}.${rules}\n- Mark noise as [unintelligible].`;
 }
 
 // ---------------------------------------------------------------------------

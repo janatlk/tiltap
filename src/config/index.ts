@@ -15,7 +15,7 @@ const envSchema = z.object({
   TRANSLATION_MODULE_URL: z.string().url().optional().or(z.literal("")),
   LINGVA_TRANSLATE_URL: z.string().url().optional().or(z.literal("")).default("https://lingva.ml"),
   LINGVA_TRANSLATE_CHUNK_SIZE: z.string().default("2000").transform(Number),
-  TILTAB_TRANSLATION_PROVIDER: z.enum(["lingva", "openai", "groq", "mock", "auto"]).default("auto"),
+  TILTAB_TRANSLATION_PROVIDER: z.enum(["lingva", "openai", "groq", "azure", "yandex", "mock", "auto"]).default("openai"),
   YOUTUBE_COOKIES_BASE64: z.string().optional().or(z.literal("")),
   YOUTUBE_COOKIES_PATH: z.string().optional().or(z.literal("")),
   YOUTUBE_PO_TOKEN: z.string().optional().or(z.literal("")),
@@ -56,7 +56,7 @@ const envSchema = z.object({
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean) ?? ["en"]
     ),
-  TILTAB_CLEANUP_PROVIDER: z.enum(["openai", "groq", "gemini", "none"]).optional(),
+  TILTAB_CLEANUP_PROVIDER: z.enum(["openai", "groq", "gemini", "none"]).default("openai"),
   TILTAB_CLEANUP_MODEL: z.string().optional().or(z.literal("")),
   // Enable LLM cleanup for non-Tajik languages. Tajik cleanup is always enabled unless provider is "none".
   TILTAB_CLEANUP_NON_TAJIK: z
@@ -73,11 +73,17 @@ const envSchema = z.object({
     .or(z.literal(""))
     .default("true")
     .transform((v) => !v || ["1", "true", "yes", "on"].includes(v.toLowerCase())),
-  TILTAB_REVIEW_PROVIDER: z.enum(["openai", "groq", "auto"]).default("auto"),
+  TILTAB_REVIEW_PROVIDER: z.enum(["openai", "groq", "auto"]).default("openai"),
   TILTAB_REVIEW_MODEL: z.string().optional().or(z.literal("")),
   TILTAB_TRANSLATION_MAX_TOKENS: z.string().default("4096").transform(Number),
   TILTAB_REVIEW_MAX_TOKENS: z.string().default("4096").transform(Number),
-  TILTAB_REVIEW_MAX_INPUT_CHARS: z.string().default("4000").transform(Number),
+  TILTAB_REVIEW_MAX_INPUT_CHARS: z.string().default("3000").transform(Number),
+  AZURE_TRANSLATOR_KEY: z.string().optional().or(z.literal("")),
+  AZURE_TRANSLATOR_REGION: z.string().optional().or(z.literal("")),
+  AZURE_TRANSLATOR_ENDPOINT: z.string().url().optional().or(z.literal("")).default("https://api.cognitive.microsofttranslator.com"),
+  YANDEX_TRANSLATE_API_KEY: z.string().optional().or(z.literal("")),
+  YANDEX_TRANSLATE_FOLDER_ID: z.string().optional().or(z.literal("")),
+  YANDEX_TRANSLATE_ENDPOINT: z.string().url().optional().or(z.literal("")).default("https://translate.api.cloud.yandex.net/translate/v2/translate"),
   TILTAB_ADMIN_TOKEN: z.string().optional().or(z.literal("")),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
   DATABASE_URL: isTest
