@@ -198,16 +198,23 @@ async function runHybridTranscription(
   // Use a short, safe temp filename. Original filenames (especially from
   // Telegram/web uploads or YouTube titles) can be very long and contain
   // non-ASCII characters that exceed the filesystem's byte limit.
-  const tmpInput = join(tmpdir(), `tiltab_${Date.now()}_${randomBytes(6).toString("hex")}.tmp`);
+  // Preserve the original extension so ffmpeg can detect the container reliably.
+  const originalExt = filename.includes(".") ? `.${filename.split(".").pop()}` : "";
+  const safeExt = originalExt.replace(/[^a-zA-Z0-9.]/g, "").slice(0, 10);
+  const tmpInput = join(tmpdir(), `tiltab_${Date.now()}_${randomBytes(6).toString("hex")}${safeExt || ".tmp"}`);
   await writeFile(tmpInput, audioBuffer);
 
   return new Promise((resolve, reject) => {
     const script = join(process.cwd(), "transcribe_hybrid.py");
+    // Avoid paying twice for LLM cleanup: the backend runs cleanupService.ts after
+    // transcription, so disable the Python-side cleanup in this process.
+    const pythonCleanupProvider = config.TILTAB_CLEANUP_PROVIDER === "none" ? undefined : "none";
     const proc = spawn(PYTHON_PATH, [script, tmpInput, FFMPEG_PATH, language ?? "auto"], {
       cwd: process.cwd(),
       env: {
         ...process.env,
         PYTHONIOENCODING: "utf-8",
+        ...(pythonCleanupProvider ? { TILTAB_CLEANUP_PROVIDER: pythonCleanupProvider } : {}),
       },
     });
 

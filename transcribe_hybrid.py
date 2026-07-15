@@ -179,9 +179,16 @@ def get_whisper_hf_pipeline(model_name: str):
 # ---------------------------------------------------------------------------
 # Audio preprocessing
 # ---------------------------------------------------------------------------
-def convert_to_wav(input_path: str, output_path: str, ffmpeg_path: str, enhance: bool = True):
+def _build_ffmpeg_cmd(
+    ffmpeg_path: str,
+    input_path: str,
+    output_path: str,
+    enhance: bool,
+) -> list[str]:
     cmd = [
         ffmpeg_path,
+        "-hide_banner",
+        "-loglevel", "error",
         "-y",
         "-i", input_path,
     ]
@@ -203,7 +210,51 @@ def convert_to_wav(input_path: str, output_path: str, ffmpeg_path: str, enhance:
         "-c:a", "pcm_s16le",
         output_path,
     ])
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return cmd
+
+
+def convert_to_wav(input_path: str, output_path: str, ffmpeg_path: str, enhance: bool = True):
+    skip_enhance = os.environ.get("TILTAB_SKIP_AUDIO_ENHANCE", "").lower() in ("1", "true", "yes")
+    if skip_enhance:
+        enhance = False
+
+    if not enhance:
+        subprocess.run(
+            _build_ffmpeg_cmd(ffmpeg_path, input_path, output_path, enhance=False),
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return
+
+    # Try the enhanced pipeline first.
+    result = subprocess.run(
+        _build_ffmpeg_cmd(ffmpeg_path, input_path, output_path, enhance=True),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode == 0:
+        return
+
+    stderr = (result.stderr or b"").decode("utf-8", "replace").strip()
+    log_diagnostic(ffmpeg_enhance_failed=True, ffmpeg_returncode=result.returncode, ffmpeg_stderr=stderr)
+
+    # Fallback to a plain conversion.  Some static ffmpeg builds or exotic
+    # inputs fail on the filter chain but still produce a usable WAV.
+    result2 = subprocess.run(
+        _build_ffmpeg_cmd(ffmpeg_path, input_path, output_path, enhance=False),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result2.returncode == 0:
+        return
+
+    stderr2 = (result2.stderr or b"").decode("utf-8", "replace").strip()
+    raise RuntimeError(
+        f"ffmpeg conversion failed (enhance code {result.returncode}, fallback code {result2.returncode}).\n"
+        f"Enhance stderr: {stderr}\n"
+        f"Plain stderr: {stderr2}"
+    )
 
 
 def load_audio(wav_path: str):
@@ -1560,5 +1611,24 @@ def main():
         os.unlink(wav_path)
 
 
+def _is_media_preparation_error(exc: Exception) -> bool:
+    name = exc.__class__.__name__
+    return name in ("CalledProcessError", "RuntimeError") and ("ffmpeg" in str(exc).lower() or "conversion failed" in str(exc).lower())
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        technical = str(exc)
+        log_diagnostic(error_type=exc.__class__.__name__, error_message=technical)
+        if _is_media_preparation_error(exc):
+            print(
+                "Ошибка подготовки аудио/видео: файл не распознан или повреждён. "
+                "Попробуйте другой файл или формат (MP3, WAV, MP4, WEBM, OGG).",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print(f"Ошибка транскрипции: {technical}", file=sys.stderr, flush=True)
+        sys.exit(1)
