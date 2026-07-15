@@ -1473,6 +1473,113 @@ def transcribe_multilingual(wav_path: str, model_path: str = LOCAL_WHISPER_MODEL
 
 
 # ---------------------------------------------------------------------------
+# GigaAM Multilingual (ai-sage/GigaAM-Multilingual) — Conformer/CTC engine.
+# Best local quality for ky/uz/ru (hard benchmark 2026-07-15: ky 74.9% char vs
+# 68.1% on the GPU whisper fine-tune; uz 95.7% vs 92.0%) and ~20x realtime on
+# CPU. CTC decoding cannot loop, so whisper-style repetition pathologies are
+# impossible. Output has no punctuation/casing — the Node LLM cleanup adds it.
+# ---------------------------------------------------------------------------
+GIGAAM_MODEL_ID = os.environ.get("TILTAB_GIGAAM_MODEL_ID", "ai-sage/GigaAM-Multilingual")
+GIGAAM_REVISION = os.environ.get("TILTAB_GIGAAM_REVISION", "ctc")
+# The model rejects inputs over 25 s; keep a safety margin.
+GIGAAM_CHUNK_SECONDS = int(os.environ.get("TILTAB_GIGAAM_CHUNK_SECONDS", "24"))
+
+_gigaam_model = None
+
+
+def gigaam_languages() -> set:
+    raw = os.environ.get("TILTAB_GIGAAM_LANGUAGES", "ky,uz,ru")
+    return {s.strip().lower() for s in raw.split(",") if s.strip()}
+
+
+def get_gigaam_model():
+    global _gigaam_model
+    if _gigaam_model is None:
+        # Keep the HF cache inside the project models dir so the service user
+        # owns it in production (and it survives redeploys).
+        os.environ.setdefault("HF_HOME", os.path.join(os.getcwd(), "models", "hf_cache"))
+        from transformers import AutoModel
+
+        model = AutoModel.from_pretrained(
+            GIGAAM_MODEL_ID, revision=GIGAAM_REVISION, trust_remote_code=True
+        )
+        model.eval()
+        _gigaam_model = model
+    return _gigaam_model
+
+
+def transcribe_gigaam(wav_path: str, language: str, progress_label: str = "Распознаю"):
+    """Transcribe with GigaAM CTC by slicing into <=24 s chunks."""
+    import wave as _wave
+
+    emit_progress(5, f"{progress_label} (GigaAM)...")
+    model = get_gigaam_model()
+
+    segments = []
+    text_parts = []
+    with _wave.open(wav_path, "rb") as wf:
+        framerate = wf.getframerate()
+        nchannels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        total_frames = wf.getnframes()
+        step = GIGAAM_CHUNK_SECONDS * framerate
+        n_chunks = max(1, (total_frames + step - 1) // step)
+
+        seg_id = 0
+        pos = 0
+        idx = 0
+        while pos < total_frames:
+            wf.setpos(pos)
+            frames = wf.readframes(min(step, total_frames - pos))
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                chunk_path = tmp.name
+            try:
+                with _wave.open(chunk_path, "wb") as out:
+                    out.setnchannels(nchannels)
+                    out.setsampwidth(sampwidth)
+                    out.setframerate(framerate)
+                    out.writeframes(frames)
+                result = model.transcribe(chunk_path)
+                text = (result.text if hasattr(result, "text") else str(result)).strip()
+            finally:
+                os.unlink(chunk_path)
+
+            if text:
+                start = pos / framerate
+                end = min(total_frames, pos + step) / framerate
+                segments.append({
+                    "id": seg_id,
+                    "start": round(start, 3),
+                    "end": round(end, 3),
+                    "text": text,
+                })
+                seg_id += 1
+                text_parts.append(text)
+
+            idx += 1
+            emit_progress(5 + int(90 * idx / n_chunks), f"{progress_label} (GigaAM)...")
+            pos += step
+
+    return {
+        "text": " ".join(text_parts),
+        "language": language,
+        "segments": segments,
+        "model": f"gigaam-multilingual-{GIGAAM_REVISION}",
+    }
+
+
+def gigaam_or_fallback(wav_path: str, language: str, fallback, progress_label: str = "Распознаю"):
+    """Try GigaAM first for supported languages; fall back to the legacy engine."""
+    if language in gigaam_languages():
+        try:
+            return transcribe_gigaam(wav_path, language, progress_label=progress_label)
+        except Exception as exc:  # noqa: BLE001 — any failure means "use the old engine"
+            log_diagnostic(gigaam_failed=True, gigaam_error=str(exc)[:500])
+            print(f"[gigaam] failed, falling back: {exc}", file=sys.stderr, flush=True)
+    return fallback()
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def _is_ct2_model(model_path: str) -> bool:
@@ -1550,24 +1657,35 @@ def main():
         if beta_model:
             output = _run_beta_transcription(wav_path, language, beta_model)
         elif language == "ky":
-            output = transcribe_kyrgyz(wav_path)
+            output = gigaam_or_fallback(
+                wav_path, "ky", lambda: transcribe_kyrgyz(wav_path),
+                progress_label="Кыргызча распознаю",
+            )
 
         elif language == "tg":
             output = transcribe_tajik(wav_path)
 
         elif language == "ru":
-            # Primary: local multilingual Whisper large-v3-turbo. It is the best
-            # local model we have for Russian and avoids English bias.
-            output = transcribe_whisper_with_vad(
+            # Primary: GigaAM CTC (best local Russian per Sber benchmarks).
+            # Fallback: local multilingual Whisper large-v3-turbo.
+            output = gigaam_or_fallback(
                 wav_path,
                 "ru",
-                local_whisper_model_path(),
+                lambda: transcribe_whisper_with_vad(
+                    wav_path,
+                    "ru",
+                    local_whisper_model_path(),
+                    progress_label="Русский распознаю",
+                    initial_prompt=RUSSIAN_INITIAL_PROMPT,
+                ),
                 progress_label="Русский распознаю",
-                initial_prompt=RUSSIAN_INITIAL_PROMPT,
             )
 
         elif language == "uz":
-            output = transcribe_uzbek(wav_path)
+            output = gigaam_or_fallback(
+                wav_path, "uz", lambda: transcribe_uzbek(wav_path),
+                progress_label="O'zbekcha распознаю",
+            )
 
         elif language == "en":
             output = transcribe_whisper_with_vad(wav_path, "en", local_whisper_model_path(), progress_label="English transcribing")
