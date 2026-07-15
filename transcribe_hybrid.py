@@ -1484,7 +1484,7 @@ GIGAAM_REVISION = os.environ.get("TILTAB_GIGAAM_REVISION", "ctc")
 # The model rejects inputs over 25 s; keep a safety margin.
 GIGAAM_CHUNK_SECONDS = int(os.environ.get("TILTAB_GIGAAM_CHUNK_SECONDS", "24"))
 
-_gigaam_model = None
+_gigaam_models: dict = {}
 
 
 def gigaam_languages() -> set:
@@ -1492,28 +1492,28 @@ def gigaam_languages() -> set:
     return {s.strip().lower() for s in raw.split(",") if s.strip()}
 
 
-def get_gigaam_model():
-    global _gigaam_model
-    if _gigaam_model is None:
+def get_gigaam_model(revision: str | None = None):
+    revision = revision or GIGAAM_REVISION
+    if revision not in _gigaam_models:
         # Keep the HF cache inside the project models dir so the service user
         # owns it in production (and it survives redeploys).
         os.environ.setdefault("HF_HOME", os.path.join(os.getcwd(), "models", "hf_cache"))
         from transformers import AutoModel
 
         model = AutoModel.from_pretrained(
-            GIGAAM_MODEL_ID, revision=GIGAAM_REVISION, trust_remote_code=True
+            GIGAAM_MODEL_ID, revision=revision, trust_remote_code=True
         )
         model.eval()
-        _gigaam_model = model
-    return _gigaam_model
+        _gigaam_models[revision] = model
+    return _gigaam_models[revision]
 
 
-def transcribe_gigaam(wav_path: str, language: str, progress_label: str = "Распознаю"):
+def transcribe_gigaam(wav_path: str, language: str, progress_label: str = "Распознаю", revision: str | None = None):
     """Transcribe with GigaAM CTC by slicing into <=24 s chunks."""
     import wave as _wave
 
     emit_progress(5, f"{progress_label} (GigaAM)...")
-    model = get_gigaam_model()
+    model = get_gigaam_model(revision)
 
     segments = []
     text_parts = []
@@ -1564,7 +1564,7 @@ def transcribe_gigaam(wav_path: str, language: str, progress_label: str = "Ра�
         "text": " ".join(text_parts),
         "language": language,
         "segments": segments,
-        "model": f"gigaam-multilingual-{GIGAAM_REVISION}",
+        "model": f"gigaam-multilingual-{revision or GIGAAM_REVISION}",
     }
 
 
@@ -1602,6 +1602,16 @@ def _run_beta_transcription(wav_path: str, language: str | None, model_path: str
     Used by the admin beta-test page to compare raw model outputs.
     Supports Vosk, CTranslate2 Whisper, and HuggingFace Whisper models.
     """
+    # GigaAM entries are virtual (not directories): "gigaam:ctc" / "gigaam:large_ctc".
+    if model_path.lower().startswith("gigaam"):
+        revision = model_path.split(":", 1)[1] if ":" in model_path else "ctc"
+        return transcribe_gigaam(
+            wav_path,
+            language or "auto",
+            progress_label="GigaAM beta",
+            revision=revision,
+        )
+
     is_vosk = "vosk" in model_path.lower()
     if is_vosk:
         vosk_results = transcribe_vosk_chunked(wav_path, model_path, progress_label="Vosk beta")

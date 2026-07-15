@@ -15,9 +15,16 @@ const MODELS_DIR = join(process.cwd(), "models");
 interface LocalModelInfo {
   name: string;
   path: string;
-  type: "whisper" | "vosk";
+  type: "whisper" | "vosk" | "gigaam";
   api: boolean;
 }
+
+// Virtual entries handled by transcribe_hybrid.py (_run_beta_transcription):
+// the "gigaam:<revision>" sentinel selects the GigaAM Multilingual CTC engine.
+const GIGAAM_BETA_MODELS: LocalModelInfo[] = [
+  { name: "gigaam-multilingual-ctc (ky/uz/ru primary, 220M)", path: "gigaam:ctc", type: "gigaam", api: false },
+  { name: "gigaam-multilingual-large-ctc (600M)", path: "gigaam:large_ctc", type: "gigaam", api: false },
+];
 
 // Models that are baked into the RunPod Serverless GPU endpoint. These are the
 // models the GPU worker can actually load, regardless of local Hetzner copies.
@@ -126,7 +133,7 @@ export async function listBetaModels(req: Request, res: Response): Promise<void>
     return;
   }
   try {
-    const models: LocalModelInfo[] = [];
+    const models: LocalModelInfo[] = [...GIGAAM_BETA_MODELS];
     const entries = await readdir(MODELS_DIR).catch(() => [] as string[]);
 
     for (const entry of entries) {
