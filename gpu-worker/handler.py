@@ -35,7 +35,12 @@ import runpod
 import torch
 from faster_whisper import WhisperModel
 
+import text_postprocessing
 import vad_utils
+
+# Prevent the post-processor from calling out to LLM APIs on the GPU worker.
+os.environ.setdefault("TILTAB_CLEANUP_PROVIDER", "none")
+os.environ.setdefault("TILTAB_REVIEW_ENABLED", "false")
 
 # ---------------------------------------------------------------------------
 # Monkey-patch faster_whisper.tokenizer for Kyrgyz BEFORE any model load
@@ -63,6 +68,42 @@ KYRGYZ_MODEL_PATH = "/models/kyrgyz-whisper-small-ct2"
 KYRGYZ_LANGUAGE_TOKEN_ID = 51865  # kept for reference; not used with faster-whisper
 
 DEFAULT_MODEL = "/models/whisper-large-v3-turbo-ct2"
+
+# Initial prompts passed to faster-whisper to prime the correct script/style
+# and reduce English/Latin leakage. Keep them short because they are repeated
+# per VAD chunk.
+_DEFAULT_PROMPT = (
+    "Transcribe the spoken words accurately. "
+    "Preserve names, numbers, and loanwords. "
+    "Do not translate or add explanations."
+)
+_RUSSIAN_PROMPT = (
+    "Распознай речь на русском языке. "
+    "Сохраняй имена собственные, числа и заимствованные слова. "
+    "Не переводи и не добавляй пояснений."
+)
+_UZBEK_PROMPT = (
+    "Бу ўзбекча матн. Илтимос, аниқ ёзиб беринг. "
+    "Русча ёки инглизча сўзларни фақат айтилганда сақла."
+)
+_TAJIK_PROMPT = (
+    "Ин матни тоҷикӣ аст. Лутфан, дақиқ нависед. "
+    "Номҳо, рақамҳо ва калимаҳои русӣ ё англисиро "
+    "агар гуфта шуда бошанд, нигоҳ дор."
+)
+
+
+def _initial_prompt(language: str) -> str:
+    return {
+        "ru": _RUSSIAN_PROMPT,
+        "uz": _UZBEK_PROMPT,
+        "tg": _TAJIK_PROMPT,
+        "ky": os.environ.get(
+            "KYRGYZ_INITIAL_PROMPT",
+            "Бул кыргызча текст. Сөздөрдү так жаз, орусча/англисча сөздөрдү айтылганда гана калтыр.",
+        ),
+    }.get(language, _DEFAULT_PROMPT)
+
 
 # Cache loaded models so warm workers reuse them.
 _models: dict[str, WhisperModel] = {}
@@ -223,15 +264,17 @@ def _dedupe_chunk_overlap(prev_text: str, curr_text: str, min_chars: int = 8, ma
 
 
 def _vad_settings() -> Dict[str, Any]:
+    # Defaults tuned for max quality: short silence threshold + small chunks
+    # keep Whisper's previous-text conditioning from drifting and repeating.
     return {
         "threshold": _float_env("GPU_VAD_THRESHOLD", 0.5),
         "min_speech_duration_ms": _int_env("GPU_VAD_MIN_SPEECH_DURATION_MS", 250),
-        "min_silence_duration_ms": _int_env("GPU_VAD_MIN_SILENCE_MS", 1500),
+        "min_silence_duration_ms": _int_env("GPU_VAD_MIN_SILENCE_MS", 500),
         "speech_pad_ms": _int_env("GPU_VAD_SPEECH_PAD_MS", 200),
         "max_gap": _float_env("GPU_VAD_MAX_GAP_MS", 3000) / 1000.0,
-        "max_duration": _float_env("GPU_VAD_MAX_CHUNK_SECONDS", 30.0),
-        "overlap": _float_env("GPU_VAD_OVERLAP_SECONDS", 5.0),
-        "max_chunks": _int_env("GPU_VAD_MAX_CHUNKS", 40),
+        "max_duration": _float_env("GPU_VAD_MAX_CHUNK_SECONDS", 15.0),
+        "overlap": _float_env("GPU_VAD_OVERLAP_SECONDS", 0.5),
+        "max_chunks": _int_env("GPU_VAD_MAX_CHUNKS", 200),
     }
 
 
@@ -356,7 +399,7 @@ def _transcribe_kyrgyz(wav_path: str) -> dict:
 
     chunks = _get_vad_chunks(wav_path)
     if chunks is None:
-        chunks = _fixed_chunks(wav_path, _float_env("GPU_VAD_MAX_CHUNK_SECONDS", 30.0))
+        chunks = _fixed_chunks(wav_path, _float_env("GPU_VAD_MAX_CHUNK_SECONDS", 15.0))
 
     if not chunks:
         print("[ky] No chunks to transcribe.", file=sys.stdout, flush=True)
@@ -506,52 +549,98 @@ def _transcribe_with_faster_whisper(wav_path: str, model_path: str, language: st
     whisper_language = None if language in ("auto", "multi") else language
     model = _load_model(model_path)
 
+    # Decoding options tuned for max quality. All are overridable via env vars
+    # so the RunPod template can be adjusted without rebuilding the image.
+    beam_size = _int_env("WHISPER_BEAM_SIZE", 5)
+    best_of = _int_env("WHISPER_BEST_OF", 5)
+    temperature = _float_env("WHISPER_TEMPERATURE", 0.0)
+    no_repeat_ngram_size = _int_env("WHISPER_NO_REPEAT_NGRAM_SIZE", 0)
+    repetition_penalty = _float_env("WHISPER_REPETITION_PENALTY", 1.0)
+    condition_on_previous_text = _bool_env("WHISPER_CONDITION_ON_PREVIOUS_TEXT", True)
+    word_timestamps = _bool_env("WHISPER_WORD_TIMESTAMPS", False)
+    vad_filter = _bool_env("WHISPER_VAD_FILTER", True)
+    dedupe_min_chars = _int_env("WHISPER_DEDUPE_MIN_CHARS", 8)
+    use_initial_prompt = _bool_env("WHISPER_USE_INITIAL_PROMPT", True)
+    custom_prompt = os.environ.get("WHISPER_INITIAL_PROMPT", "").strip()
+    if custom_prompt:
+        initial_prompt = custom_prompt
+    elif use_initial_prompt:
+        prompt_language = language if language not in ("auto", "multi") else "auto"
+        initial_prompt = _initial_prompt(prompt_language)
+    else:
+        initial_prompt = ""
+
+    print(
+        f"[whisper] lang={language} beam={beam_size} best_of={best_of} "
+        f"temp={temperature:.2f} no_repeat_ngram={no_repeat_ngram_size} "
+        f"repetition_penalty={repetition_penalty:.2f} condition={condition_on_previous_text}",
+        file=sys.stdout,
+        flush=True,
+    )
+
+    def _decode_opts() -> Dict[str, Any]:
+        opts: Dict[str, Any] = {
+            "task": "transcribe",
+            "beam_size": beam_size,
+            "best_of": best_of,
+            "temperature": temperature,
+            "no_repeat_ngram_size": no_repeat_ngram_size,
+            "repetition_penalty": repetition_penalty,
+            "condition_on_previous_text": condition_on_previous_text,
+            "word_timestamps": word_timestamps,
+            "initial_prompt": initial_prompt,
+        }
+        # Only pass suppression knobs when explicitly enabled. Some fine-tuned
+        # low-resource models get stuck and return empty text when these are
+        # forced on.
+        if no_repeat_ngram_size <= 0:
+            opts.pop("no_repeat_ngram_size")
+        if repetition_penalty <= 1.0:
+            opts.pop("repetition_penalty")
+        return opts
+
     chunks = _get_vad_chunks(wav_path)
+
     if chunks is None:
         # VAD disabled or failed: use faster-whisper's internal VAD filter.
         segments_iter, info = model.transcribe(
             wav_path,
             language=whisper_language,
-            task="transcribe",
-            beam_size=int(os.environ.get("WHISPER_BEAM_SIZE", "5")),
-            best_of=int(os.environ.get("WHISPER_BEST_OF", "5")),
-            condition_on_previous_text=os.environ.get("WHISPER_CONDITION_ON_PREVIOUS_TEXT", "true").lower()
-            in ("1", "true", "yes"),
-            word_timestamps=os.environ.get("WHISPER_WORD_TIMESTAMPS", "false").lower()
-            in ("1", "true", "yes"),
-            vad_filter=os.environ.get("WHISPER_VAD_FILTER", "true").lower()
-            in ("1", "true", "yes"),
+            vad_filter=vad_filter,
+            **_decode_opts(),
         )
 
         segments = []
         full_text_parts = []
         for seg in segments_iter:
             text = _decode_whisper_bytes(seg.text.strip())
-            segments.append(
-                {
-                    "start": round(seg.start, 3),
-                    "end": round(seg.end, 3),
-                    "text": text,
-                }
-            )
+            segments.append({"start": round(seg.start, 3), "end": round(seg.end, 3), "text": text})
             if text:
                 full_text_parts.append(text)
 
-        return {
+        result = {
             "text": " ".join(full_text_parts),
             "language": info.language or language,
             "segments": segments,
             "model": model_path,
             "gpu": _get_gpu_name(),
         }
+        if _bool_env("GPU_POSTPROCESS_ENABLED", False):
+            result = _postprocess(result, language)
+        return result
 
     if not chunks:
         return {"text": "", "language": language, "segments": [], "model": model_path, "gpu": _get_gpu_name()}
 
-    # Transcribe each VAD chunk separately and shift timestamps back.
+    # Transcribe each VAD chunk separately, shift timestamps back, and dedupe
+    # small overlaps at chunk boundaries.
     segments: list[dict] = []
     full_text_parts: list[str] = []
     detected_language = whisper_language
+    prev_text = ""
+
+    decode_opts = _decode_opts()
+    decode_opts["vad_filter"] = False  # already VAD-split
 
     with tempfile.TemporaryDirectory() as chunk_dir:
         for idx, chunk_info in enumerate(chunks):
@@ -560,39 +649,65 @@ def _transcribe_with_faster_whisper(wav_path: str, model_path: str, language: st
             segments_iter, info = model.transcribe(
                 chunk_path,
                 language=whisper_language,
-                task="transcribe",
-                beam_size=int(os.environ.get("WHISPER_BEAM_SIZE", "5")),
-                best_of=int(os.environ.get("WHISPER_BEST_OF", "5")),
-                condition_on_previous_text=os.environ.get("WHISPER_CONDITION_ON_PREVIOUS_TEXT", "true").lower()
-                in ("1", "true", "yes"),
-                word_timestamps=os.environ.get("WHISPER_WORD_TIMESTAMPS", "false").lower()
-                in ("1", "true", "yes"),
-                vad_filter=False,
+                **decode_opts,
             )
 
             chunk_offset = chunk_info["start"]
+            chunk_text_parts: list[str] = []
             for seg in segments_iter:
                 text = _decode_whisper_bytes(seg.text.strip())
-                segments.append(
-                    {
-                        "start": round(chunk_offset + seg.start, 3),
-                        "end": round(chunk_offset + seg.end, 3),
-                        "text": text,
-                    }
-                )
-                if text:
-                    full_text_parts.append(text)
+                if not text:
+                    continue
+                segments.append({
+                    "start": round(chunk_offset + seg.start, 3),
+                    "end": round(chunk_offset + seg.end, 3),
+                    "text": text,
+                })
+                chunk_text_parts.append(text)
+
+            chunk_text = " ".join(chunk_text_parts)
+            if prev_text and chunk_text:
+                deduped = _dedupe_chunk_overlap(prev_text.lower(), chunk_text.lower(), min_chars=dedupe_min_chars)
+                removed = len(chunk_text) - len(deduped)
+                if removed > 0:
+                    print(f"[whisper] chunk {idx}: removed {removed} overlapping chars", file=sys.stdout, flush=True)
+                    chunk_text = chunk_text[removed:].lstrip()
+                    # Also trim the last segment(s) that were fully overlapping.
+                    while segments and not chunk_text.startswith(segments[-1]["text"].strip()):
+                        removed_seg = segments.pop()
+                        print(f"[whisper] chunk {idx}: dropped overlapped segment {removed_seg['text'][:40]!r}", file=sys.stdout, flush=True)
+
+            if chunk_text:
+                full_text_parts.append(chunk_text)
+                prev_text = chunk_text.lower()
 
             if detected_language is None and info.language:
                 detected_language = info.language
 
-    return {
+    result = {
         "text": " ".join(full_text_parts),
         "language": detected_language or language,
         "segments": segments,
         "model": model_path,
         "gpu": _get_gpu_name(),
     }
+    if _bool_env("GPU_POSTPROCESS_ENABLED", False):
+        result = _postprocess(result, language)
+    return result
+
+
+def _postprocess(result: dict, requested_language: str) -> dict:
+    """Apply language-aware rule-based cleanup on the GPU worker."""
+    try:
+        language = result.get("language") or requested_language
+        output = text_postprocessing.postprocess_transcription(result, language)
+        # Ensure we keep GPU metadata that postprocess might not copy.
+        output["model"] = result.get("model")
+        output["gpu"] = result.get("gpu")
+        return output
+    except Exception as e:
+        print(f"[postprocess] failed: {e}", file=sys.stderr, flush=True)
+        return result
 
 
 def _set_worker_timeout(seconds: int) -> None:

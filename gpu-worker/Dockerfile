@@ -24,9 +24,10 @@ RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
 COPY gpu-worker/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Copy handler and VAD utilities
+# Copy handler, VAD utilities, and the shared post-processor.
 COPY gpu-worker/handler.py .
 COPY gpu-worker/vad_utils.py .
+COPY gpu-worker/text_postprocessing.py .
 
 # Models baked into the image. Place them in /models.
 # Build context must contain the model directories relative to ARGs below.
