@@ -308,8 +308,35 @@ async function runHybridTranscription(
 function normalizeTranscriptionResult(result: TranscriptionResult): TranscriptionResult {
   return {
     ...result,
+    text: collapseRepeatedWords(result.text),
+    segments: result.segments?.map((s) => ({ ...s, text: collapseRepeatedWords(s.text) })),
     language: normalizeLanguageCodeOrKeep(result.language) ?? "auto",
   };
+}
+
+// Whisper decode loops occasionally emit the same word dozens of times in a
+// row ("жарандарыбыздын" × 25). No natural speech repeats one word more than
+// a few times, so runs beyond MAX_WORD_RUN are collapsed.
+const MAX_WORD_RUN = 3;
+
+export function collapseRepeatedWords(text: string): string {
+  if (!text) return text;
+  const words = text.split(/\s+/);
+  const out: string[] = [];
+  let run = 0;
+  for (const word of words) {
+    const prev = out[out.length - 1];
+    const bare = word.replace(/[.,!?;:]+$/u, "").toLowerCase();
+    const prevBare = prev?.replace(/[.,!?;:]+$/u, "").toLowerCase();
+    if (bare && bare === prevBare) {
+      run += 1;
+      if (run >= MAX_WORD_RUN) continue;
+    } else {
+      run = 0;
+    }
+    out.push(word);
+  }
+  return out.join(" ");
 }
 
 function getLocalModelName(language?: string): string {
