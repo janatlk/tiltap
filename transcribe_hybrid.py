@@ -687,14 +687,16 @@ def transcribe_whisper(
     else:
         word_timestamps = False if conservative else True
 
-    # Conditioning on previous text helps short clips but often causes drift and
-    # repetition on longer audio. Short clips keep it on by default; long clips
-    # (>30 s) turn it off by default.
+    # Conditioning on previous text helps short clips but poisons long audio:
+    # one window derailed by background music corrupts its neighbours' context.
+    # Measured on a real Tajik video with a music bed (2026-07-15): conditioning
+    # ON gave 51.3% char (alternate 30s windows degenerated into token salad),
+    # OFF gave 82.8%. Short clips (<=30 s, single window) keep it on.
     condition_on_previous_text = True
     if duration > 0 and duration <= 30:
         condition_on_previous_text = os.environ.get("TILTAB_WHISPER_CONDITION_SHORT", "true").lower() not in ("0", "false", "off")
     else:
-        condition_on_previous_text = os.environ.get("TILTAB_WHISPER_CONDITION_LONG", "true").lower() not in ("0", "false", "off")
+        condition_on_previous_text = os.environ.get("TILTAB_WHISPER_CONDITION_LONG", "false").lower() in ("1", "true", "on")
 
     use_vad_filter = os.environ.get("TILTAB_WHISPER_VAD_FILTER", "true").lower() not in ("0", "false", "off")
 
