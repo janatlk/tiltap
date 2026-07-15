@@ -74,3 +74,27 @@ cookies.txt
 # Large downloaded test fixtures
 test_audio/youtube/
 test_audio/cache/
+
+# Local ML experiments / downloads
+hf_downloads/
+deploy-venv/
+tmp_ky_hf/
+*.tar.gz
+ky_test.*
+*_stt*.json
+*_stt*.txt
+*_translation*.json
+*_translation*.txt
+*_decoded.txt
+ky_vosk_sample.txt
+ky_test_output.txt
+ky_test_variants.txt
+ru_test*.mp3
+kimi-export-*.md
+hetzner_links.json
+hetzner_server_buttons.json
+kyrgyz_stt.json
+documents/
+.tools/
+tmp_*
+test_audio/ky_yt_*.wav
