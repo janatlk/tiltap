@@ -98,3 +98,6 @@ documents/
 .tools/
 tmp_*
 test_audio/ky_yt_*.wav
+
+# Infra map with prod details - local only, never push (public repo)
+DEPLOY.md

@@ -143,7 +143,8 @@ Environment controls:
 
 ### Known gaps
 
-- **Short phrasebook clips** (`test_audio/manifest.json`) still score poorly (~20–30% char) for all models. The leading hypothesis is that the long silences between isolated phrases and Whisper's previous-text conditioning cause insertions/repetitions. A dedicated short-audio strategy (VAD split + per-phrase transcription without conditioning) is the next step.
+- **Short phrasebook clips** (`test_audio/manifest.json`) score ~20–30% char for all models, but this is mostly a *benchmark artifact*, not an STT failure (confirmed 2026-07-15): the fixtures are bilingual language-lesson audio (English prompt → target phrase → syllable-by-syllable repetition), the models transcribe everything spoken faithfully, while the reference contains only the clean target phrases once. Fixing the metric requires either full verbatim references or filtering the hypothesis to target-language words before scoring. Do not tune decode parameters against these fixtures.
+- **Kyrgyz on real speech** is the largest genuine gap: hard benchmark 53.7% char / 28.8% word (2026-07-15, after restoring RunPod env). The `nineninesix/kyrgyz-whisper-small` fine-tune is the ceiling here; meaningful gains likely require a larger/better Kyrgyz model (see `docs/OpenWeight_LLMs_for_Central_Asian_Languages.md`).
 
 ## Local STT Post-processing
 
@@ -156,7 +157,9 @@ After local STT, `text_postprocessing.py` runs language-aware cleanup:
   - Mixed-script typo correction (`муfассал` → `муфассал`).
   - Date ordinals and `ро` clitic normalization.
 - Noise markers (`[плач]`, `[кулол]`, `[аплодисменты]`, `[музыка]`, `[неразборчиво]`).
-- Tajik transcripts are passed through an LLM cleanup step by default. Provider chain: **OpenAI `gpt-4o-mini`** (primary) → **Groq** (fallback). Set `TILTAB_CLEANUP_PROVIDER=none` to keep only rule-based processing, or `=openai`/`=groq` to force a specific provider. Results are cached in `cleanup_cache` to avoid repeated API calls.
+- Transcripts are passed through a Node-side LLM cleanup step by default. Provider: **OpenAI `gpt-4o-mini`** (default; `TILTAB_CLEANUP_PROVIDER=openai`). Set `TILTAB_CLEANUP_PROVIDER=none` to keep only rule-based processing, or `=groq`/`=gemini` to force a specific provider. Results are cached in `cleanup_cache` to avoid repeated API calls.
+- The backend now disables the Python-side LLM cleanup inside `transcribe_hybrid.py` to avoid paying twice for the same cleanup; Node `cleanupService.ts` is the single cleanup path.
+- Cleanup is enabled for all languages by default (`TILTAB_CLEANUP_NON_TAJIK=1`). For Kyrgyz and Uzbek it adds sentence punctuation and capitalization while preserving every word; for Tajik it also applies script normalization and named-entity fixes.
 
 ## Web Mini-Service
 
@@ -198,22 +201,22 @@ Temporary in-memory state that is intentionally not persisted:
 
 Translation is available both in the Telegram bot (after transcription, if a target language was selected) and via the Web API (`POST /api/translate`).
 
-Provider priority (unless overridden by `TILTAB_TRANSLATION_PROVIDER`):
+Provider priority:
 
-1. **OpenAI `gpt-4o-mini`** — primary for Tajik (`tg`) source or target, and for `TILTAB_TRANSLATION_PROVIDER=openai`.
-2. **Lingva Translate** — free, open-source front-end for Google Translate. No API key required for public instances. Supports all Tiltap languages (`en/ru/tg/uz/ky`). Long texts are automatically split into chunks. Used by default for non-Tajik pairs.
-3. **Groq `llama-3.3-70b-versatile`** — LLM fallback (requires `GROQ_API_KEY`).
-4. **Mock** — returns a placeholder translation if nothing else is available.
+- `TILTAB_TRANSLATION_PROVIDER` now defaults to **`openai`** (`gpt-4o-mini`).
+- If OpenAI fails and `GROQ_API_KEY` is set, Groq `llama-3.3-70b-versatile` is used as a fallback.
+- You can still force `lingva`, `azure`, `yandex`, `groq`, or `mock` by setting `TILTAB_TRANSLATION_PROVIDER`.
+- The Lingva/Google Translate fallback inside the OpenAI chain has been removed so an explicit OpenAI request does not silently degrade to a free NMT service.
 
 Translation results are cached in `translation_cache` keyed by SHA-256 of the source text and target language, minimizing repeat API costs.
 
 The LLM translation prompt is intentionally strict: it forbids adding, removing, summarizing, or inferring information; merging or splitting sentences; inventing names; and reframing meaning (e.g. intensifying "certain risks" into "a threat"). Names are preserved or rendered using their established target-language form when one exists.
 
-A post-translation QA review step (`TILTAB_REVIEW_ENABLED`, default `true`) checks the result for source-language leftovers, inconsistent terminology, and hallucinated names. It uses the configured review provider (`TILTAB_REVIEW_PROVIDER`, default `auto`) and model (`TILTAB_REVIEW_MODEL`), falling back between Groq and OpenAI if one fails. Review failures are logged and silently ignored so they never block a translation. Review is skipped when the combined source + translated text exceeds `TILTAB_REVIEW_MAX_INPUT_CHARS` (default `4000`) to avoid JSON-format failures on long inputs.
+A post-translation QA review step (`TILTAB_REVIEW_ENABLED`, default `true`) checks the result for source-language leftovers, inconsistent terminology, and hallucinated names. `TILTAB_REVIEW_PROVIDER` now defaults to **`openai`** (`gpt-4o-mini`), falling back to Groq if OpenAI fails. Review failures are logged and silently ignored so they never block a translation. Review is skipped when the combined source + translated text exceeds `TILTAB_REVIEW_MAX_INPUT_CHARS` (default `3000`) to avoid JSON-format failures on long inputs. Common international brand/tech names (Google, Translate, YouTube, etc.) are not flagged as untranslated fragments.
 
 Before a translation is cached or returned, a lightweight sanity check rejects degenerate outputs such as empty text or a single word repeated more than 35% of the time (e.g. the model getting stuck in a loop). When this happens the service throws, letting the caller fall back to the original transcription instead of sending garbage to the user. Cached translations are also re-validated on read, so any bad entries stored before this guard was introduced are automatically deleted and re-translated.
 
-LLM translation calls now set `max_tokens` (`TILTAB_TRANSLATION_MAX_TOKENS`, default `4096`). If the model consumes the entire budget, the request is treated as truncated and fails over rather than returning an incomplete, possibly repetitive result.
+LLM translation and review calls now use a dynamic `max_tokens` value capped by the configured limit (`TILTAB_TRANSLATION_MAX_TOKENS` / `TILTAB_REVIEW_MAX_TOKENS`, default `4096`). The dynamic limit is roughly `input_length / 3 + 256`, which avoids over-allocating tokens on short texts while still allowing longer outputs. If the model consumes the entire budget, the request is treated as truncated and fails over.
 
 If Daniel's module URL is configured (`TRANSLATION_MODULE_URL`), all translation requests are proxied to it instead.
 
@@ -242,17 +245,18 @@ Rejecting a translation updates its status instead of deleting it. Admins can st
 | `TELEGRAM_BOT_TOKEN` | yes | From @BotFather |
 | `OPENAI_API_KEY` | no | Tajik cleanup and Tajik translation primary; also general translation fallback |
 | `GROQ_API_KEY` | no | Cleanup and translation fallback |
-| `TILTAB_CLEANUP_PROVIDER` | no | `openai` (default), `groq`, or `none` |
+| `TILTAB_CLEANUP_PROVIDER` | no | `openai` (default), `groq`, `gemini`, or `none` |
+| `TILTAB_CLEANUP_NON_TAJIK` | no | Run LLM cleanup for Kyrgyz/Uzbek/Russian too (default `1` = enabled) |
 | `TILTAB_CLEANUP_MODEL` | no | Override the default model for the chosen cleanup provider |
 | `LINGVA_TRANSLATE_URL` | no | Free Lingva instance, default `https://lingva.ml` |
 | `LINGVA_TRANSLATE_CHUNK_SIZE` | no | Max characters per Lingva chunk (default `2000`) |
-| `TILTAB_TRANSLATION_PROVIDER` | no | `lingva`, `openai`, `groq`, `mock`, or `auto` |
+| `TILTAB_TRANSLATION_PROVIDER` | no | `openai` (default), `lingva`, `groq`, `azure`, `yandex`, `mock`, or `auto` |
 | `TILTAB_REVIEW_ENABLED` | no | Run post-translation QA review (default `true`) |
-| `TILTAB_REVIEW_PROVIDER` | no | `openai`, `groq`, or `auto` (default `auto`; prefers the same provider used for translation) |
+| `TILTAB_REVIEW_PROVIDER` | no | `openai` (default), `groq`, or `auto` (prefers the same provider used for translation) |
 | `TILTAB_REVIEW_MODEL` | no | Override the model used for QA review |
 | `TILTAB_TRANSLATION_MAX_TOKENS` | no | Max output tokens for LLM translation (default `4096`). Hitting the limit raises an error so the caller can fall back to the source transcript. |
 | `TILTAB_REVIEW_MAX_TOKENS` | no | Max output tokens for the post-translation review step (default `4096`) |
-| `TILTAB_REVIEW_MAX_INPUT_CHARS` | no | Skip the review step when source + translated text exceeds this length (default `4000`) |
+| `TILTAB_REVIEW_MAX_INPUT_CHARS` | no | Skip the review step when source + translated text exceeds this length (default `3000`) |
 | `TILTAB_ADMIN_TOKEN` | **yes** | Required to open `/web/admin.html` and to call `/api/admin/*` endpoints. Without it the admin UI and API return `401`. |
 | `TILTAB_STT_PROVIDER` | no | `local` (default), `auto`, `openai`, or `elevenlabs` |
 | `TILTAB_GPU_STT_URL` | no | RunPod GPU STT endpoint URL (e.g. `https://api.runpod.ai/v2/xxx/runsync`). When set, supported languages are offloaded to GPU. |
