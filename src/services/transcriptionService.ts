@@ -61,8 +61,13 @@ export async function transcribeAudio(
     }
   }
 
-  // Priority local models hosted on the remote STT server (uz is too heavy for Render/Starter RAM).
-  const remoteSupported = new Set(["uz"]);
+  // Historically uz was offloaded to the remote STT service (Rubai CT2) because
+  // it was too heavy for Render's RAM. It now runs through the local hybrid,
+  // where gigaam_or_fallback routes uz to GigaAM Multilingual CTC (~22x realtime
+  // on CPU, higher accuracy than Rubai) with Rubai kept as the in-process
+  // fallback. No language uses the remote service by default anymore; add codes
+  // to this set to re-enable per-language offloading to TILTAB_STT_SERVICE_URL.
+  const remoteSupported = new Set<string>([]);
   if (config.TILTAB_STT_SERVICE_URL && normalizedLang && remoteSupported.has(normalizedLang)) {
     const result = await transcribeWithRemoteService(audioBuffer, filename, normalizedLang, abortSignal);
     return normalizeTranscriptionResult(result);
