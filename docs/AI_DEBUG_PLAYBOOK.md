@@ -162,6 +162,23 @@ $env:TILTAB_ADMIN_TOKEN='xxx'; python scripts/collect_errors.py --days 7
 https://instances.cobalt.best через админ-панель (приоритетнее .env, применяется
 без пересборки) и проверить кнопкой Test.
 
+## 6c. Persistent GigaAM worker (добавлено 2026-07-23)
+
+`ky/uz/ru` больше не спавнят `transcribe_hybrid.py` на каждый запрос (это грузило
+GigaAM ~2.8с каждый раз). Теперь их обслуживает постоянный воркер:
+
+- Сервис: `tiltab-gigaam.service` → `python3 gigaam_server.py` на `127.0.0.1:8010`,
+  GigaAM резидентна в памяти (`run_transcription()` — общий код с CLI).
+- Бэкенд шлёт `ky/uz/ru` в воркер, если задан `TILTAB_GIGAAM_SERVER_URL`; при
+  любой ошибке — прозрачный фолбэк на spawn `transcribe_hybrid.py`.
+- Проверка: `curl http://127.0.0.1:8010/health` → `{"status":"ok","warm":true}`.
+- Логи воркера: `journalctl -u tiltab-gigaam.service`.
+- `en/auto/multi` по-прежнему на RunPod GPU; `tg` — spawn (whisper-tajik).
+
+Если ky/uz/ru стали медленными — проверить, что воркер жив (`systemctl status
+tiltab-gigaam.service`); если он лёг, бэкенд молча уходит в spawn (медленнее, но
+работает) и пишет `GigaAM server failed, falling back to local spawn`.
+
 ## 7. Быстрая проверка живости (без доступов)
 
 ```bash
