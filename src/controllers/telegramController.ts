@@ -539,13 +539,58 @@ async function startPendingAction(chatId: number, force = false, cardMessageId?:
   }
 }
 
-// Map a phase's own 0–100 progress into a slice of the overall bar so the whole
-// request reads as one honest, monotonically growing percentage (e.g. download
-// occupies 0–40%, transcription 40–100%). Nothing is fabricated: every value
-// still comes from a real reported stage or chunk.
-function scaleProgress(sub: number, lo: number, hi: number): number {
-  const clamped = Math.min(100, Math.max(0, sub));
-  return Math.round(lo + (clamped / 100) * (hi - lo));
+// Animated status: a spinner that advances on a timer (so it feels alive even
+// when the underlying step reports no granular progress — e.g. the GigaAM
+// worker) plus the current phase label. Replaces the percentage bar in the
+// media/YouTube flows; no fabricated numbers.
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function renderSpinner(frame: number, label: string): string {
+  return `${SPINNER_FRAMES[frame % SPINNER_FRAMES.length]} <i>${escapeHtml(label)}</i>`;
+}
+
+interface SpinnerStatus {
+  setPhase(label: string): void;
+  stop(): void;
+}
+
+function createSpinnerStatus(
+  chatId: number,
+  statusMsgId: number,
+  lang: SupportedLanguage,
+  initialLabel: string
+): SpinnerStatus {
+  let frame = 0;
+  let label = initialLabel;
+  let stopped = false;
+  const stopKeyboard = createStopKeyboard(lang, String(chatId));
+
+  const push = () => {
+    if (stopped) return;
+    void editMessageText(chatId, statusMsgId, renderSpinner(frame, label), {
+      replyMarkup: stopKeyboard,
+    }).catch(() => {});
+  };
+
+  const timer = setInterval(() => {
+    if (stopped) return;
+    frame += 1;
+    push();
+  }, 2500);
+
+  return {
+    setPhase(newLabel: string) {
+      if (newLabel && newLabel !== label) {
+        label = newLabel;
+        frame += 1;
+        push();
+      }
+    },
+    stop() {
+      stopped = true;
+      clearInterval(timer);
+    },
+  };
 }
 
 // Show or reuse the single status message for a request. When a card message id
@@ -612,17 +657,12 @@ async function processAudio(
   const statusMsgId = await openStatusMessage(
     chatId,
     lang,
-    renderLoadingStages(0, t("transcribing", lang)),
+    renderSpinner(0, t("transcribing", lang)),
     cardMessageId
   );
 
   const removeKeyboard = { replyMarkup: { inline_keyboard: [] as InlineKeyboardButton[][] } };
-  const stopKeyboard = createStopKeyboard(lang, String(chatId));
-  // Keep the progress message clean: a fixed user-facing phase label, no engine
-  // names or file details leaking through from the Python progress stream.
-  const rawProgress = createProgressUpdater(chatId, statusMsgId, lang);
-  const onProgress = (p: { percent: number; label: string }) =>
-    rawProgress({ percent: p.percent, label: t("transcribing", lang) });
+  const spinner = createSpinnerStatus(chatId, statusMsgId, lang, t("transcribing", lang));
   const abortController = new AbortController();
 
   try {
@@ -650,12 +690,13 @@ async function processAudio(
           filename,
         });
       },
-      onProgress,
+      undefined,
       abortController.signal
     );
     clearActiveProcess(chatId);
 
     if (result.segments.length === 0) {
+      spinner.stop();
       await editMessageText(chatId, statusMsgId, t("noSpeech", lang), removeKeyboard);
       return result;
     }
@@ -689,6 +730,10 @@ async function processAudio(
       transcriptionId = 0;
     }
 
+    if (targetLanguage && targetLanguage !== "none") {
+      spinner.setPhase(t("translating", lang));
+    }
+
     const qualityWarning = quality.isSuspicious ? quality.flags.join(", ") : undefined;
     await sendResultDocument(
       chatId,
@@ -705,10 +750,12 @@ async function processAudio(
       undefined,
       "telegram_media"
     );
+    spinner.stop();
     await deleteMessage(chatId, statusMsgId).catch(() => {});
 
     return { ...result, text: cleanedText };
   } catch (err) {
+    spinner.stop();
     clearActiveProcess(chatId);
     logger.error("Transcription error", {
       error: err instanceof Error ? err.message : String(err),
@@ -732,13 +779,14 @@ async function downloadAndTranscribeYouTube(
   const statusMsgId = await openStatusMessage(
     chatId,
     lang,
-    renderLoadingStages(0, t("stageStarting", lang)),
+    renderSpinner(0, t("stageDownload", lang)),
     cardMessageId
   );
 
   const removeKeyboard = { replyMarkup: { inline_keyboard: [] as InlineKeyboardButton[][] } };
-  const stopKeyboard = createStopKeyboard(lang, String(chatId));
   const abortController = new AbortController();
+  // Two phases, spinner animates throughout: download → transcription.
+  const spinner = createSpinnerStatus(chatId, statusMsgId, lang, t("stageDownload", lang));
 
   try {
     setActiveProcess(chatId, {
@@ -751,17 +799,11 @@ async function downloadAndTranscribeYouTube(
       filename: "youtube_audio.wav",
     });
 
-    // One honest bar across both phases: download drives 0–40%, transcription
-    // drives 40–100%. Fixed user-facing phase labels (no URL, no engine names).
-    const progress = createProgressUpdater(chatId, statusMsgId, lang);
-
-    const downloadResult = await downloadMediaAudio(
-      url,
-      (p) => progress({ percent: scaleProgress(p.percent, 0, 40), label: t("stageDownload", lang) }),
-      abortController.signal
-    );
+    const downloadResult = await downloadMediaAudio(url, undefined, abortController.signal);
     const audioBuffer = downloadResult.audioBuffer;
     tmpWav = downloadResult.tmpWav;
+
+    spinner.setPhase(t("stageTranscribe", lang));
 
     const result = await transcribeAudio(
       audioBuffer,
@@ -779,13 +821,14 @@ async function downloadAndTranscribeYouTube(
           filename: "youtube_audio.wav",
         });
       },
-      (p) => progress({ percent: scaleProgress(p.percent, 40, 100), label: t("stageTranscribe", lang) }),
+      undefined,
       abortController.signal
     );
     await unlink(tmpWav).catch(() => {});
     clearActiveProcess(chatId);
 
     if (result.segments.length === 0) {
+      spinner.stop();
       await deleteMessage(chatId, statusMsgId).catch(() => {});
       await sendTextMessage(chatId, t("noSpeech", lang), { replyMarkup: createBackToMenuKeyboard(lang) });
       return;
@@ -809,6 +852,10 @@ async function downloadAndTranscribeYouTube(
       transcriptionId = 0;
     }
 
+    if (targetLanguage && targetLanguage !== "none") {
+      spinner.setPhase(t("translating", lang));
+    }
+
     await sendResultDocument(
       chatId,
       result.language,
@@ -824,8 +871,10 @@ async function downloadAndTranscribeYouTube(
       url,
       "youtube"
     );
+    spinner.stop();
     await deleteMessage(chatId, statusMsgId).catch(() => {});
   } catch (err) {
+    spinner.stop();
     clearActiveProcess(chatId);
     await unlink(tmpWav).catch(() => {});
     const msg = `❌ ${escapeHtml(err instanceof Error ? err.message : String(err))}`;
