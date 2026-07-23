@@ -8,7 +8,10 @@ not block downloads.
 
 import json
 import os
+import queue
 import sys
+import threading
+import time
 
 import requests
 
@@ -32,6 +35,9 @@ DEFAULT_COBALT_APIS = [
 
 COBALT_TIMEOUT = 45
 COBALT_VALIDATE_TIMEOUT = int(os.environ.get("COBALT_VALIDATE_TIMEOUT", "12"))
+# Per-instance timeout when racing all instances to resolve a link. Kept modest
+# so a hanging instance does not keep the (short-lived) process alive for long.
+COBALT_RESOLVE_TIMEOUT = int(os.environ.get("COBALT_RESOLVE_TIMEOUT", "20"))
 DOWNLOAD_TIMEOUT = 300
 
 
@@ -71,6 +77,81 @@ def _request_stream(url: str, payload: dict, timeout: int | None = None) -> dict
     return resp.json()
 
 
+def _resolve_one(api: str, payload: dict, timeout: int):
+    """Ask one Cobalt instance to resolve a link. Returns (api, resp, data)."""
+    resp = requests.post(
+        api,
+        json=payload,
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        timeout=timeout,
+    )
+    data = {}
+    try:
+        data = resp.json()
+    except Exception:
+        pass
+    return api, resp, data
+
+
+def _race_resolve(payload: dict, timeout: int, progress_cb=None):
+    """Query all configured Cobalt instances in parallel and return (api, data)
+    for the FIRST one that resolves the link to a stream.
+
+    Instances vary a lot in speed and health, and a slow/dead one used to block
+    the whole download while it timed out. Racing picks the fastest responder
+    per request and never waits on the slow ones.
+
+    Workers run as daemon threads so a request left hanging on a dead instance
+    is abandoned at process exit instead of holding the (short-lived) process
+    open until its timeout.
+    """
+    apis = _api_urls()
+    if not apis:
+        raise RuntimeError("No Cobalt API URLs configured")
+    if len(apis) == 1:
+        api, resp, data = _resolve_one(apis[0], payload, timeout)
+        if resp.ok and data.get("status") in ("tunnel", "redirect") and data.get("url"):
+            return apis[0], data
+        raise RuntimeError(_cobalt_error_text(data) if data.get("status") == "error" else f"HTTP {resp.status_code}")
+
+    _emit(progress_cb, 8, f"Выбираю быстрейший Cobalt из {len(apis)}...")
+    result_q: "queue.Queue" = queue.Queue()
+    errors = []
+    errors_lock = threading.Lock()
+
+    def worker(api: str):
+        try:
+            api_, resp, data = _resolve_one(api, payload, timeout)
+            if resp.ok and data.get("status") in ("tunnel", "redirect") and data.get("url"):
+                result_q.put((api_, data))
+                return
+            with errors_lock:
+                if isinstance(data, dict) and data.get("status") == "error":
+                    errors.append(_cobalt_error_text(data))
+                else:
+                    errors.append(f"{api}: HTTP {getattr(resp, 'status_code', '?')}")
+        except Exception as e:  # network error / timeout for this instance
+            with errors_lock:
+                errors.append(f"{api}: {e}")
+        result_q.put(None)
+
+    for api in apis:
+        threading.Thread(target=worker, args=(api,), daemon=True).start()
+
+    completed = 0
+    deadline = time.time() + timeout + 5
+    while completed < len(apis):
+        try:
+            item = result_q.get(timeout=max(0.1, deadline - time.time()))
+        except queue.Empty:
+            break
+        if item is not None:
+            return item  # first valid tunnel = fastest healthy instance
+        completed += 1
+
+    raise RuntimeError("; ".join(errors) or "all Cobalt instances failed")
+
+
 def _download_media(media_url: str, output_path: str):
     """Download a media file from a Cobalt tunnel/redirect URL."""
     with requests.get(media_url, stream=True, timeout=DOWNLOAD_TIMEOUT) as dl:
@@ -101,43 +182,21 @@ def download_media_via_cobalt(
     if download_mode == "audio":
         payload["audioFormat"] = audio_format
 
-    last_error = "No Cobalt API URLs configured"
-    for api in _api_urls():
-        try:
-            _emit(progress_cb, 5, f"Пробую Cobalt ({api})...")
-            data = _request_stream(api, payload)
+    # Race all instances; the fastest to return a working tunnel wins.
+    api, data = _race_resolve(payload, COBALT_RESOLVE_TIMEOUT, progress_cb)
 
-            if data.get("status") == "error":
-                last_error = _cobalt_error_text(data)
-                continue
+    media_url = data.get("url")
+    filename = data.get("filename") or "audio.mp3"
+    output_path = os.path.join(output_dir, filename)
 
-            if data.get("status") not in ("tunnel", "redirect"):
-                last_error = f"Cobalt unexpected status: {data.get('status')}"
-                continue
+    _emit(progress_cb, 15, "Скачиваю аудио через Cobalt...")
+    _download_media(media_url, output_path)
 
-            media_url = data.get("url")
-            if not media_url:
-                last_error = "Cobalt API did not return a media URL"
-                continue
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        raise RuntimeError("Cobalt returned an empty audio file")
 
-            filename = data.get("filename") or "audio.mp3"
-            output_path = os.path.join(output_dir, filename)
-
-            _emit(progress_cb, 15, "Скачиваю аудио через Cobalt...")
-            _download_media(media_url, output_path)
-
-            if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-                last_error = "Cobalt returned an empty audio file"
-                continue
-
-            _emit(progress_cb, 85, "Обрабатываю аудио...")
-            return output_path
-        except requests.RequestException as e:
-            last_error = f"Cobalt API request failed ({api}): {e}"
-        except Exception as e:
-            last_error = f"Cobalt error ({api}): {e}"
-
-    raise RuntimeError(last_error)
+    _emit(progress_cb, 85, "Обрабатываю аудио...")
+    return output_path
 
 
 def validate_via_cobalt(url: str, download_mode: str = "auto") -> dict:
@@ -153,55 +212,24 @@ def validate_via_cobalt(url: str, download_mode: str = "auto") -> dict:
     if download_mode == "audio":
         payload["audioFormat"] = "mp3"
 
-    last_error = "No Cobalt API URLs configured"
-    for api in _api_urls():
-        try:
-            # Use a short timeout for validation so a single slow/dead instance
-            # does not exhaust the caller's timeout budget.
-            resp = requests.post(
-                api,
-                json=payload,
-                headers={"Accept": "application/json", "Content-Type": "application/json"},
-                timeout=COBALT_VALIDATE_TIMEOUT,
-            )
-
-            # Try to parse Cobalt's JSON error body even on 4xx/5xx.
-            try:
-                data = resp.json()
-            except Exception:
-                data = {}
-
-            if resp.ok and data.get("status") in ("tunnel", "redirect"):
-                return {"ok": True, "title": "", "duration": 0, "uploader": ""}
-
-            if data.get("status") == "error" or not resp.ok:
-                code = data.get("error", {}).get("code", "unknown") if data.get("error") else f"http_{resp.status_code}"
-                reason = "unknown"
-                if "jwt" in code.lower() or "auth" in code.lower():
-                    reason = "cobalt_auth_required"
-                elif "login" in code.lower():
-                    reason = "sign_in_required"
-                elif "age" in code.lower():
-                    reason = "age_restricted"
-                elif "unavailable" in code.lower() or "not.found" in code.lower() or "all_instances_failed" in code.lower():
-                    reason = "not_available"
-                elif "bot" in code.lower() or "turnstile" in code.lower():
-                    reason = "bot_detected"
-                last_error = _cobalt_error_text(data) if data.get("error") else f"HTTP {resp.status_code}"
-                # Surface the Cobalt reason instead of hiding it behind unknown.
-                if reason != "unknown":
-                    return {"ok": False, "reason": reason, "error": last_error}
-                continue
-
-            last_error = f"Cobalt unexpected status: {data.get('status')}"
-        except requests.Timeout as e:
-            last_error = f"Cobalt API timed out ({api}): {e}"
-        except requests.RequestException as e:
-            last_error = f"Cobalt API request failed ({api}): {e}"
-        except Exception as e:
-            last_error = f"Cobalt error ({api}): {e}"
-
-    return {"ok": False, "reason": "unknown", "error": last_error}
+    # Race all instances; validation succeeds as soon as any one resolves.
+    try:
+        _race_resolve(payload, COBALT_VALIDATE_TIMEOUT)
+        return {"ok": True, "title": "", "duration": 0, "uploader": ""}
+    except Exception as e:
+        text = str(e).lower()
+        reason = "unknown"
+        if "jwt" in text or "auth" in text:
+            reason = "cobalt_auth_required"
+        elif "login" in text:
+            reason = "sign_in_required"
+        elif "age" in text:
+            reason = "age_restricted"
+        elif "unavailable" in text or "not.found" in text or "all_instances_failed" in text:
+            reason = "not_available"
+        elif "bot" in text or "turnstile" in text:
+            reason = "bot_detected"
+        return {"ok": False, "reason": reason, "error": str(e)}
 
 
 def download_audio_via_cobalt(
