@@ -145,6 +145,23 @@ $env:TILTAB_ADMIN_TOKEN='xxx'; python scripts/collect_errors.py --days 7
 | перевод-заглушка / обрезанный перевод | `translationService.ts` | сработал sanity-check (одно слово >35%) или упёрлись в `max_tokens` |
 | бот не отвечает вообще | — | смотреть `tiltab-telegram-poll.service`, а НЕ webhook (webhook не используется) |
 
+## 6b. Cobalt: мониторинг и алерты (добавлено 2026-07-23)
+
+После удаления yt-dlp Cobalt — единственный загрузчик. Фоновый монитор
+(`src/services/cobaltHealthService.ts`) раз в `COBALT_HEALTHCHECK_INTERVAL_MINUTES`
+(деф. 30) пингует эффективный список инстансов тестовой ссылкой. Когда **все**
+падают — шлёт Telegram-алерт на `TILTAB_ADMIN_CHAT_ID` (не чаще раза в
+`COBALT_ALERT_THROTTLE_HOURS`, деф. 6), при восстановлении — «снова работает».
+
+**Приоритет источника инстансов** (одинаков для Python-загрузчика и Node-монитора):
+1. Админ-панель — `data/cobalt-config.json` (Beta-test → Cobalt manager). **Не в git.**
+2. `.env` → `COBALT_API_URLS` (через запятую) или `COBALT_API_URL`.
+3. Встроенный дефолт (`DEFAULT_COBALT_APIS` в `youtube_cobalt.py`).
+
+Если пришёл алерт «все инстансы недоступны» — добавить рабочий инстанс со списка
+https://instances.cobalt.best через админ-панель (приоритетнее .env, применяется
+без пересборки) и проверить кнопкой Test.
+
 ## 7. Быстрая проверка живости (без доступов)
 
 ```bash
