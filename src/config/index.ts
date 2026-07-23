@@ -80,6 +80,31 @@ const envSchema = z.object({
   YANDEX_TRANSLATE_FOLDER_ID: z.string().optional().or(z.literal("")),
   YANDEX_TRANSLATE_ENDPOINT: z.string().url().optional().or(z.literal("")).default("https://translate.api.cloud.yandex.net/translate/v2/translate"),
   TILTAB_ADMIN_TOKEN: z.string().optional().or(z.literal("")),
+  // Telegram chat ID that receives operational alerts (e.g. all Cobalt
+  // instances down). Leave empty to disable admin alerts.
+  TILTAB_ADMIN_CHAT_ID: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .transform((v) => {
+      const n = v ? Number(v) : NaN;
+      return Number.isFinite(n) ? n : undefined;
+    }),
+  // Background monitor that checks whether any Cobalt instance can still
+  // resolve a video, and alerts the admin when they all fail.
+  COBALT_HEALTHCHECK_ENABLED: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .default("true")
+    .transform((v) => !v || ["1", "true", "yes", "on"].includes(v.toLowerCase())),
+  COBALT_HEALTHCHECK_URL: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .default("https://www.youtube.com/watch?v=jNQXAC9IVRw"),
+  COBALT_HEALTHCHECK_INTERVAL_MINUTES: z.string().default("30").transform(Number),
+  COBALT_ALERT_THROTTLE_HOURS: z.string().default("6").transform(Number),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
   DATABASE_URL: isTest
     ? z.string().default("")

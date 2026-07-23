@@ -7,6 +7,14 @@ const CONFIG_FILE = path.join(CONFIG_DIR, "cobalt-config.json");
 
 const DEFAULT_TEST_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
+// Mirror of DEFAULT_COBALT_APIS in youtube_cobalt.py. Kept in sync so the Node
+// health monitor probes exactly the instances the Python downloader would use.
+const DEFAULT_COBALT_URLS = [
+  "https://api.cobalt.liubquanti.click/",
+  "https://co.otomir23.me/",
+  "https://cobalt-backend.canine.tools/",
+];
+
 interface CobaltConfig {
   urls: string[];
 }
@@ -74,6 +82,28 @@ export function resetConfiguredCobaltUrls(): void {
 export function getCobaltApiUrlsEnv(): string {
   const configured = getConfiguredCobaltUrls();
   return configured.join(",");
+}
+
+/**
+ * Resolve the Cobalt instances actually in effect, mirroring the priority in
+ * youtube_cobalt.py: admin-panel config → COBALT_API_URLS → COBALT_API_URL →
+ * built-in defaults. Used by the health monitor so it probes the same list the
+ * Python downloader will use.
+ */
+export function getEffectiveCobaltUrls(): string[] {
+  const configured = getConfiguredCobaltUrls();
+  if (configured.length > 0) return configured;
+
+  const envList = (process.env.COBALT_API_URLS || "")
+    .split(",")
+    .map((u) => normalizeUrl(u))
+    .filter((u): u is string => u !== null);
+  if (envList.length > 0) return envList;
+
+  const single = normalizeUrl(process.env.COBALT_API_URL || "");
+  if (single) return [single];
+
+  return DEFAULT_COBALT_URLS;
 }
 
 export interface CobaltTestResult {

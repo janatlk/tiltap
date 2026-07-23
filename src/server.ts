@@ -4,6 +4,7 @@ import { logger } from "./utils/logger";
 import { migrate, isDbHealthy } from "./db";
 import { initPendingActions } from "./services/telegramService";
 import { cleanupOldTempFiles } from "./utils/tempCleanup";
+import { startCobaltHealthMonitor } from "./services/cobaltHealthService";
 
 const PORT = config.PORT;
 
@@ -28,6 +29,7 @@ async function start() {
 
   app.listen(PORT, () => {
     logger.info(`🚀 TilTap backend running on port ${PORT} in ${config.NODE_ENV} mode`);
+    startCobaltHealthMonitor();
   });
 }
 
