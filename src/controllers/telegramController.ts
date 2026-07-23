@@ -282,7 +282,19 @@ async function sendMainMenu(chatId: number, prefs: UserPreferences, isStart = fa
 
 async function editMainMenu(chatId: number, messageId: number, prefs: UserPreferences): Promise<void> {
   const lang = prefs.interfaceLanguage;
-  await editMessageText(chatId, messageId, buildMainMenuText(lang), { replyMarkup: createMainKeyboard(lang) });
+  try {
+    await editMessageText(chatId, messageId, buildMainMenuText(lang), { replyMarkup: createMainKeyboard(lang) });
+  } catch (err) {
+    // The message may be the result document (or any non-text message), which
+    // Telegram refuses to edit ("there is no text in the message to edit").
+    // Never delete the user's result — send the menu as a new message so the
+    // transcription/translation file stays in the chat history.
+    logger.debug("editMainMenu could not edit in place, sending a new menu", {
+      error: err instanceof Error ? err.message : String(err),
+      chatId,
+    });
+    await sendTextMessage(chatId, buildMainMenuText(lang), { replyMarkup: createMainKeyboard(lang) });
+  }
 }
 
 function buildSettingsMenuText(prefs: UserPreferences): string {
@@ -461,7 +473,7 @@ async function editConfirmationMessage(chatId: number, messageId: number, prefs:
   await editMessageText(chatId, messageId, text, { replyMarkup: createConfirmationKeyboard(pending.actionId, lang, pending.targetLanguage ?? prefs.targetLanguage) });
 }
 
-async function startPendingAction(chatId: number, force = false): Promise<void> {
+async function startPendingAction(chatId: number, force = false, cardMessageId?: number): Promise<void> {
   const prefs = await getUserPreferences(chatId);
   const lang = prefs.interfaceLanguage;
   const pending = getPendingAction(chatId);
@@ -510,11 +522,12 @@ async function startPendingAction(chatId: number, force = false): Promise<void> 
       sourceLang,
       pending.dbMessageId,
       pending.messageId,
-      targetLang
+      targetLang,
+      cardMessageId
     );
   } else if (pending.type === "youtube") {
     try {
-      await downloadAndTranscribeYouTube(chatId, pending.url, sourceLang, targetLang);
+      await downloadAndTranscribeYouTube(chatId, pending.url, sourceLang, targetLang, cardMessageId);
     } catch (err) {
       logger.error("YouTube processing failed", {
         error: err instanceof Error ? err.message : String(err),
@@ -524,6 +537,33 @@ async function startPendingAction(chatId: number, force = false): Promise<void> 
       });
     }
   }
+}
+
+// Map a phase's own 0–100 progress into a slice of the overall bar so the whole
+// request reads as one honest, monotonically growing percentage (e.g. download
+// occupies 0–40%, transcription 40–100%). Nothing is fabricated: every value
+// still comes from a real reported stage or chunk.
+function scaleProgress(sub: number, lo: number, hi: number): number {
+  const clamped = Math.min(100, Math.max(0, sub));
+  return Math.round(lo + (clamped / 100) * (hi - lo));
+}
+
+// Show or reuse the single status message for a request. When a card message id
+// is supplied (the confirmation card the user just pressed Start on), edit it in
+// place instead of sending a new message — this is what keeps the chat clean.
+async function openStatusMessage(
+  chatId: number,
+  lang: SupportedLanguage,
+  text: string,
+  cardMessageId?: number
+): Promise<number> {
+  if (cardMessageId) {
+    await editMessageText(chatId, cardMessageId, text, {
+      replyMarkup: createStopKeyboard(lang, String(chatId)),
+    }).catch(() => {});
+    return cardMessageId;
+  }
+  return sendTextMessage(chatId, text, { replyMarkup: createStopKeyboard(lang, String(chatId)) });
 }
 
 function createProgressUpdater(chatId: number, statusMsgId: number, lang: SupportedLanguage, details?: string) {
@@ -564,19 +604,25 @@ async function processAudio(
   language: string,
   dbMessageId: number,
   replyToMessageId?: number,
-  targetLanguage?: string
+  targetLanguage?: string,
+  cardMessageId?: number
 ): Promise<TranscriptionResult | undefined> {
   const prefs = await getUserPreferences(chatId);
   const lang = prefs.interfaceLanguage;
-  const statusMsgId = await sendTextMessage(
+  const statusMsgId = await openStatusMessage(
     chatId,
-    renderLoadingStages(0, t("transcribing", lang), filename),
-    { replyMarkup: createStopKeyboard(lang, String(chatId)) }
+    lang,
+    renderLoadingStages(0, t("transcribing", lang)),
+    cardMessageId
   );
 
   const removeKeyboard = { replyMarkup: { inline_keyboard: [] as InlineKeyboardButton[][] } };
   const stopKeyboard = createStopKeyboard(lang, String(chatId));
-  const onProgress = createProgressUpdater(chatId, statusMsgId, lang, filename);
+  // Keep the progress message clean: a fixed user-facing phase label, no engine
+  // names or file details leaking through from the Python progress stream.
+  const rawProgress = createProgressUpdater(chatId, statusMsgId, lang);
+  const onProgress = (p: { percent: number; label: string }) =>
+    rawProgress({ percent: p.percent, label: t("transcribing", lang) });
   const abortController = new AbortController();
 
   try {
@@ -677,15 +723,17 @@ async function downloadAndTranscribeYouTube(
   chatId: number,
   url: string,
   language: string,
-  targetLanguage?: string
+  targetLanguage?: string,
+  cardMessageId?: number
 ): Promise<void> {
   const prefs = await getUserPreferences(chatId);
   const lang = prefs.interfaceLanguage;
   let tmpWav = "";
-  const statusMsgId = await sendTextMessage(
+  const statusMsgId = await openStatusMessage(
     chatId,
-    renderLoadingStages(0, t("stageStarting", lang), url),
-    { replyMarkup: createStopKeyboard(lang, String(chatId)) }
+    lang,
+    renderLoadingStages(0, t("stageStarting", lang)),
+    cardMessageId
   );
 
   const removeKeyboard = { replyMarkup: { inline_keyboard: [] as InlineKeyboardButton[][] } };
@@ -703,19 +751,18 @@ async function downloadAndTranscribeYouTube(
       filename: "youtube_audio.wav",
     });
 
-    const downloadProgress = createProgressUpdater(chatId, statusMsgId, lang, url);
+    // One honest bar across both phases: download drives 0–40%, transcription
+    // drives 40–100%. Fixed user-facing phase labels (no URL, no engine names).
+    const progress = createProgressUpdater(chatId, statusMsgId, lang);
 
     const downloadResult = await downloadMediaAudio(
       url,
-      (progress) => downloadProgress({ percent: progress.percent, label: progress.label ?? t("stageDownload", lang) }),
+      (p) => progress({ percent: scaleProgress(p.percent, 0, 40), label: t("stageDownload", lang) }),
       abortController.signal
     );
     const audioBuffer = downloadResult.audioBuffer;
     tmpWav = downloadResult.tmpWav;
 
-    await editMessageText(chatId, statusMsgId, renderLoadingStages(60, t("stageTranscribe", lang), url), { replyMarkup: stopKeyboard });
-
-    const transcribeProgress = createProgressUpdater(chatId, statusMsgId, lang, url);
     const result = await transcribeAudio(
       audioBuffer,
       "youtube_audio.wav",
@@ -732,7 +779,7 @@ async function downloadAndTranscribeYouTube(
           filename: "youtube_audio.wav",
         });
       },
-      transcribeProgress,
+      (p) => progress({ percent: scaleProgress(p.percent, 40, 100), label: t("stageTranscribe", lang) }),
       abortController.signal
     );
     await unlink(tmpWav).catch(() => {});
@@ -1257,7 +1304,7 @@ async function handleCallbackQuery(callbackQuery: {
     }
 
     if (action === "start") {
-      await startPendingAction(chatId);
+      await startPendingAction(chatId, false, messageId);
     } else if (action === "lang") {
       await editMessageText(
         chatId,
@@ -1313,7 +1360,7 @@ async function handleCallbackQuery(callbackQuery: {
         }
         clearActiveProcess(chatId);
       }
-      await startPendingAction(chatId, true);
+      await startPendingAction(chatId, true, messageId);
     } else {
       clearPendingAction(chatId);
       await editMainMenu(chatId, messageId, prefs);
