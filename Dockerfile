@@ -17,8 +17,8 @@ FROM node:22-slim
 
 WORKDIR /app
 
-# Install Python and the backend Python deps (yt-dlp, requests, etc.).
-# Local STT models are no longer used in production.
+# Install Python and the backend Python deps (requests, used by the Cobalt
+# download/validation scripts). Local STT models are no longer used in production.
 COPY requirements.txt ./
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 python3-pip \

@@ -16,11 +16,6 @@ const envSchema = z.object({
   LINGVA_TRANSLATE_URL: z.string().url().optional().or(z.literal("")).default("https://lingva.ml"),
   LINGVA_TRANSLATE_CHUNK_SIZE: z.string().default("2000").transform(Number),
   TILTAB_TRANSLATION_PROVIDER: z.enum(["lingva", "openai", "groq", "azure", "yandex", "mock", "auto"]).default("openai"),
-  YOUTUBE_COOKIES_BASE64: z.string().optional().or(z.literal("")),
-  YOUTUBE_COOKIES_PATH: z.string().optional().or(z.literal("")),
-  YOUTUBE_PO_TOKEN: z.string().optional().or(z.literal("")),
-  YOUTUBE_VISITOR_DATA: z.string().optional().or(z.literal("")),
-  YOUTUBE_AUTO_UPDATE_YTDLP: z.enum(["true", "false", "1", "0", ""]).optional().or(z.literal("")).default("false"),
   GROQ_API_KEY: z.string().optional().or(z.literal("")),
   GEMINI_API_KEY: z.string().optional().or(z.literal("")),
 

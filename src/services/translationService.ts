@@ -835,7 +835,7 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
         flags: cachedQuality.flags,
       });
       await translationRepo.deleteTranslationCache(hash, translateReq.targetLang).catch((err) => {
-        logger.error("Failed to delete bad translation cache", { error: err, hash });
+        logger.error("Failed to delete bad translation cache", { error: err instanceof Error ? err.message : String(err), hash });
       });
     } else {
       return { translatedText: cached.translated_text, detectedLang: sourceLang };

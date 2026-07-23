@@ -72,7 +72,19 @@ export async function cleanupTranscription(
   for (const provider of providers) {
     try {
       const result = await callProvider(provider, systemPrompt, userPrompt, maxTokens);
-      if (result && isCleanupSane(text, result.cleanedText)) {
+      const rejection = result ? cleanupRejectionReason(text, result.cleanedText) : "no result returned";
+      if (rejection) {
+        // The provider answered (and we already paid for it), but the output failed
+        // the sanity gate. Without the reason this is invisible in the logs.
+        logger.warn(`${provider.name} cleanup rejected`, {
+          reason: rejection,
+          language: lang,
+          originalChars: text.length,
+          cleanedChars: result?.cleanedText.length ?? 0,
+          maxTokens,
+        });
+      }
+      if (result && !rejection) {
         logger.info("STT cleanup complete", { provider: result.provider, model: result.model, language: lang });
         await cleanupRepo.saveCleanup({
           sourceHash: hash,
@@ -310,13 +322,27 @@ function similarityRatio(a: string, b: string): number {
   return maxLen === 0 ? 1 : 1 - dist / maxLen;
 }
 
-function isCleanupSane(original: string, cleaned: string): boolean {
-  if (!cleaned || cleaned.length < original.length * 0.4) return false;
-  if (cleaned.length > original.length * 3) return false;
-  if (/\n\n|^(Here is|Below is|Note:|Translation:|Output:)/i.test(cleaned)) return false;
+// Returns null when the cleaned text is acceptable, otherwise a short reason
+// describing which gate rejected it. The reason is logged so a rejected (and
+// already paid for) cleanup is not invisible.
+function cleanupRejectionReason(original: string, cleaned: string): string | null {
+  if (!cleaned) return "empty output";
+  if (cleaned.length < original.length * 0.4) {
+    // Usually means the response hit max_tokens and was cut off mid-transcript.
+    return `too short: ${cleaned.length} chars vs ${original.length} original (min 40%, likely max_tokens truncation)`;
+  }
+  if (cleaned.length > original.length * 3) {
+    return `too long: ${cleaned.length} chars vs ${original.length} original (max 300%)`;
+  }
+  if (/\n\n|^(Here is|Below is|Note:|Translation:|Output:)/i.test(cleaned)) {
+    return "model added commentary or blank-line formatting";
+  }
+  const similarity = similarityRatio(original, cleaned);
   // If the LLM changed more than 15 % of the characters, it is probably rephrasing.
-  if (similarityRatio(original, cleaned) < 0.85) return false;
-  return true;
+  if (similarity < 0.85) {
+    return `rephrased: similarity ${similarity.toFixed(3)} below 0.85`;
+  }
+  return null;
 }
 
 function languageName(code: string): string {

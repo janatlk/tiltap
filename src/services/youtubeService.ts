@@ -119,7 +119,7 @@ export async function validateMediaUrl(url: string): Promise<MediaValidation> {
     proc.on("error", (err) => {
       clearTimeout(timeout);
       if (settled) return;
-      logger.error("validateMediaUrl failed to spawn process", { url, error: err });
+      logger.error("validateMediaUrl failed to spawn process", { url, error: err instanceof Error ? err.message : String(err) });
       resolve({ ok: false, reason: "unknown" });
     });
   });

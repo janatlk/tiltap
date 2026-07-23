@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Download YouTube audio for /youtube command with real-time progress."""
+"""Download audio from a media link (YouTube, TikTok, Instagram) via Cobalt.
+
+yt-dlp was removed in July 2026: on the Hetzner datacenter IP YouTube blocked it
+on essentially every request ("Sign in to confirm you're not a bot"), so the
+fallback path became the only path. Cobalt is now the single downloader.
+"""
 
 import json
-import sys
 import os
-import tempfile
 import subprocess
-import yt_dlp
-from urllib.parse import urlparse
+import sys
+import tempfile
 
-from youtube_common import write_cookies_from_env, get_extractor_args, DESKTOP_HEADERS, is_youtube_bot_error
-from youtube_cobalt import download_audio_via_cobalt, download_media_via_cobalt
-
+from youtube_cobalt import download_media_via_cobalt
 
 
 def emit_progress(percent: int, label: str):
@@ -19,52 +20,6 @@ def emit_progress(percent: int, label: str):
         json.dumps({"type": "progress", "percent": max(0, min(100, int(percent))), "label": label}, ensure_ascii=False),
         flush=True,
     )
-
-
-def progress_hook(d):
-    if d["status"] == "downloading":
-        downloaded = d.get("downloaded_bytes", 0)
-        total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-        if total:
-            percent = int(100 * downloaded / total)
-            emit_progress(percent, "Скачиваю с YouTube...")
-    elif d["status"] == "finished":
-        emit_progress(95, "Конвертирую аудио...")
-
-
-def download_audio(url: str, output_path: str, ffmpeg_path: str, cookies_path: str | None = None):
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "outtmpl": output_path.replace(".mp3", ""),
-        "ffmpeg_location": ffmpeg_path,
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }
-        ],
-        "quiet": True,
-        "no_warnings": True,
-        "progress_hooks": [progress_hook],
-        # Some videos are geo/age restricted; try to bypass geo restrictions.
-        "geo_bypass": True,
-        # Mimic a real desktop browser to reduce bot detection.
-        "http_headers": DESKTOP_HEADERS,
-        # Use the BgUtils POT provider plugin + cookies.
-        "extractor_args": get_extractor_args(),
-    }
-
-    proxy = os.environ.get("YOUTUBE_PROXY", "").strip()
-    if proxy:
-        ydl_opts["proxy"] = proxy
-
-    if cookies_path and os.path.exists(cookies_path):
-        ydl_opts["cookies"] = cookies_path
-
-    emit_progress(5, "Начинаю загрузку...")
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
 
 
 def convert_to_wav(input_path: str, output_path: str, ffmpeg_path: str):
@@ -80,8 +35,8 @@ def convert_to_wav(input_path: str, output_path: str, ffmpeg_path: str):
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def _find_audio_file(tmpdir: str):
-    """Return the first media file Cobalt/yt-dlp may have written."""
+def _find_media_file(tmpdir: str):
+    """Return the first media file Cobalt wrote."""
     for ext in (".mp3", ".m4a", ".webm", ".ogg", ".opus", ".mp4", ".mov", ".mkv", ".flv"):
         for f in os.listdir(tmpdir):
             if f.lower().endswith(ext):
@@ -89,22 +44,23 @@ def _find_audio_file(tmpdir: str):
     return None
 
 
-def _format_ytdlp_error(e: yt_dlp.utils.DownloadError) -> str:
-    msg = str(e)
-    if "This video is not available" in msg:
-        return "Video is not available (may be private, geo-blocked, or deleted)"
-    if "Sign in to confirm" in msg:
-        return "YouTube requires sign-in for this video"
-    if "Video unavailable" in msg:
-        return "Video unavailable"
-    if "HTTP Error 403" in msg:
-        return "YouTube blocked the download (HTTP 403). Try another video or update yt-dlp."
-    return msg
+def download(url: str, tmpdir: str):
+    """Fetch the media via Cobalt, preferring an audio-only stream.
 
+    Not every service supports downloadMode=audio, so fall back to the full
+    media file and let ffmpeg strip the audio track afterwards.
+    """
+    def report(p, label):
+        emit_progress(int(p * 0.8 + 5), label)
 
-def _is_youtube_domain(url: str) -> bool:
-    host = urlparse(url).netloc.lower()
-    return any(d in host for d in ("youtube.com", "youtu.be", "youtube-nocookie.com"))
+    try:
+        return download_media_via_cobalt(url, tmpdir, progress_cb=report, download_mode="audio")
+    except Exception as audio_error:
+        emit_progress(5, "Аудиопоток недоступен, скачиваю видео...")
+        try:
+            return download_media_via_cobalt(url, tmpdir, progress_cb=report, download_mode="auto")
+        except Exception as auto_error:
+            raise RuntimeError(f"audio mode: {audio_error}; auto mode: {auto_error}") from auto_error
 
 
 def main():
@@ -118,54 +74,17 @@ def main():
 
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
-            cookies_path = write_cookies_from_env(tmpdir)
-            mp3_base = os.path.join(tmpdir, "audio")
+            emit_progress(5, "Скачиваю через Cobalt...")
+            download(url, tmpdir)
 
-            if _is_youtube_domain(url):
-                try:
-                    download_audio(url, mp3_base, ffmpeg_path, cookies_path)
-                except yt_dlp.utils.DownloadError as e:
-                    ytdlp_error = _format_ytdlp_error(e)
-                    if is_youtube_bot_error(str(e)):
-                        emit_progress(5, "YouTube заблокировал yt-dlp, пробую Cobalt...")
-                        try:
-                            download_audio_via_cobalt(
-                                url,
-                                tmpdir,
-                                progress_cb=lambda p, l: emit_progress(int(p * 0.8 + 5), l),
-                            )
-                        except Exception as ce:
-                            raise RuntimeError(
-                                f"yt-dlp: {ytdlp_error}; Cobalt fallback: {ce}"
-                            ) from ce
-                    else:
-                        raise
-            else:
-                emit_progress(5, "Скачиваю через Cobalt...")
-                try:
-                    download_media_via_cobalt(
-                        url,
-                        tmpdir,
-                        progress_cb=lambda p, l: emit_progress(int(p * 0.8 + 5), l),
-                        download_mode="auto",
-                    )
-                except Exception as ce:
-                    raise RuntimeError(f"Cobalt download failed: {ce}") from ce
-
-            audio_file = _find_audio_file(tmpdir)
-            if not audio_file:
-                print("Audio file not found after download", file=sys.stderr)
+            media_file = _find_media_file(tmpdir)
+            if not media_file:
+                print("ERROR: Cobalt did not produce a media file", file=sys.stderr)
                 sys.exit(1)
 
-            convert_to_wav(audio_file, output_wav, ffmpeg_path)
+            convert_to_wav(media_file, output_wav, ffmpeg_path)
             emit_progress(100, "Аудио готово")
             print(f"Downloaded and converted to {output_wav}")
-    except yt_dlp.utils.DownloadError as e:
-        print(f"ERROR: {_format_ytdlp_error(e)}", file=sys.stderr)
-        sys.exit(1)
-    except RuntimeError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        sys.exit(1)
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)

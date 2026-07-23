@@ -12,13 +12,22 @@ import sys
 
 import requests
 
-# Community instances that currently allow unauthenticated YouTube audio
-# downloads (Turnstile disabled).  Override with COBALT_API_URL or
-# COBALT_API_URLS (comma-separated).
-# Last verified: api.cobalt.liubquanti.click returns tunnels for YouTube
-# from Hetzner; most other public instances now require JWT or are blocked.
+# Community instances that currently allow unauthenticated downloads (Turnstile
+# disabled).  Override with COBALT_API_URL or COBALT_API_URLS (comma-separated).
+#
+# Since yt-dlp was removed these instances are the ONLY download path, so the
+# list is a rotation rather than a single entry: instances break often and
+# individually (a healthy instance can still answer relay.all_instances_failed
+# for a while).
+#
+# Last verified 2026-07-23 from the Hetzner host:
+#   liubquanti  — YouTube tunnel + full MP3 download OK
+#   otomir23    — alive, but YouTube needs login (may still serve tiktok/instagram)
+#   canine      — alive, but requires a JWT for YouTube
 DEFAULT_COBALT_APIS = [
     "https://api.cobalt.liubquanti.click/",
+    "https://co.otomir23.me/",
+    "https://cobalt-backend.canine.tools/",
 ]
 
 COBALT_TIMEOUT = 45

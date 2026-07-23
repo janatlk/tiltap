@@ -3,4 +3,3 @@
 #   pip3 install -r requirements.txt
 
 requests>=2.32.0
-yt-dlp>=2026.06.09

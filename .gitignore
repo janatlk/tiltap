@@ -101,3 +101,8 @@ test_audio/ky_yt_*.wav
 
 # Infra map with prod details - local only, never push (public repo)
 DEPLOY.md
+
+# Local-only operational docs: contain end-user Telegram chat IDs and server
+# access procedure. This repo is public - these must not be pushed.
+docs/AI_SSH_ACCESS_SETUP.md
+docs/AI_ERROR_REPORT_*.md

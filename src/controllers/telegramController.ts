@@ -9,7 +9,6 @@ import { transcribeAudio, formatSubtitles } from "../services/transcriptionServi
 
 import { cleanupTranscription, detectTranscriptionIssues } from "../services/cleanupService";
 import { translateText } from "../services/translationService";
-import { extractYouTubeCaptions } from "../services/youtubeCaptionService";
 import {
   isSupportedMediaUrl,
   validateMediaUrl,
@@ -139,7 +138,7 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
     });
     dbMessageId = persistedMessage.id;
   } catch (err) {
-    logger.error("Failed to persist incoming message", { error: err, chatId });
+    logger.error("Failed to persist incoming message", { error: err instanceof Error ? err.message : String(err), chatId });
   }
 
   // Handle commands
@@ -372,11 +371,15 @@ async function processTextTranslation(
       try {
         await deleteMessage(chatId, statusMessageId);
       } catch (err) {
-        logger.debug("Failed to delete translation status message", { error: err });
+        logger.debug("Failed to delete translation status message", { error: err instanceof Error ? err.message : String(err) });
       }
     }
   } catch (err) {
-    logger.error("Text translation failed", { error: err, chatId });
+    logger.error("Text translation failed", {
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      chatId,
+    });
     await sendTextMessage(
       chatId,
       t("translationFailed", lang, { error: err instanceof Error ? err.message : String(err) }),
@@ -513,7 +516,12 @@ async function startPendingAction(chatId: number, force = false): Promise<void> 
     try {
       await downloadAndTranscribeYouTube(chatId, pending.url, sourceLang, targetLang);
     } catch (err) {
-      logger.error("YouTube processing failed", { error: err, chatId, url: pending.url });
+      logger.error("YouTube processing failed", {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        chatId,
+        url: pending.url,
+      });
     }
   }
 }
@@ -631,7 +639,7 @@ async function processAudio(
       });
       transcriptionId = persisted.id;
     } catch (err) {
-      logger.error("Failed to persist transcription", { error: err, chatId });
+      logger.error("Failed to persist transcription", { error: err instanceof Error ? err.message : String(err), chatId });
       transcriptionId = 0;
     }
 
@@ -750,7 +758,7 @@ async function downloadAndTranscribeYouTube(
       });
       transcriptionId = persisted.id;
     } catch (err) {
-      logger.error("Failed to persist YouTube transcription", { error: err, chatId });
+      logger.error("Failed to persist YouTube transcription", { error: err instanceof Error ? err.message : String(err), chatId });
       transcriptionId = 0;
     }
 
@@ -824,11 +832,11 @@ function getYouTubeErrorMessage(reason: string | undefined, lang: SupportedLangu
       ru: "❌ Проверка видео заняла слишком много времени. Возможны проблемы с сетью или YouTube.",
     },
     missing_deps: {
-      ky: "❌ Видеону текшерүүчү куралдар табылган жок. Администратор yt-dlp жана requests орнотконун текшерсин.",
-      tg: "❌ Воситаҳои санҷиши видео ёфт нашуданд. Администратор yt-dlp ва requests-ро насб кардааст, тафтиш кунад.",
-      uz: "❌ Video tekshirish vositalari topilmadi. Administrator yt-dlp va requests o'rnatganini tekshirsin.",
-      en: "❌ Video validation tools are missing. Please ask the admin to install yt-dlp and requests.",
-      ru: "❌ Не найдены инструменты для проверки видео. Попросите администратора установить yt-dlp и requests.",
+      ky: "❌ Видеону текшерүүчү куралдар табылган жок. Администратор python3 жана requests орнотконун текшерсин.",
+      tg: "❌ Воситаҳои санҷиши видео ёфт нашуданд. Администратор python3 ва requests-ро насб кардааст, тафтиш кунад.",
+      uz: "❌ Video tekshirish vositalari topilmadi. Administrator python3 va requests o'rnatganini tekshirsin.",
+      en: "❌ Video validation tools are missing. Please ask the admin to install python3 and requests.",
+      ru: "❌ Не найдены инструменты для проверки видео. Попросите администратора установить python3 и requests.",
     },
     cobalt_auth_required: {
       ky: "❌ Көчүрүү кызматына кирүү үчүн аутентификация талап кылынат. Администраторго жеке Cobalt серверин орнотууну сураныңыз.",
@@ -866,7 +874,7 @@ async function stopActiveProcess(chatId: number): Promise<void> {
       process.kill(active.pid, "SIGTERM");
     }
   } catch (err) {
-    logger.warn("Failed to kill process", { error: err, pid: active.pid, chatId });
+    logger.warn("Failed to kill process", { error: err instanceof Error ? err.message : String(err), pid: active.pid, chatId });
   }
 
   clearActiveProcess(chatId);
@@ -914,7 +922,7 @@ async function sendResultDocument(
           sourceText: cleanedText,
           targetLang,
           translatedText: translation.translatedText,
-        }).catch((err) => logger.error("Failed to persist translation", { error: err, chatId }));
+        }).catch((err) => logger.error("Failed to persist translation", { error: err instanceof Error ? err.message : String(err), chatId }));
       }
 
       const targetLabel = LANGUAGE_LABELS[targetLang as SupportedLanguage] ?? targetLang;
@@ -979,13 +987,10 @@ async function prepareTestAudio(fixture: TestFixture, tmpWav: string): Promise<{
     }
   }
 
-  const captionPromise = extractYouTubeCaptions(fixture.url!, fixture.language).catch((err) => {
-    logger.warn("Caption extraction failed, using fallback", {
-      error: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : undefined,
-    });
-    return null;
-  });
+  // Caption extraction used yt-dlp, which was removed (Cobalt cannot fetch
+  // subtitles). /test now always scores against the curated reference
+  // transcripts in test_audio/ rather than YouTube's own captions.
+  const captionPromise: Promise<string | null> = Promise.resolve(null);
 
   await new Promise<void>((resolve, reject) => {
     const { spawn } = require("child_process");
@@ -1093,7 +1098,7 @@ async function runAccuracyTest(chatId: number, language: string): Promise<void> 
       });
       transcriptionId = persisted.id;
     } catch (err) {
-      logger.error("Failed to persist test transcription", { error: err, chatId });
+      logger.error("Failed to persist test transcription", { error: err instanceof Error ? err.message : String(err), chatId });
       transcriptionId = 0;
     }
 
@@ -1137,7 +1142,7 @@ async function runSingleTest(chatId: number, language: string): Promise<void> {
     await setUserSourceLanguage(chatId, language as SupportedLanguage);
     await runAccuracyTest(chatId, language);
   } catch (err) {
-    logger.error("Test command failed", { error: err, chatId, language });
+    logger.error("Test command failed", { error: err instanceof Error ? err.message : String(err), chatId, language });
   } finally {
     if (originalLang) {
       await setUserSourceLanguage(chatId, originalLang);
@@ -1154,7 +1159,7 @@ async function runAllTests(chatId: number): Promise<void> {
           await setUserSourceLanguage(chatId, language as SupportedLanguage);
           await runAccuracyTest(chatId, language);
         } catch (err) {
-          logger.error("Test failed for language", { error: err, chatId, language });
+          logger.error("Test failed for language", { error: err instanceof Error ? err.message : String(err), chatId, language });
         }
       }
     }
@@ -1304,7 +1309,7 @@ async function handleCallbackQuery(callbackQuery: {
             process.kill(active.pid, "SIGTERM");
           }
         } catch (err) {
-          logger.warn("Failed to kill active process", { error: err, pid: active.pid, chatId });
+          logger.warn("Failed to kill active process", { error: err instanceof Error ? err.message : String(err), pid: active.pid, chatId });
         }
         clearActiveProcess(chatId);
       }
