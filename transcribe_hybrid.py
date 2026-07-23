@@ -1645,18 +1645,14 @@ def _run_beta_transcription(wav_path: str, language: str | None, model_path: str
     )
 
 
-def main():
-    if len(sys.argv) < 4:
-        print("Usage: transcribe_hybrid.py <input_file> <ffmpeg_path> <language>", file=sys.stderr)
-        sys.exit(1)
+def run_transcription(input_file, ffmpeg_path, language, beta_model="", skip_postprocess=False):
+    """Convert an input file to wav and transcribe it, returning the result dict.
 
-    input_file = sys.argv[1]
-    ffmpeg_path = sys.argv[2]
-    FFMPEG_PATH = ffmpeg_path
-    language = sys.argv[3] if sys.argv[3] != "auto" else None
-    beta_model = os.environ.get("TILTAB_BETA_MODEL", "").strip()
-    skip_postprocess = os.environ.get("TILTAB_SKIP_POSTPROCESS", "").lower() in ("1", "true", "yes")
-
+    Shared by the CLI entrypoint (main) and the persistent GigaAM worker
+    (gigaam_server.py) so both take exactly the same code path — the only
+    difference is process lifetime (spawn-per-request vs resident model).
+    `language` is None for auto-detect.
+    """
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         wav_path = tmp.name
 
@@ -1664,7 +1660,7 @@ def main():
         emit_progress(0, "Подготовка аудио...")
         convert_to_wav(input_file, wav_path, ffmpeg_path)
         duration = get_audio_duration(wav_path)
-        log_diagnostic(input_duration_seconds=duration, requested_language=sys.argv[3], beta_mode=bool(beta_model))
+        log_diagnostic(input_duration_seconds=duration, requested_language=language or "auto", beta_mode=bool(beta_model))
 
         if beta_model:
             output = _run_beta_transcription(wav_path, language, beta_model)
@@ -1736,9 +1732,24 @@ def main():
 
         # Remove internal quality field from final JSON to keep schema stable
         output.pop("quality", None)
-        print(json.dumps(output, ensure_ascii=False))
+        return output
     finally:
         os.unlink(wav_path)
+
+
+def main():
+    if len(sys.argv) < 4:
+        print("Usage: transcribe_hybrid.py <input_file> <ffmpeg_path> <language>", file=sys.stderr)
+        sys.exit(1)
+
+    input_file = sys.argv[1]
+    ffmpeg_path = sys.argv[2]
+    language = sys.argv[3] if sys.argv[3] != "auto" else None
+    beta_model = os.environ.get("TILTAB_BETA_MODEL", "").strip()
+    skip_postprocess = os.environ.get("TILTAB_SKIP_POSTPROCESS", "").lower() in ("1", "true", "yes")
+
+    output = run_transcription(input_file, ffmpeg_path, language, beta_model, skip_postprocess)
+    print(json.dumps(output, ensure_ascii=False))
 
 
 def _is_media_preparation_error(exc: Exception) -> bool:

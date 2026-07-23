@@ -1,0 +1,22 @@
+[Unit]
+Description=Tiltab Persistent GigaAM STT Worker
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/tiltap
+ExecStart=/usr/bin/python3 gigaam_server.py
+Restart=always
+RestartSec=5
+Environment=PYTHONIOENCODING=utf-8
+Environment=PYTHONUNBUFFERED=1
+Environment=HF_HOME=/opt/tiltap/models/hf_cache
+Environment=GIGAAM_SERVER_HOST=127.0.0.1
+Environment=GIGAAM_SERVER_PORT=8010
+# Match the spawn path: Node's cleanupService.ts is the single LLM-cleanup step,
+# so the Python side must not run its own (avoids paying twice).
+Environment=TILTAB_CLEANUP_PROVIDER=none
+
+[Install]
+WantedBy=multi-user.target

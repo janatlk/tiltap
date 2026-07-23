@@ -12,6 +12,7 @@ import type { TranscriptionResult, TranscriptionSegment } from "../types";
 import { normalizeLanguageCodeOrKeep } from "../utils/languageCodes";
 import { transcribeWithRemoteService } from "./remoteSttService";
 import { isGpuSttEnabled, isGpuSttLanguageSupported, transcribeWithGpu } from "./gpuSttService";
+import { isGigaamServerEnabled, isGigaamServerLanguage, transcribeWithGigaamServer } from "./gigaamServerService";
 
 const FFMPEG_PATH = require("ffmpeg-static");
 const PYTHON_PATH = process.platform === "win32" ? "python" : "python3";
@@ -71,6 +72,22 @@ export async function transcribeAudio(
   if (config.TILTAB_STT_SERVICE_URL && normalizedLang && remoteSupported.has(normalizedLang)) {
     const result = await transcribeWithRemoteService(audioBuffer, filename, normalizedLang, abortSignal);
     return normalizeTranscriptionResult(result);
+  }
+
+  // Persistent GigaAM worker for ky/uz/ru: keeps the model resident so it is not
+  // reloaded on every request. On any failure fall through to the spawn path
+  // below, which reloads the model but is otherwise identical.
+  if (isGigaamServerEnabled() && normalizedLang && isGigaamServerLanguage(normalizedLang)) {
+    try {
+      const result = await transcribeWithGigaamServer(audioBuffer, filename, normalizedLang, abortSignal);
+      return normalizeTranscriptionResult(result);
+    } catch (err) {
+      logger.warn("GigaAM server failed, falling back to local spawn", {
+        error: err instanceof Error ? err.message : String(err),
+        language: normalizedLang,
+        filename,
+      });
+    }
   }
 
   const useCloud = provider === "openai" || provider === "elevenlabs" || (provider === "auto" && (config.ELEVENLABS_API_KEY || config.OPENAI_API_KEY || config.GROQ_API_KEY));

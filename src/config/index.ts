@@ -27,6 +27,22 @@ const envSchema = z.object({
   TILTAB_GPU_STT_URL: z.string().url().optional().or(z.literal("")),
   TILTAB_GPU_STT_API_KEY: z.string().optional().or(z.literal("")),
   TILTAB_GPU_STT_TIMEOUT_MS: z.string().default("600000").transform(Number),
+  // Persistent GigaAM worker (gigaam_server.py) that keeps the model resident so
+  // it is not reloaded on every request. When set, GigaAM languages are sent
+  // here; on any failure the backend falls back to spawning transcribe_hybrid.py.
+  TILTAB_GIGAAM_SERVER_URL: z.string().url().optional().or(z.literal("")),
+  TILTAB_GIGAAM_SERVER_TIMEOUT_MS: z.string().default("600000").transform(Number),
+  TILTAB_GIGAAM_SERVER_LANGUAGES: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .default("ky,uz,ru")
+    .transform((val) =>
+      val
+        ?.split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean) ?? ["ky", "uz", "ru"]
+    ),
   TILTAB_GPU_STT_LANGUAGES: z
     .string()
     .optional()
