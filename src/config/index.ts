@@ -15,7 +15,7 @@ const envSchema = z.object({
   TRANSLATION_MODULE_URL: z.string().url().optional().or(z.literal("")),
   LINGVA_TRANSLATE_URL: z.string().url().optional().or(z.literal("")).default("https://lingva.ml"),
   LINGVA_TRANSLATE_CHUNK_SIZE: z.string().default("2000").transform(Number),
-  TILTAB_TRANSLATION_PROVIDER: z.enum(["lingva", "openai", "groq", "azure", "yandex", "mock", "auto"]).default("openai"),
+  TILTAB_TRANSLATION_PROVIDER: z.enum(["lingva", "openai", "azure", "yandex", "mock", "auto"]).default("openai"),
   GROQ_API_KEY: z.string().optional().or(z.literal("")),
   GEMINI_API_KEY: z.string().optional().or(z.literal("")),
 
@@ -77,14 +77,13 @@ const envSchema = z.object({
     .default("1")
     .transform((v) => !v || ["1", "true", "yes", "on"].includes(v.toLowerCase())),
   TILTAB_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("gpt-4o-mini"),
-  TILTAB_GROQ_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("llama-3.3-70b-versatile"),
   TILTAB_REVIEW_ENABLED: z
     .string()
     .optional()
     .or(z.literal(""))
     .default("true")
     .transform((v) => !v || ["1", "true", "yes", "on"].includes(v.toLowerCase())),
-  TILTAB_REVIEW_PROVIDER: z.enum(["openai", "groq", "auto"]).default("openai"),
+  TILTAB_REVIEW_PROVIDER: z.enum(["openai", "auto"]).default("openai"),
   TILTAB_REVIEW_MODEL: z.string().optional().or(z.literal("")),
   TILTAB_TRANSLATION_MAX_TOKENS: z.string().default("4096").transform(Number),
   TILTAB_REVIEW_MAX_TOKENS: z.string().default("4096").transform(Number),

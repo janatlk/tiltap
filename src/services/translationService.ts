@@ -8,8 +8,12 @@ import { createHash } from "crypto";
 import * as translationRepo from "../db/repos/translationRepo";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
-const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const AZURE_TRANSLATOR_API_VERSION = "3.0";
+
+// Keep each LLM translation request small enough that its output cannot exceed
+// the max_tokens budget (which would truncate). With ~2 chars/token and the
+// generous estimate below, ~4000 chars → ~2500 output tokens, well under the cap.
+const TRANSLATION_CHUNK_CHARS = 4000;
 
 // Azure Translator character cost (USD per character).
 const AZURE_TRANSLATOR_COST_PER_CHAR = 10 / 1_000_000;
@@ -326,7 +330,7 @@ async function translateWithYandex(req: TranslateRequest): Promise<TranslateResp
 }
 
 // ---------------------------------------------------------------------------
-// OpenAI / Groq LLM translation
+// OpenAI LLM translation
 // ---------------------------------------------------------------------------
 
 function buildSystemPrompt(targetName: string, sourceName?: string): string {
@@ -426,11 +430,13 @@ function logTranslationCost(provider: string, model: string, promptTokens: numbe
   return costUsd;
 }
 
-// Avoid over-allocating output tokens: the translation is roughly the same size
-// as the source, so reserve input-length/3 plus a small margin, capped by the
-// user-configured limit.
+// Budget output tokens. Non-Latin scripts (Cyrillic Tajik/Uzbek/Kyrgyz/Russian)
+// tokenize at roughly 2 characters per token, and a translation can be somewhat
+// longer than its source, so reserve input-length/2 plus a margin. The old
+// input/3 estimate under-budgeted badly for Cyrillic and caused truncation.
+// Long inputs are chunked (see TRANSLATION_CHUNK_CHARS) so this stays under cap.
 function estimateMaxTokens(text: string, cap: number): number {
-  return Math.min(cap, Math.max(256, Math.ceil(text.length / 3) + 256));
+  return Math.min(cap, Math.max(256, Math.ceil(text.length / 2) + 512));
 }
 
 function isRetryableError(status: number, body: string): boolean {
@@ -445,20 +451,56 @@ function isRetryableError(status: number, body: string): boolean {
   return false;
 }
 
+// Translate one piece of text with OpenAI. If the model still hits max_tokens
+// (should not happen for chunk-sized input, but is possible on pathological
+// input), split the text and retry so the user never sees a truncation error.
+async function translateChunkWithOpenAI(
+  text: string,
+  targetName: string,
+  sourceName: string | undefined,
+  model: string,
+  apiKey: string
+): Promise<{ text: string; costUsd: number }> {
+  const cap = config.TILTAB_TRANSLATION_MAX_TOKENS || 4096;
+  const maxTokens = estimateMaxTokens(text, cap);
+  try {
+    return await callTranslationProvider(
+      OPENAI_API_URL,
+      apiKey,
+      buildPayload(targetName, sourceName, text, model, maxTokens),
+      "OpenAI",
+      maxTokens
+    );
+  } catch (err) {
+    // Only truncation is recoverable by splitting; anything else propagates.
+    if (!(err instanceof TranslationTruncatedError) || text.length < 400) {
+      throw err;
+    }
+    logger.warn("OpenAI translation chunk truncated; splitting and retrying", { chars: text.length });
+    const halves = chunkText(text, Math.ceil(text.length / 2));
+    const parts: string[] = [];
+    let cost = 0;
+    for (const half of halves) {
+      const r = await translateChunkWithOpenAI(half, targetName, sourceName, model, apiKey);
+      parts.push(r.text);
+      cost += r.costUsd;
+    }
+    return { text: parts.join("\n\n"), costUsd: cost };
+  }
+}
+
 async function translateWithOpenAI(
   req: TranslateRequest,
   options: { skipCache?: boolean } = {}
 ): Promise<TranslateResponse> {
   const openaiKey = config.OPENAI_API_KEY;
-  const groqKey = config.GROQ_API_KEY;
+  if (!openaiKey) {
+    throw new Error("OPENAI_API_KEY is not configured for translation");
+  }
   const targetName = languageNames[req.targetLang] ?? req.targetLang;
   const sourceLang = normalizeLanguageCodeOrKeep(req.sourceLang) ?? "auto";
   const sourceName = sourceLang === "auto" ? undefined : (languageNames[sourceLang] ?? sourceLang);
   const hash = createHash("sha256").update(req.text).digest("hex");
-
-  if (!openaiKey && !groqKey) {
-    throw new Error("Neither OPENAI_API_KEY nor GROQ_API_KEY is configured for translation");
-  }
 
   if (!options.skipCache) {
     const cached = await translationRepo.getConfirmedTranslationCache(hash, req.targetLang);
@@ -469,109 +511,32 @@ async function translateWithOpenAI(
   }
 
   const model = config.TILTAB_TRANSLATION_MODEL || "gpt-4o-mini";
-  const maxTokens = estimateMaxTokens(req.text, config.TILTAB_TRANSLATION_MAX_TOKENS || 4096);
 
-  if (openaiKey) {
-    try {
-      const { text: translatedText, costUsd } = await callTranslationProvider(
-        OPENAI_API_URL,
-        openaiKey,
-        buildPayload(targetName, sourceName, req.text, model, maxTokens),
-        "OpenAI",
-        maxTokens
-      );
-      logger.info("Translated with OpenAI", { targetLang: req.targetLang, model, costUsd });
-      await translationRepo.saveTranslationCache({
-        sourceHash: hash,
-        sourceText: req.text,
-        sourceLang,
-        targetLang: req.targetLang,
-        translatedText,
-        provider: "openai",
-        model,
-        costUsd,
-      });
-      return { translatedText, detectedLang: sourceLang, costUsd };
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      logger.warn("OpenAI translation failed", { error: errorMessage, fallbackToGroq: Boolean(groqKey) });
+  // Chunk long inputs so no single request can hit the output token limit.
+  const chunks =
+    req.text.length > TRANSLATION_CHUNK_CHARS ? chunkText(req.text, TRANSLATION_CHUNK_CHARS) : [req.text];
 
-      if (!groqKey) {
-        throw err;
-      }
-      // Continue to Groq fallback below.
-    }
+  const parts: string[] = [];
+  let costUsd = 0;
+  for (const chunk of chunks) {
+    const r = await translateChunkWithOpenAI(chunk, targetName, sourceName, model, openaiKey);
+    parts.push(r.text);
+    costUsd += r.costUsd;
   }
+  const translatedText = parts.join("\n\n");
 
-  if (!groqKey) {
-    throw new Error("OpenAI translation failed and no GROQ_API_KEY is configured");
-  }
-
-  const groqModel = config.TILTAB_GROQ_TRANSLATION_MODEL;
-  try {
-    const { text: translatedText, costUsd } = await callTranslationProvider(
-      GROQ_API_URL,
-      groqKey,
-      buildPayload(targetName, sourceName, req.text, groqModel, maxTokens),
-      "Groq",
-      maxTokens
-    );
-    logger.info("Translated with Groq fallback", { targetLang: req.targetLang, model: groqModel, costUsd });
-    await translationRepo.saveTranslationCache({
-      sourceHash: hash,
-      sourceText: req.text,
-      sourceLang,
-      targetLang: req.targetLang,
-      translatedText,
-      provider: "groq",
-      model: groqModel,
-      costUsd,
-    });
-    return { translatedText, detectedLang: sourceLang, costUsd };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.warn("OpenAI and Groq translation failed", { error: msg });
-    throw err;
-  }
-}
-
-async function translateWithGroq(req: TranslateRequest): Promise<TranslateResponse> {
-  const groqKey = config.GROQ_API_KEY;
-  if (!groqKey) {
-    throw new Error("GROQ_API_KEY is not configured for translation");
-  }
-  const targetName = languageNames[req.targetLang] ?? req.targetLang;
-  const sourceLang = normalizeLanguageCodeOrKeep(req.sourceLang) ?? "auto";
-  const sourceName = sourceLang === "auto" ? undefined : (languageNames[sourceLang] ?? sourceLang);
-
-  const maxTokens = estimateMaxTokens(req.text, config.TILTAB_TRANSLATION_MAX_TOKENS || 4096);
-  try {
-    const { text: translatedText, costUsd } = await callTranslationProvider(
-      GROQ_API_URL,
-      groqKey,
-      buildPayload(targetName, sourceName, req.text, config.TILTAB_GROQ_TRANSLATION_MODEL, maxTokens),
-      "Groq",
-      maxTokens
-    );
-    logger.info("Translated with Groq", { targetLang: req.targetLang, costUsd });
-    return { translatedText, detectedLang: sourceLang, costUsd };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.warn("Groq translation failed, trying free fallback", { error: msg });
-
-    // Free fallback: Lingva/Google Translate for non-Tajik pairs.
-    const isTajikTranslation = req.targetLang === "tg" || sourceLang === "tg";
-    if (config.LINGVA_TRANSLATE_URL && !isTajikTranslation) {
-      const fallback = await translateWithLingva(req);
-      return {
-        translatedText: fallback.translatedText,
-        detectedLang: fallback.detectedLang,
-        warning: `Groq translation failed (${msg}). Used free Lingva/Google Translate fallback — quality may be lower.`,
-      };
-    }
-
-    throw err;
-  }
+  logger.info("Translated with OpenAI", { targetLang: req.targetLang, model, chunks: chunks.length, costUsd });
+  await translationRepo.saveTranslationCache({
+    sourceHash: hash,
+    sourceText: req.text,
+    sourceLang,
+    targetLang: req.targetLang,
+    translatedText,
+    provider: "openai",
+    model,
+    costUsd,
+  });
+  return { translatedText, detectedLang: sourceLang, costUsd };
 }
 
 // ---------------------------------------------------------------------------
@@ -715,7 +680,6 @@ function parseReviewResponse(raw: string): {
 async function reviewTranslation(
   req: TranslateRequest,
   translatedText: string,
-  providerName: "groq" | "openai",
   previousCostUsd = 0
 ): Promise<{ reviewedText: string; warning?: string; costUsd: number }> {
   if (!config.TILTAB_REVIEW_ENABLED) {
@@ -738,12 +702,8 @@ async function reviewTranslation(
     return { reviewedText: translatedText, costUsd: previousCostUsd };
   }
 
-  const url = providerName === "groq" ? GROQ_API_URL : OPENAI_API_URL;
-  const key = providerName === "groq" ? config.GROQ_API_KEY : config.OPENAI_API_KEY;
-  const model =
-    providerName === "groq"
-      ? config.TILTAB_REVIEW_MODEL || config.TILTAB_GROQ_TRANSLATION_MODEL
-      : config.TILTAB_REVIEW_MODEL || config.TILTAB_TRANSLATION_MODEL || "gpt-4o-mini";
+  const key = config.OPENAI_API_KEY;
+  const model = config.TILTAB_REVIEW_MODEL || config.TILTAB_TRANSLATION_MODEL || "gpt-4o-mini";
 
   if (!key) {
     return { reviewedText: translatedText, costUsd: previousCostUsd };
@@ -751,10 +711,10 @@ async function reviewTranslation(
 
   const maxTokens = estimateMaxTokens(req.text + translatedText, config.TILTAB_REVIEW_MAX_TOKENS || 4096);
   const { text: raw, costUsd: reviewCostUsd } = await callTranslationProvider(
-    url,
+    OPENAI_API_URL,
     key,
     buildReviewPayload(req.text, translatedText, sourceName, targetName, model, maxTokens),
-    `${providerName}-review`,
+    "OpenAI-review",
     maxTokens
   );
   const totalCostUsd = previousCostUsd + reviewCostUsd;
@@ -766,7 +726,7 @@ async function reviewTranslation(
     logger.warn("Review changed translation too much; discarding correction", {
       sourceLang,
       targetLang: req.targetLang,
-      provider: providerName,
+      provider: "openai",
       similarity: reviewSimilarity,
     });
     reviewedText = translatedText;
@@ -775,7 +735,7 @@ async function reviewTranslation(
   logger.info("Translation review complete", { totalCostUsd, reviewCostUsd,
     sourceLang,
     targetLang: req.targetLang,
-    provider: providerName,
+    provider: "openai",
     issues: parsed.issues,
   });
 
@@ -875,7 +835,6 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
   // Normal provider chain (no translation module or module failed).
   const provider = config.TILTAB_TRANSLATION_PROVIDER;
   const hasOpenAi = Boolean(config.OPENAI_API_KEY);
-  const hasGroq = Boolean(config.GROQ_API_KEY);
   const hasAzure = Boolean(config.AZURE_TRANSLATOR_KEY);
   const hasYandex = Boolean(config.YANDEX_TRANSLATE_API_KEY);
   const hasLingva = Boolean(config.LINGVA_TRANSLATE_URL);
@@ -896,7 +855,7 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
     return await translateWithYandex(translateReq);
   }
   async function tryOpenAI(): Promise<TranslateResponse> {
-    if (!hasOpenAi && !hasGroq) throw new Error("No LLM provider configured");
+    if (!hasOpenAi) throw new Error("No LLM provider configured (OPENAI_API_KEY missing)");
     return await translateWithOpenAI(translateReq);
   }
 
@@ -908,11 +867,9 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
     result = await tryYandex();
   } else if (provider === "openai") {
     result = await tryOpenAI();
-  } else if (provider === "groq") {
-    result = await translateWithGroq(translateReq);
   } else if (provider === "mock") {
     result = mockTranslation(translateReq);
-  } else if (prefersLlm && (hasOpenAi || hasGroq)) {
+  } else if (prefersLlm && hasOpenAi) {
     // Tajik / uz_cyrl: use LLM first for best script/entity handling.
     result = await tryOpenAI();
   } else {
@@ -945,12 +902,12 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
         errors.push(`Azure: ${msg}`);
       }
     }
-    if (!result && (hasOpenAi || hasGroq)) {
+    if (!result && hasOpenAi) {
       try {
         result = await tryOpenAI();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        logger.warn("OpenAI/Groq translation failed", { error: msg });
+        logger.warn("OpenAI translation failed", { error: msg });
         errors.push(`LLM: ${msg}`);
       }
     }
@@ -991,47 +948,18 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
   // if set; otherwise prefer the same provider used for translation.
   // Fail-soft: review failures are logged but never surfaced to the user.
   // -------------------------------------------------------------------------
-  const preferredReviewProvider: "openai" | "groq" | undefined = (() => {
-    if (config.TILTAB_REVIEW_PROVIDER === "openai" && config.OPENAI_API_KEY) return "openai";
-    if (config.TILTAB_REVIEW_PROVIDER === "groq" && config.GROQ_API_KEY) return "groq";
-    if (config.TILTAB_REVIEW_PROVIDER === "auto") {
-      if (provider === "openai" && config.OPENAI_API_KEY) return "openai";
-      if (provider === "groq" && config.GROQ_API_KEY) return "groq";
-      if (config.GROQ_API_KEY) return "groq";
-      if (config.OPENAI_API_KEY) return "openai";
-    }
-    return undefined;
-  })();
-
-  if (preferredReviewProvider) {
-    const fallbackProvider =
-      preferredReviewProvider === "openai" && config.GROQ_API_KEY ? "groq" :
-      preferredReviewProvider === "groq" && config.OPENAI_API_KEY ? "openai" : undefined;
-
+  if (config.TILTAB_REVIEW_ENABLED && config.OPENAI_API_KEY) {
     const initialCostUsd = result.costUsd ?? 0;
-    let reviewed: { reviewedText: string; warning?: string; costUsd: number } = {
-      reviewedText: result.translatedText,
-      costUsd: initialCostUsd,
-    };
     try {
-      reviewed = await reviewTranslation(translateReq, result.translatedText, preferredReviewProvider, initialCostUsd);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.warn("Preferred review provider failed", { provider: preferredReviewProvider, error: msg });
-      if (fallbackProvider) {
-        try {
-          reviewed = await reviewTranslation(translateReq, result.translatedText, fallbackProvider, initialCostUsd);
-        } catch (err2) {
-          const msg2 = err2 instanceof Error ? err2.message : String(err2);
-          logger.warn("Fallback review provider also failed", { provider: fallbackProvider, error: msg2 });
-        }
+      const reviewed = await reviewTranslation(translateReq, result.translatedText, initialCostUsd);
+      result.translatedText = reviewed.reviewedText;
+      result.costUsd = reviewed.costUsd;
+      if (reviewed.warning) {
+        result.warning = result.warning ? `${result.warning} ${reviewed.warning}` : reviewed.warning;
       }
-    }
-
-    result.translatedText = reviewed.reviewedText;
-    result.costUsd = reviewed.costUsd;
-    if (reviewed.warning) {
-      result.warning = result.warning ? `${result.warning} ${reviewed.warning}` : reviewed.warning;
+    } catch (err) {
+      // Review is fail-soft: never surface its failure to the user.
+      logger.warn("Translation review failed", { error: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -1054,7 +982,7 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
   const sourceLang = normalizeLanguageCodeOrKeep(translateReq.sourceLang) ?? "auto";
   const hash = createHash("sha256").update(translateReq.text).digest("hex");
   const provider = config.TILTAB_TRANSLATION_PROVIDER;
-  const model = config.TILTAB_GROQ_TRANSLATION_MODEL || config.TILTAB_TRANSLATION_MODEL || "unknown";
+  const model = config.TILTAB_TRANSLATION_MODEL || "unknown";
 
   // Every user-facing translation gets a public request number. This lets users
   // report problems by quoting the number, and lets admins look up the exact
