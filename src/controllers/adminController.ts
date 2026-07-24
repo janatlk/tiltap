@@ -3,6 +3,7 @@ import { logger } from "../utils/logger";
 import { config } from "../config";
 import * as translationRepo from "../db/repos/translationRepo";
 import * as webJobRepo from "../db/repos/webJobRepo";
+import * as feedbackRepo from "../db/repos/feedbackRepo";
 import { confirmTranslation } from "../services/translationService";
 import { getActiveProcesses } from "../services/telegramService";
 import { getRemoteSttQueueStatus } from "../services/remoteSttService";
@@ -393,6 +394,53 @@ export async function saveCobaltConfig(req: Request, res: Response): Promise<voi
     res.json({ urls: saved, configured: saved.length > 0 });
   } catch (err) {
     logger.error("Admin save cobalt config error", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+function mapFeedback(r: feedbackRepo.FeedbackEntry) {
+  return {
+    id: r.id,
+    requestNumber: r.request_number,
+    source: r.source,
+    rating: r.rating,
+    category: r.category,
+    comment: r.comment,
+    telegramChatId: r.telegram_chat_id,
+    telegramUsername: r.telegram_username,
+    telegramName: r.telegram_name,
+    webClientId: r.web_client_id,
+    jobId: r.job_id,
+    sourceType: r.source_type,
+    sourceUrl: r.source_url,
+    sourceLang: r.source_lang,
+    targetLang: r.target_lang,
+    provider: r.provider,
+    model: r.model,
+    interfaceLang: r.interface_lang,
+    createdAt: r.created_at,
+  };
+}
+
+export async function listFeedbackEntries(req: Request, res: Response): Promise<void> {
+  if (!isAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  try {
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const ratingParam = String(req.query.rating || "");
+    const rating =
+      ratingParam === "up" || ratingParam === "down" ? (ratingParam as feedbackRepo.FeedbackRating) : undefined;
+
+    const [items, stats] = await Promise.all([
+      feedbackRepo.listFeedback({ limit, rating }),
+      feedbackRepo.getFeedbackStats(),
+    ]);
+
+    res.json({ count: items.length, stats, items: items.map(mapFeedback) });
+  } catch (err) {
+    logger.error("Admin list feedback error", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Internal server error" });
   }
 }

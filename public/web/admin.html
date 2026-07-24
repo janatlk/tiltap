@@ -64,6 +64,7 @@
           <button role="tab" class="tab" data-tab="rejected">Rejected <span class="badge badge-sm badge-ghost ms-1" id="count-rejected">0</span></button>
           <button role="tab" class="tab" data-tab="errors">Errors <span class="badge badge-sm badge-ghost ms-1" id="count-errors">0</span></button>
           <button role="tab" class="tab" data-tab="web-jobs">STT Jobs <span class="badge badge-sm badge-ghost ms-1" id="count-web-jobs">0</span></button>
+          <button role="tab" class="tab" data-tab="feedback">Feedback <span class="badge badge-sm badge-ghost ms-1" id="count-feedback">0</span></button>
           <button role="tab" class="tab" data-tab="live">Live <span class="badge badge-sm badge-ghost ms-1" id="count-live">0</span></button>
         </div>
         <div id="listContainer" class="mt-4">
@@ -187,13 +188,18 @@
           startLivePolling();
           return;
         }
-        const endpoint = tab === "web-jobs" ? `/api/admin/web-jobs?limit=100` : `/api/admin/translations/${tab}?limit=100`;
+        const endpoint =
+          tab === "web-jobs" ? `/api/admin/web-jobs?limit=100`
+          : tab === "feedback" ? `/api/admin/feedback?limit=100`
+          : `/api/admin/translations/${tab}?limit=100`;
         const res = await apiFetch(endpoint);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to load");
         document.getElementById(`count-${tab}`).textContent = data.count || 0;
         if (tab === "web-jobs") {
           renderWebJobs(data.items || []);
+        } else if (tab === "feedback") {
+          renderFeedback(data.items || [], data.stats || { up: 0, down: 0, total: 0 });
         } else {
           renderList(tab, data.items || []);
         }
@@ -544,6 +550,69 @@
             ${item.segments && item.segments.length ? `<div class="bg-base-300 rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Segments</label>${escapeHtml(formatSegments(item.segments))}</div>` : ""}
             ${item.status === "failed" ? `<div class="bg-error/10 text-error rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Error</label>${escapeHtml(item.errorMessage || "Unknown error")}</div>` : ""}
             <div class="text-xs text-base-content/60">Source link: ${sourceLink}</div>
+          </div>
+        `;
+        listContainer.appendChild(div);
+      });
+    }
+
+    const FEEDBACK_CATEGORY_LABELS = {
+      stt: "Bad transcription",
+      translation: "Bad translation",
+      download: "Download problem",
+      speed: "Too slow",
+      other: "Other",
+    };
+
+    function renderFeedback(items, stats) {
+      // Satisfaction rate is the number the panel exists for — show it first,
+      // and keep it visible even when there are no entries yet.
+      const rate = stats.total ? Math.round((stats.up / stats.total) * 100) : null;
+      const summary = `
+        <div class="stats stats-horizontal bg-base-200 mb-4 w-full">
+          <div class="stat"><div class="stat-title">👍 Positive</div><div class="stat-value text-success text-3xl">${stats.up}</div></div>
+          <div class="stat"><div class="stat-title">👎 Negative</div><div class="stat-value text-error text-3xl">${stats.down}</div></div>
+          <div class="stat"><div class="stat-title">Satisfaction</div><div class="stat-value text-3xl">${rate === null ? "—" : rate + "%"}</div><div class="stat-desc">${stats.total} ratings total</div></div>
+        </div>
+      `;
+
+      if (!items.length) {
+        listContainer.innerHTML = summary + '<div class="text-center text-base-content/60 py-12">No feedback yet.</div>';
+        return;
+      }
+
+      listContainer.innerHTML = summary;
+      items.forEach((item) => {
+        const div = document.createElement("div");
+        div.className = "card card-compact bg-base-200 mb-4";
+
+        const who = item.source === "telegram"
+          ? [item.telegramName, item.telegramUsername ? "@" + item.telegramUsername : null].filter(Boolean).join(" ")
+            || (item.telegramChatId ? "chat " + item.telegramChatId : "")
+          : (item.webClientId || "");
+        const langPair = item.sourceLang || item.targetLang
+          ? `${(item.sourceLang || "auto").toUpperCase()} → ${(item.targetLang || "-").toUpperCase()}`
+          : null;
+        const sourceLink = item.sourceUrl
+          ? `<a class="link link-primary break-all" href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noopener">${escapeHtml(item.sourceUrl)}</a>`
+          : "";
+
+        div.innerHTML = `
+          <div class="card-body">
+            <div class="flex flex-wrap gap-2 mb-3">
+              <span class="badge badge-sm ${item.rating === "up" ? "badge-success" : "badge-error"}">${item.rating === "up" ? "👍 GOOD" : "👎 POOR"}</span>
+              ${item.requestNumber ? `<span class="badge badge-sm badge-ghost" title="Public request number">#${item.requestNumber}</span>` : ""}
+              <span class="badge badge-sm badge-ghost">${escapeHtml(item.source)}</span>
+              ${item.category ? `<span class="badge badge-sm badge-warning">${escapeHtml(FEEDBACK_CATEGORY_LABELS[item.category] || item.category)}</span>` : ""}
+              ${langPair ? `<span class="badge badge-sm badge-ghost" title="Source → Target">${escapeHtml(langPair)}</span>` : ""}
+              ${item.provider ? `<span class="badge badge-sm badge-ghost">${escapeHtml(item.provider)}</span>` : ""}
+              ${item.model ? `<span class="badge badge-sm badge-ghost">${escapeHtml(item.model)}</span>` : ""}
+              ${item.sourceType ? `<span class="badge badge-sm badge-ghost">${escapeHtml(item.sourceType)}</span>` : ""}
+              <span class="badge badge-sm badge-ghost">${new Date(item.createdAt).toLocaleString()}</span>
+            </div>
+            ${who ? `<div class="text-xs text-base-content/60 mb-2">From: ${escapeHtml(who)}</div>` : ""}
+            ${item.comment ? `<div class="bg-base-300 rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Comment</label>${escapeHtml(item.comment)}</div>` : ""}
+            ${sourceLink ? `<div class="text-xs text-base-content/60">Source link: ${sourceLink}</div>` : ""}
           </div>
         `;
         listContainer.appendChild(div);

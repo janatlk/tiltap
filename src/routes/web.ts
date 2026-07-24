@@ -6,6 +6,8 @@ import {
   handleWebTranslate,
   handleWebJobStatus,
   handleWebJobProgress,
+  handleWebFeedback,
+  handleWebFeedbackDetails,
 } from "../controllers/webController";
 
 const upload = multer({
@@ -20,5 +22,7 @@ router.post("/youtube", handleWebYouTube);
 router.post("/translate", handleWebTranslate);
 router.get("/jobs/:jobId", handleWebJobStatus);
 router.get("/jobs/:jobId/progress", handleWebJobProgress);
+router.post("/feedback", handleWebFeedback);
+router.patch("/feedback/:id", handleWebFeedbackDetails);
 
 export default router;

@@ -272,3 +272,36 @@ CREATE TABLE IF NOT EXISTS pending_actions (
 CREATE INDEX IF NOT EXISTS idx_pending_actions_chat_id ON pending_actions(telegram_chat_id);
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(telegram_chat_id);
 CREATE INDEX IF NOT EXISTS idx_transcriptions_chat_id ON transcriptions(telegram_chat_id);
+
+-- User feedback on a specific result (Telegram bot and web UI).
+-- Context is snapshotted on the row so an admin can judge a complaint without
+-- joining anything: who sent it, which public request number, language pair,
+-- and which engine actually produced the result.
+CREATE TABLE IF NOT EXISTS feedback (
+  id SERIAL PRIMARY KEY,
+  request_number BIGINT,               -- public number the user can quote
+  source VARCHAR(20) NOT NULL,         -- 'telegram' | 'web'
+  rating VARCHAR(10) NOT NULL,         -- 'up' | 'down'
+  category VARCHAR(40),                -- 'stt' | 'translation' | 'download' | 'speed' | 'other'
+  comment TEXT,
+  -- Who
+  telegram_chat_id BIGINT,
+  telegram_username VARCHAR(255),
+  telegram_name VARCHAR(255),
+  web_client_id VARCHAR(64),           -- anonymous browser id (localStorage)
+  job_id VARCHAR(64),                  -- web job id when source = 'web'
+  -- Context snapshot
+  source_type VARCHAR(20),             -- telegram_media | youtube | web | ...
+  source_url TEXT,
+  source_lang VARCHAR(10),
+  target_lang VARCHAR(10),
+  provider VARCHAR(20),
+  model VARCHAR(100),
+  interface_lang VARCHAR(10),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feedback_rating ON feedback(rating, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feedback_request_number ON feedback(request_number);
+CREATE INDEX IF NOT EXISTS idx_feedback_chat_id ON feedback(telegram_chat_id);

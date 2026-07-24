@@ -15,6 +15,7 @@ import {
   getCobaltConfig,
   saveCobaltConfig,
   testCobaltConfig,
+  listFeedbackEntries,
 } from "../controllers/adminController";
 
 const router = Router();
@@ -25,6 +26,8 @@ router.get("/translations/rejected", listRejectedTranslations);
 router.get("/translations/errors", listErrorTranslations);
 
 router.get("/translations/search/:number", searchTranslationByRequestNumber);
+
+router.get("/feedback", listFeedbackEntries);
 
 router.get("/web-jobs", listWebJobs);
 router.get("/web-jobs/search/:number", getWebJobByRequestNumber);

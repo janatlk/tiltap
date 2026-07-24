@@ -167,6 +167,31 @@
           </details>
 
           <div id="translationResults" class="space-y-4"></div>
+
+          <!-- Feedback: one quiet line under the result. Details only appear
+               after a negative rating, so it never gets in the way. -->
+          <div id="feedbackBox" class="border-t border-base-300 pt-3 mt-2">
+            <div id="feedbackAsk" class="flex flex-wrap items-center gap-2">
+              <span class="text-sm text-base-content/60" id="feedbackTitle" data-i18n="fbTitle">Was this result helpful?</span>
+              <button class="btn btn-xs btn-ghost" id="fbUpBtn" type="button">👍 <span data-i18n="fbGood">Good</span></button>
+              <button class="btn btn-xs btn-ghost" id="fbDownBtn" type="button">👎 <span data-i18n="fbBad">Poor</span></button>
+            </div>
+
+            <div id="feedbackDetail" class="hidden mt-3 space-y-2">
+              <div class="text-sm text-base-content/70" data-i18n="fbReason">What went wrong?</div>
+              <div class="flex flex-wrap gap-2" id="fbReasons">
+                <button class="btn btn-xs btn-outline" data-cat="stt" type="button" data-i18n="fbStt">Bad transcription</button>
+                <button class="btn btn-xs btn-outline" data-cat="translation" type="button" data-i18n="fbTranslation">Bad translation</button>
+                <button class="btn btn-xs btn-outline" data-cat="download" type="button" data-i18n="fbDownload">Download problem</button>
+                <button class="btn btn-xs btn-outline" data-cat="speed" type="button" data-i18n="fbSpeed">Too slow</button>
+                <button class="btn btn-xs btn-outline" data-cat="other" type="button" data-i18n="fbOther">Other</button>
+              </div>
+              <textarea id="fbComment" class="textarea textarea-bordered w-full text-sm" rows="2" data-i18n-placeholder="fbComment"></textarea>
+              <button class="btn btn-sm btn-primary" id="fbSendBtn" type="button" data-i18n="fbSend">Send</button>
+            </div>
+
+            <div id="feedbackThanks" class="hidden text-sm text-success" data-i18n="fbThanks">Thanks for the feedback!</div>
+          </div>
         </div>
       </div>
     </div>
@@ -207,6 +232,18 @@
         detected: "Detected",
         segments: "Segments",
         request: "Request",
+        fbTitle: "Was this result helpful?",
+        fbGood: "Good",
+        fbBad: "Poor",
+        fbThanks: "Thanks for the feedback!",
+        fbReason: "What went wrong?",
+        fbStt: "Bad transcription",
+        fbTranslation: "Bad translation",
+        fbDownload: "Download problem",
+        fbSpeed: "Too slow",
+        fbOther: "Other",
+        fbComment: "Add details (optional)",
+        fbSend: "Send",
         translationFailed: "Translation failed",
         errorSelectFile: "Please select a file first",
         errorFileTooLarge: "File is too large ({size} MB). Max allowed is 25 MB.",
@@ -251,6 +288,18 @@
         detected: "Определено",
         segments: "Сегменты",
         request: "Запрос",
+        fbTitle: "Результат оказался полезным?",
+        fbGood: "Хорошо",
+        fbBad: "Плохо",
+        fbThanks: "Спасибо за отзыв!",
+        fbReason: "Что было не так?",
+        fbStt: "Плохое распознавание",
+        fbTranslation: "Плохой перевод",
+        fbDownload: "Проблема со скачиванием",
+        fbSpeed: "Слишком долго",
+        fbOther: "Другое",
+        fbComment: "Опишите подробнее (необязательно)",
+        fbSend: "Отправить",
         translationFailed: "Ошибка перевода",
         errorSelectFile: "Сначала выберите файл",
         errorFileTooLarge: "Файл слишком большой ({size} МБ). Максимум 25 МБ.",
@@ -295,6 +344,18 @@
         detected: "Аныкталды",
         segments: "Сегменттер",
         request: "Суроо",
+        fbTitle: "Жыйынтык пайдалуу болдубу?",
+        fbGood: "Жакты",
+        fbBad: "Жаман",
+        fbThanks: "Пикириңиз үчүн рахмат!",
+        fbReason: "Эмне туура эмес болду?",
+        fbStt: "Текст туура эмес",
+        fbTranslation: "Котормо начар",
+        fbDownload: "Видео жүктөлбөдү",
+        fbSpeed: "Өтө жай",
+        fbOther: "Башка",
+        fbComment: "Чечмелеп жазыңыз (милдеттүү эмес)",
+        fbSend: "Жиберүү",
         translationFailed: "Которуу ката",
         errorSelectFile: "Алгач файл тандаңыз",
         errorFileTooLarge: "Файл өтө чоң ({size} МБ). Максимум 25 МБ.",
@@ -339,6 +400,18 @@
         detected: "Шинохта шуд",
         segments: "Сегментҳо",
         request: "Дархост",
+        fbTitle: "Натиҷа муфид буд?",
+        fbGood: "Хуб",
+        fbBad: "Бад",
+        fbThanks: "Ташаккур барои фикри шумо!",
+        fbReason: "Чӣ нодуруст буд?",
+        fbStt: "Матн нодуруст",
+        fbTranslation: "Тарҷума бад",
+        fbDownload: "Видео боргирӣ нашуд",
+        fbSpeed: "Хеле суст",
+        fbOther: "Дигар",
+        fbComment: "Шарҳ диҳед (ихтиёрӣ)",
+        fbSend: "Фиристодан",
         translationFailed: "Хатои тарҷума",
         errorSelectFile: "Аввал файлро интихоб кунед",
         errorFileTooLarge: "Файл хеле калон аст ({size} МБ). Ҳадди аксар 25 МБ.",
@@ -383,6 +456,18 @@
         detected: "Aniqlandi",
         segments: "Segmentlar",
         request: "So'rov",
+        fbTitle: "Natija foydali bo'ldimi?",
+        fbGood: "Yaxshi",
+        fbBad: "Yomon",
+        fbThanks: "Fikringiz uchun rahmat!",
+        fbReason: "Nima noto'g'ri edi?",
+        fbStt: "Matn noto'g'ri",
+        fbTranslation: "Tarjima yomon",
+        fbDownload: "Video yuklanmadi",
+        fbSpeed: "Juda sekin",
+        fbOther: "Boshqa",
+        fbComment: "Batafsil yozing (ixtiyoriy)",
+        fbSend: "Yuborish",
         translationFailed: "Tarjima xatosi",
         errorSelectFile: "Avval faylni tanlang",
         errorFileTooLarge: "Fayl juda katta ({size} MB). Maksimum 25 MB.",
@@ -672,6 +757,7 @@
 
     function renderResult(job) {
       const result = job.result;
+      resetFeedback();
       currentCleanText = job.cleanedText || result.text;
       currentDetectedLang = result.language;
       const targetLang = document.getElementById("targetLang").value;
@@ -853,6 +939,9 @@
     }
 
     function renderDirectTranslation(data, targetLang) {
+      // Plain text translation is not a job, so there is nothing to rate.
+      currentJobId = null;
+      resetFeedback();
       currentCleanText = data.translatedText;
       currentDetectedLang = data.detectedLang;
       currentRequestNumber = data.requestId || null;
@@ -957,6 +1046,110 @@
       div.textContent = text;
       return div.innerHTML;
     }
+
+    // ---- Feedback ---------------------------------------------------------
+    // Anonymous, stable per browser: lets an admin see repeat reporters without
+    // any account or personal data.
+    function getClientId() {
+      let id = localStorage.getItem("tiltapClientId");
+      if (!id) {
+        id = "web-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        localStorage.setItem("tiltapClientId", id);
+      }
+      return id;
+    }
+
+    const feedbackAsk = document.getElementById("feedbackAsk");
+    const feedbackDetail = document.getElementById("feedbackDetail");
+    const feedbackThanksEl = document.getElementById("feedbackThanks");
+    const fbCommentEl = document.getElementById("fbComment");
+    let fbCategory = null;
+    // Id of the row created by the thumb tap; the reason/comment update it
+    // instead of writing a second row.
+    let fbId = null;
+    // The rating POST is in flight while the user types the comment, so the
+    // details call waits for it instead of racing it.
+    let fbPending = null;
+
+    function resetFeedback() {
+      fbCategory = null;
+      fbId = null;
+      fbPending = null;
+      if (fbCommentEl) fbCommentEl.value = "";
+      // Only ask about a real transcription/YouTube job — a direct text
+      // translation has no job to rate.
+      document.getElementById("feedbackBox").classList.toggle("hidden", !currentJobId);
+      feedbackAsk.classList.remove("hidden");
+      feedbackDetail.classList.add("hidden");
+      feedbackThanksEl.classList.add("hidden");
+      document.querySelectorAll("#fbReasons [data-cat]").forEach((b) => b.classList.remove("btn-primary"));
+    }
+
+    async function sendFeedback(rating) {
+      try {
+        const res = await fetch(API + "/api/web/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobId: currentJobId,
+            clientId: getClientId(),
+            rating: rating,
+          }),
+        });
+        const data = await res.json();
+        fbId = data.id || null;
+      } catch (err) {
+        // Feedback must never break the page; a failed send is silently dropped.
+        console.warn("feedback failed", err);
+      }
+    }
+
+    // Reason and comment amend the row created by the thumb tap, so one
+    // complaint is counted once no matter how much the user adds afterwards.
+    async function sendFeedbackDetails(category, comment) {
+      if (fbPending) await fbPending;
+      if (!fbId) return;
+      try {
+        await fetch(API + "/api/web/feedback/" + fbId, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category: category || undefined, comment: comment || undefined }),
+        });
+      } catch (err) {
+        console.warn("feedback details failed", err);
+      }
+    }
+
+    function showFeedbackThanks() {
+      feedbackAsk.classList.add("hidden");
+      feedbackDetail.classList.add("hidden");
+      feedbackThanksEl.classList.remove("hidden");
+    }
+
+    document.getElementById("fbUpBtn").addEventListener("click", () => {
+      fbPending = sendFeedback("up");
+      showFeedbackThanks();
+    });
+
+    document.getElementById("fbDownBtn").addEventListener("click", () => {
+      // Record the signal immediately, then let the user optionally elaborate.
+      fbPending = sendFeedback("down");
+      feedbackAsk.classList.add("hidden");
+      feedbackDetail.classList.remove("hidden");
+    });
+
+    document.querySelectorAll("#fbReasons [data-cat]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        fbCategory = btn.dataset.cat;
+        document.querySelectorAll("#fbReasons [data-cat]").forEach((b) => b.classList.remove("btn-primary"));
+        btn.classList.add("btn-primary");
+      });
+    });
+
+    document.getElementById("fbSendBtn").addEventListener("click", () => {
+      sendFeedbackDetails(fbCategory, fbCommentEl.value.trim());
+      showFeedbackThanks();
+    });
 
     // Apply i18n on load
     applyI18n();

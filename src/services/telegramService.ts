@@ -381,6 +381,83 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     en: "Main menu",
     ru: "Главное меню",
   },
+  feedbackGood: {
+    ky: "👍 Жакты",
+    tg: "👍 Хуб",
+    uz: "👍 Yaxshi",
+    en: "👍 Good",
+    ru: "👍 Хорошо",
+  },
+  feedbackBad: {
+    ky: "👎 Жаман",
+    tg: "👎 Бад",
+    uz: "👎 Yomon",
+    en: "👎 Poor",
+    ru: "👎 Плохо",
+  },
+  feedbackThanks: {
+    ky: "Пикириңиз үчүн рахмат!",
+    tg: "Ташаккур барои фикри шумо!",
+    uz: "Fikringiz uchun rahmat!",
+    en: "Thanks for the feedback!",
+    ru: "Спасибо за отзыв!",
+  },
+  feedbackAskReason: {
+    ky: "Эмне туура эмес болду?",
+    tg: "Чӣ нодуруст буд?",
+    uz: "Nima noto'g'ri edi?",
+    en: "What went wrong?",
+    ru: "Что было не так?",
+  },
+  feedbackReasonStt: {
+    ky: "Текст туура эмес",
+    tg: "Матн нодуруст",
+    uz: "Matn noto'g'ri",
+    en: "Bad transcription",
+    ru: "Плохое распознавание",
+  },
+  feedbackReasonTranslation: {
+    ky: "Котормо начар",
+    tg: "Тарҷума бад",
+    uz: "Tarjima yomon",
+    en: "Bad translation",
+    ru: "Плохой перевод",
+  },
+  feedbackReasonDownload: {
+    ky: "Видео жүктөлбөдү",
+    tg: "Видео боргирӣ нашуд",
+    uz: "Video yuklanmadi",
+    en: "Download problem",
+    ru: "Проблема со скачиванием",
+  },
+  feedbackReasonSpeed: {
+    ky: "Өтө жай",
+    tg: "Хеле суст",
+    uz: "Juda sekin",
+    en: "Too slow",
+    ru: "Слишком долго",
+  },
+  feedbackReasonOther: {
+    ky: "Башка",
+    tg: "Дигар",
+    uz: "Boshqa",
+    en: "Other",
+    ru: "Другое",
+  },
+  feedbackCommentHint: {
+    ky: "Рахмат! Кааласаңыз, кийинки билдирүүдө чечмелеп жазыңыз.",
+    tg: "Ташаккур! Агар хоҳед, дар паёми навбатӣ шарҳ диҳед.",
+    uz: "Rahmat! Xohlasangiz, keyingi xabarda batafsil yozing.",
+    en: "Thanks! If you like, describe it in your next message.",
+    ru: "Спасибо! Если хотите, опишите подробнее следующим сообщением.",
+  },
+  feedbackCommentSaved: {
+    ky: "Рахмат, жазып алдык!",
+    tg: "Ташаккур, сабт шуд!",
+    uz: "Rahmat, yozib oldik!",
+    en: "Thanks, noted!",
+    ru: "Спасибо, записали!",
+  },
   start: {
     ky: "Баштоо",
     tg: "Оғоз кардан",
@@ -942,14 +1019,18 @@ export async function deleteMessage(chatId: number, messageId: number): Promise<
   }
 }
 
-export async function answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
+export async function answerCallbackQuery(
+  callbackQueryId: string,
+  text?: string,
+  showAlert = false
+): Promise<void> {
   const body: Record<string, unknown> = {
     callback_query_id: callbackQueryId,
   };
 
   if (text) {
     body.text = text;
-    body.show_alert = false;
+    body.show_alert = showAlert;
   }
 
   const res = await fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
@@ -1088,6 +1169,69 @@ export function createBackToMenuKeyboard(lang: SupportedLanguage): { inline_keyb
   return {
     inline_keyboard: [[{ text: `← ${t("backToMenu", lang)}`, callback_data: "action:main" }]],
   };
+}
+
+/**
+ * Keyboard attached to a finished result: one-tap rating plus the menu button.
+ * Rating is deliberately a single tap with no follow-up message, so asking for
+ * feedback costs the user nothing.
+ */
+export function createResultKeyboard(
+  lang: SupportedLanguage,
+  requestNumber?: number
+): { inline_keyboard: InlineKeyboardButton[][] } {
+  const ref = requestNumber ?? 0;
+  return {
+    inline_keyboard: [
+      [
+        { text: t("feedbackGood", lang), callback_data: `fb:up:${ref}` },
+        { text: t("feedbackBad", lang), callback_data: `fb:down:${ref}` },
+      ],
+      [{ text: `← ${t("backToMenu", lang)}`, callback_data: "action:main" }],
+    ],
+  };
+}
+
+/** Quick reason buttons shown after a negative rating. */
+export function createFeedbackReasonKeyboard(
+  lang: SupportedLanguage,
+  feedbackId: number
+): { inline_keyboard: InlineKeyboardButton[][] } {
+  return {
+    inline_keyboard: [
+      [
+        { text: t("feedbackReasonStt", lang), callback_data: `fbc:stt:${feedbackId}` },
+        { text: t("feedbackReasonTranslation", lang), callback_data: `fbc:translation:${feedbackId}` },
+      ],
+      [
+        { text: t("feedbackReasonDownload", lang), callback_data: `fbc:download:${feedbackId}` },
+        { text: t("feedbackReasonSpeed", lang), callback_data: `fbc:speed:${feedbackId}` },
+      ],
+      [{ text: t("feedbackReasonOther", lang), callback_data: `fbc:other:${feedbackId}` }],
+      [{ text: `← ${t("backToMenu", lang)}`, callback_data: "action:main" }],
+    ],
+  };
+}
+
+/**
+ * Replace only the inline keyboard of an existing message. Unlike
+ * editMessageText this also works on documents (the result file), which have no
+ * editable text.
+ */
+export async function editMessageReplyMarkup(
+  chatId: number,
+  messageId: number,
+  replyMarkup: { inline_keyboard: InlineKeyboardButton[][] }
+): Promise<void> {
+  const res = await fetch(`${TELEGRAM_API}/editMessageReplyMarkup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId, reply_markup: replyMarkup }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Telegram editMessageReplyMarkup failed: ${res.status} ${errText}`);
+  }
 }
 
 // ---------------------------------------------------------------------------

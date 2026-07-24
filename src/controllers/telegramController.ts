@@ -34,6 +34,9 @@ import {
   createStopKeyboard,
   createQuickActionsKeyboard,
   createBackToMenuKeyboard,
+  createResultKeyboard,
+  createFeedbackReasonKeyboard,
+  editMessageReplyMarkup,
   ensureUserProfile,
   getUserPreferences,
   setUserInterfaceLanguage,
@@ -60,8 +63,15 @@ import {
   createMessage,
   createTranscription,
   saveTranslation,
+  createTranscriptionRequest,
+  updateTranscriptionRequest,
+  createFeedback,
+  updateFeedback,
+  getTranscriptionRequestByNumber,
   type Transcription,
+  type FeedbackEntry,
 } from "../db/repos";
+import { sendAdminAlert } from "../services/alertService";
 
 const FFMPEG_PATH = require("ffmpeg-static");
 const PYTHON_PATH = process.platform === "win32" ? "python" : "python3";
@@ -159,6 +169,27 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
     if (pending?.type === "translate_text") {
       clearPendingAction(chatId);
       await processTextTranslation(chatId, text, pending.targetLanguage, prefs);
+      return;
+    }
+
+    // An invited feedback comment: ordinary prose typed right after the user
+    // picked a reason for a negative rating. Checked after the pending action so
+    // an in-flight translation request is never swallowed.
+    const feedbackId = text ? takePendingFeedbackComment(chatId) : undefined;
+    if (feedbackId) {
+      const updated = await updateFeedback(feedbackId, { comment: text.slice(0, 2000) }).catch((err) => {
+        logger.warn("Failed to save feedback comment", {
+          error: err instanceof Error ? err.message : String(err),
+          feedbackId,
+        });
+        return null;
+      });
+      await sendTextMessage(chatId, t("feedbackCommentSaved", lang), {
+        replyMarkup: createMainKeyboard(lang),
+      });
+      if (updated) {
+        void notifyAdminFeedback(updated, true);
+      }
       return;
     }
     await sendMainMenu(chatId, prefs);
@@ -593,6 +624,146 @@ function createSpinnerStatus(
   };
 }
 
+/**
+ * Ping the admin about negative feedback. Positive ratings are only stored —
+ * the admin panel shows them — so the alert channel stays quiet and useful.
+ * Each feedback row gets its own throttle key so nothing is suppressed.
+ */
+async function notifyAdminFeedback(entry: FeedbackEntry, isFollowUp = false): Promise<void> {
+  if (entry.rating !== "down") return;
+
+  const who = [entry.telegram_name, entry.telegram_username ? `@${entry.telegram_username}` : null]
+    .filter(Boolean)
+    .join(" ");
+  const lines = [
+    isFollowUp ? "💬 <b>Комментарий к отзыву</b>" : "👎 <b>Негативный отзыв</b>",
+    entry.request_number ? `Запрос: #${entry.request_number}` : "Запрос: —",
+    `От: ${escapeHtml(who || "—")} (chat ${entry.telegram_chat_id ?? "—"})`,
+    entry.category ? `Причина: ${entry.category}` : null,
+    entry.source_lang ? `Язык: ${entry.source_lang}` : null,
+    entry.provider || entry.model ? `Движок: ${entry.provider ?? "?"} / ${entry.model ?? "?"}` : null,
+    entry.source_url ? `Ссылка: ${escapeHtml(entry.source_url)}` : null,
+    entry.comment ? `\n«${escapeHtml(entry.comment)}»` : null,
+  ].filter(Boolean);
+
+  await sendAdminAlert(`feedback-${entry.id}${isFollowUp ? "-comment" : ""}`, lines.join("\n"), 0);
+}
+
+// After a user picks a reason for a negative rating we invite a free-text
+// comment. The next plain message from that chat is attached to this feedback
+// row. In-memory and short-lived on purpose: losing it on restart is harmless.
+const pendingFeedbackComments = new Map<number, { feedbackId: number; expiresAt: number }>();
+const FEEDBACK_COMMENT_WINDOW_MS = 10 * 60 * 1000;
+
+function setPendingFeedbackComment(chatId: number, feedbackId: number): void {
+  pendingFeedbackComments.set(chatId, { feedbackId, expiresAt: Date.now() + FEEDBACK_COMMENT_WINDOW_MS });
+}
+
+function takePendingFeedbackComment(chatId: number): number | undefined {
+  const entry = pendingFeedbackComments.get(chatId);
+  if (!entry) return undefined;
+  pendingFeedbackComments.delete(chatId);
+  if (entry.expiresAt < Date.now()) return undefined;
+  return entry.feedbackId;
+}
+
+/**
+ * Record a rating together with everything an admin needs to judge it without
+ * cross-referencing: who sent it, which public request number, the language
+ * pair and the engine that actually produced the result.
+ */
+async function recordTelegramFeedback(params: {
+  chatId: number;
+  requestNumber?: number;
+  rating: "up" | "down";
+  user?: { username?: string; first_name?: string; last_name?: string };
+  interfaceLang: string;
+}): Promise<number | undefined> {
+  let context: Awaited<ReturnType<typeof getTranscriptionRequestByNumber>> = null;
+  if (params.requestNumber) {
+    context = await getTranscriptionRequestByNumber(params.requestNumber).catch(() => null);
+  }
+
+  const name = [params.user?.first_name, params.user?.last_name].filter(Boolean).join(" ") || null;
+
+  try {
+    const entry = await createFeedback({
+      requestNumber: params.requestNumber ?? null,
+      source: "telegram",
+      rating: params.rating,
+      telegramChatId: params.chatId,
+      telegramUsername: params.user?.username ?? null,
+      telegramName: name,
+      sourceType: context?.source_type ?? null,
+      sourceUrl: context?.source_url ?? null,
+      sourceLang: context?.language ?? null,
+      provider: context?.provider ?? null,
+      model: context?.model ?? null,
+      interfaceLang: params.interfaceLang,
+    });
+    logger.info("Feedback recorded", {
+      feedbackId: entry.id,
+      rating: params.rating,
+      requestNumber: params.requestNumber,
+      chatId: params.chatId,
+    });
+    // Fire-and-forget: an alert must never delay the user's toast.
+    void notifyAdminFeedback(entry);
+    return entry.id;
+  } catch (err) {
+    logger.error("Failed to record feedback", {
+      error: err instanceof Error ? err.message : String(err),
+      chatId: params.chatId,
+    });
+    return undefined;
+  }
+}
+
+// Every media/YouTube request gets a public request number so the user can quote
+// it in feedback and an admin can look it up. Bookkeeping failures must never
+// block the actual transcription, so both helpers swallow their errors.
+async function openTranscriptionRequest(payload: {
+  chatId: number;
+  messageId?: number;
+  sourceType: string;
+  sourceUrl?: string;
+  filename?: string;
+  language: string;
+}): Promise<number | undefined> {
+  try {
+    const row = await createTranscriptionRequest({
+      telegramChatId: payload.chatId,
+      telegramMessageId: payload.messageId,
+      sourceType: payload.sourceType,
+      sourceUrl: payload.sourceUrl,
+      filename: payload.filename,
+      language: payload.language,
+    });
+    return row.request_number;
+  } catch (err) {
+    logger.warn("Failed to open transcription request", {
+      error: err instanceof Error ? err.message : String(err),
+      chatId: payload.chatId,
+    });
+    return undefined;
+  }
+}
+
+async function closeTranscriptionRequest(
+  requestNumber: number | undefined,
+  updates: Parameters<typeof updateTranscriptionRequest>[1]
+): Promise<void> {
+  if (!requestNumber) return;
+  try {
+    await updateTranscriptionRequest(requestNumber, updates);
+  } catch (err) {
+    logger.warn("Failed to close transcription request", {
+      error: err instanceof Error ? err.message : String(err),
+      requestNumber,
+    });
+  }
+}
+
 // Show or reuse the single status message for a request. When a card message id
 // is supplied (the confirmation card the user just pressed Start on), edit it in
 // place instead of sending a new message — this is what keeps the chat clean.
@@ -664,6 +835,13 @@ async function processAudio(
   const removeKeyboard = { replyMarkup: { inline_keyboard: [] as InlineKeyboardButton[][] } };
   const spinner = createSpinnerStatus(chatId, statusMsgId, lang, t("transcribing", lang));
   const abortController = new AbortController();
+  const requestNumber = await openTranscriptionRequest({
+    chatId,
+    messageId: replyToMessageId,
+    sourceType: "telegram_media",
+    filename,
+    language,
+  });
 
   try {
     setActiveProcess(chatId, {
@@ -730,6 +908,16 @@ async function processAudio(
       transcriptionId = 0;
     }
 
+    await closeTranscriptionRequest(requestNumber, {
+      status: "completed",
+      fullText: cleanedText,
+      segmentsJson: result.segments,
+      provider: result.provider,
+      model: result.model,
+      gpu: result.gpu,
+      completedAt: new Date(),
+    });
+
     if (targetLanguage && targetLanguage !== "none") {
       spinner.setPhase(t("translating", lang));
     }
@@ -748,7 +936,8 @@ async function processAudio(
       undefined,
       cleanup.warning,
       undefined,
-      "telegram_media"
+      "telegram_media",
+      requestNumber
     );
     spinner.stop();
     await deleteMessage(chatId, statusMsgId).catch(() => {});
@@ -757,11 +946,14 @@ async function processAudio(
   } catch (err) {
     spinner.stop();
     clearActiveProcess(chatId);
+    const errMessage = err instanceof Error ? err.message : String(err);
     logger.error("Transcription error", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errMessage,
       stack: err instanceof Error ? err.stack : undefined,
+      requestNumber,
     });
-    const msg = t("transcriptionFailed", lang, { error: escapeHtml(err instanceof Error ? err.message : String(err)) });
+    await closeTranscriptionRequest(requestNumber, { status: "error", errorMessage: errMessage });
+    const msg = t("transcriptionFailed", lang, { error: escapeHtml(errMessage) });
     await editMessageText(chatId, statusMsgId, msg, removeKeyboard);
   }
 }
@@ -787,6 +979,13 @@ async function downloadAndTranscribeYouTube(
   const abortController = new AbortController();
   // Two phases, spinner animates throughout: download → transcription.
   const spinner = createSpinnerStatus(chatId, statusMsgId, lang, t("stageDownload", lang));
+  const requestNumber = await openTranscriptionRequest({
+    chatId,
+    sourceType: "youtube",
+    sourceUrl: url,
+    filename: "youtube_audio.wav",
+    language,
+  });
 
   try {
     setActiveProcess(chatId, {
@@ -852,6 +1051,16 @@ async function downloadAndTranscribeYouTube(
       transcriptionId = 0;
     }
 
+    await closeTranscriptionRequest(requestNumber, {
+      status: "completed",
+      fullText: cleanedText,
+      segmentsJson: result.segments,
+      provider: result.provider,
+      model: result.model,
+      gpu: result.gpu,
+      completedAt: new Date(),
+    });
+
     if (targetLanguage && targetLanguage !== "none") {
       spinner.setPhase(t("translating", lang));
     }
@@ -869,7 +1078,8 @@ async function downloadAndTranscribeYouTube(
       "YouTube",
       cleanup.warning,
       url,
-      "youtube"
+      "youtube",
+      requestNumber
     );
     spinner.stop();
     await deleteMessage(chatId, statusMsgId).catch(() => {});
@@ -877,7 +1087,9 @@ async function downloadAndTranscribeYouTube(
     spinner.stop();
     clearActiveProcess(chatId);
     await unlink(tmpWav).catch(() => {});
-    const msg = `❌ ${escapeHtml(err instanceof Error ? err.message : String(err))}`;
+    const errMessage = err instanceof Error ? err.message : String(err);
+    await closeTranscriptionRequest(requestNumber, { status: "error", errorMessage: errMessage });
+    const msg = `❌ ${escapeHtml(errMessage)}`;
     await editMessageText(chatId, statusMsgId, msg, removeKeyboard);
     throw err;
   }
@@ -1000,11 +1212,13 @@ async function sendResultDocument(
   titlePrefix?: string,
   cleanupWarning?: string,
   sourceUrl?: string,
-  sourceType?: string
+  sourceType?: string,
+  requestNumber?: number
 ): Promise<void> {
   const sourceLabel = LANGUAGE_LABELS[sourceLang as SupportedLanguage] ?? sourceLang;
 
-  const backToMenuKeyboard = createBackToMenuKeyboard(lang);
+  // Rating buttons ride along with the result, so giving feedback is one tap.
+  const backToMenuKeyboard = createResultKeyboard(lang, requestNumber);
 
   // If a target language is chosen and differs from the source, send only the translated file.
   if (targetLang && targetLang !== "none" && targetLang !== sourceLang && cleanedText.trim()) {
@@ -1028,13 +1242,16 @@ async function sendResultDocument(
         translation.warning,
       ].filter(Boolean);
       const warningNote = warnings.length ? `\n\n⚠️ ${warnings.join(" ")}` : "";
-      const caption = translation.requestId ? `${title} #${translation.requestId}` : title;
+      // Show the same number the feedback buttons will report, so a user who
+      // quotes "#N" and an admin looking at feedback see one identifier.
+      const shownNumber = translation.requestId ?? requestNumber;
+      const caption = shownNumber ? `${title} #${shownNumber}` : title;
       await sendDocument(
         chatId,
         Buffer.from(`${title}${warningNote}\n\n${translation.translatedText}`, "utf-8"),
         `translation_${Date.now()}.txt`,
         caption,
-        backToMenuKeyboard
+        createResultKeyboard(lang, shownNumber)
       );
       return;
     } catch (err) {
@@ -1056,7 +1273,8 @@ async function sendResultDocument(
   const subtitles = formatSubtitles(segments);
   const warningHeader = cleanupWarning ? `\n\n⚠️ ${cleanupWarning}` : "";
   const fileContent = `${title}${warningHeader}\n\n${cleanedText}\n\n---\n\n${subtitles}`;
-  const caption = qualityWarning ? `${qualityWarning}` : title;
+  const numberSuffix = requestNumber ? ` #${requestNumber}` : "";
+  const caption = `${qualityWarning ? qualityWarning : title}${numberSuffix}`;
   await sendDocument(
     chatId,
     Buffer.from(fileContent, "utf-8"),
@@ -1268,24 +1486,79 @@ async function runAllTests(chatId: number): Promise<void> {
 
 async function handleCallbackQuery(callbackQuery: {
   id: string;
-  from: { id: number };
+  from: { id: number; username?: string; first_name?: string; last_name?: string };
   message?: TelegramMessage;
   data: string;
 }): Promise<void> {
-  try {
-    await answerCallbackQuery(callbackQuery.id);
-  } catch (err) {
-    logger.debug("answerCallbackQuery failed, continuing", { error: err instanceof Error ? err.message : String(err) });
+  const data = callbackQuery.data;
+  // Feedback taps answer the callback themselves so the confirmation appears as
+  // a toast instead of a new chat message. A callback can only be answered once.
+  const isFeedback = data.startsWith("fb:") || data.startsWith("fbc:");
+
+  if (!isFeedback) {
+    try {
+      await answerCallbackQuery(callbackQuery.id);
+    } catch (err) {
+      logger.debug("answerCallbackQuery failed, continuing", { error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
-  const data = callbackQuery.data;
   const chatId = callbackQuery.message?.chat.id;
   const messageId = callbackQuery.message?.message_id;
 
-  if (!chatId || !messageId) return;
+  if (!chatId || !messageId) {
+    // Feedback taps defer answering; without a message there is nothing left to
+    // do but clear the client's spinner.
+    if (isFeedback) await answerCallbackQuery(callbackQuery.id).catch(() => {});
+    return;
+  }
 
   const prefs = await getUserPreferences(chatId);
   const lang = prefs.interfaceLanguage;
+
+  // ---- Feedback: rating ----------------------------------------------------
+  if (data.startsWith("fb:")) {
+    const [, rating, ref] = data.split(":");
+    const requestNumber = Number(ref) > 0 ? Number(ref) : undefined;
+    const feedbackId = await recordTelegramFeedback({
+      chatId,
+      requestNumber,
+      rating: rating === "up" ? "up" : "down",
+      user: callbackQuery.from,
+      interfaceLang: lang,
+    });
+
+    if (rating === "up") {
+      await answerCallbackQuery(callbackQuery.id, t("feedbackThanks", lang)).catch(() => {});
+      await editMessageReplyMarkup(chatId, messageId, createBackToMenuKeyboard(lang)).catch(() => {});
+    } else {
+      await answerCallbackQuery(callbackQuery.id, t("feedbackAskReason", lang)).catch(() => {});
+      if (feedbackId) {
+        await editMessageReplyMarkup(chatId, messageId, createFeedbackReasonKeyboard(lang, feedbackId)).catch(() => {});
+      }
+    }
+    return;
+  }
+
+  // ---- Feedback: reason category ------------------------------------------
+  if (data.startsWith("fbc:")) {
+    const [, category, idRaw] = data.split(":");
+    const feedbackId = Number(idRaw);
+    if (Number.isFinite(feedbackId) && feedbackId > 0) {
+      await updateFeedback(feedbackId, { category }).catch((err) =>
+        logger.warn("Failed to set feedback category", {
+          error: err instanceof Error ? err.message : String(err),
+          feedbackId,
+        })
+      );
+      setPendingFeedbackComment(chatId, feedbackId);
+    }
+    // A popup rather than a toast: the user has to read this one to know that
+    // typing a comment next is what we are waiting for.
+    await answerCallbackQuery(callbackQuery.id, t("feedbackCommentHint", lang), true).catch(() => {});
+    await editMessageReplyMarkup(chatId, messageId, createBackToMenuKeyboard(lang)).catch(() => {});
+    return;
+  }
 
   // Interface language
   if (data.startsWith("ui_lang:")) {

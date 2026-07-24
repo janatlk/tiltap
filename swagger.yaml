@@ -212,6 +212,83 @@ paths:
         "200":
           description: SSE stream
 
+  /api/web/feedback:
+    post:
+      tags: [Web]
+      summary: Rate a result
+      description: |
+        Records a thumbs up/down for a finished job. The job context (request
+        number, languages, engine) is snapshotted onto the feedback row.
+        Returns the feedback id, used to attach a reason and comment later.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rating]
+              properties:
+                rating:
+                  type: string
+                  enum: [up, down]
+                jobId:
+                  type: string
+                  description: Job the rating refers to
+                clientId:
+                  type: string
+                  description: Anonymous browser id, used to spot repeat reporters
+      responses:
+        "200":
+          description: Feedback recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  id:
+                    type: integer
+                  requestNumber:
+                    type: integer
+                    nullable: true
+        "400":
+          description: Invalid rating
+
+  /api/web/feedback/{id}:
+    patch:
+      tags: [Web]
+      summary: Add a reason and comment
+      description: |
+        Amends the row created by the rating instead of writing a new one, so a
+        single complaint is counted once.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category:
+                  type: string
+                  enum: [stt, translation, download, speed, other]
+                comment:
+                  type: string
+                  maxLength: 2000
+      responses:
+        "200":
+          description: Feedback updated
+        "400":
+          description: Invalid feedback id
+        "404":
+          description: Feedback not found
+
 components:
   schemas:
     TranslateRequest:

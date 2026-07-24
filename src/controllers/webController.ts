@@ -7,6 +7,13 @@ import { cleanupTranscription, detectTranscriptionIssues } from "../services/cle
 import { isSupportedMediaUrl, validateMediaUrl, transcribeMediaLink } from "../services/youtubeService";
 import type { TranslateRequest } from "../types";
 import * as webJobRepo from "../db/repos/webJobRepo";
+import {
+  createFeedback,
+  updateFeedback,
+  type FeedbackEntry,
+  type FeedbackRating,
+} from "../db/repos/feedbackRepo";
+import { sendAdminAlert } from "../services/alertService";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
@@ -393,4 +400,140 @@ async function finalizeTranscription(
 // Expose job map for testing/inspection only.
 export function getJobs(): Map<string, WebJob> {
   return jobs;
+}
+
+const FEEDBACK_CATEGORIES = new Set(["stt", "translation", "download", "speed", "other"]);
+
+/** Alerts go out with parse_mode HTML, so user text must be escaped. */
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Ping the admin about a negative web rating. Positive ones are only stored —
+ * the admin panel shows them — so the alert channel stays quiet and useful.
+ * The follow-up (reason + comment) arrives as its own message because the user
+ * may take a while to type it, and it must not be throttled away.
+ */
+function alertWebFeedback(entry: FeedbackEntry, isFollowUp = false): void {
+  if (entry.rating !== "down") return;
+  const lines = [
+    isFollowUp ? "💬 <b>Комментарий к отзыву (веб)</b>" : "👎 <b>Негативный отзыв (веб)</b>",
+    entry.request_number ? `Запрос: #${entry.request_number}` : "Запрос: —",
+    entry.source_lang ? `Язык: ${entry.source_lang}` : null,
+    entry.provider || entry.model ? `Движок: ${entry.provider ?? "?"} / ${entry.model ?? "?"}` : null,
+    entry.category ? `Причина: ${entry.category}` : null,
+    entry.comment ? `\n«${escapeHtml(entry.comment)}»` : null,
+  ].filter(Boolean);
+  void sendAdminAlert(
+    `feedback-web-${entry.id}${isFollowUp ? "-comment" : ""}`,
+    lines.join("\n"),
+    0
+  );
+}
+
+/**
+ * Store a rating for a finished web job. The job's context (request number,
+ * languages, engine) is snapshotted onto the feedback row so an admin can judge
+ * the complaint without looking anything up.
+ */
+export async function handleWebFeedback(req: Request, res: Response): Promise<void> {
+  try {
+    const body = req.body as {
+      jobId?: string;
+      rating?: string;
+      category?: string;
+      comment?: string;
+      clientId?: string;
+    };
+
+    const rating: FeedbackRating | null =
+      body.rating === "up" ? "up" : body.rating === "down" ? "down" : null;
+    if (!rating) {
+      res.status(400).json({ error: "rating must be 'up' or 'down'" });
+      return;
+    }
+
+    const jobId = body.jobId ? String(body.jobId) : undefined;
+    // Prefer the in-memory job; fall back to the persisted row after a restart.
+    const job = jobId ? getJob(jobId) : undefined;
+    const persisted = !job && jobId ? await webJobRepo.getWebJobById(jobId).catch(() => null) : null;
+
+    const category =
+      body.category && FEEDBACK_CATEGORIES.has(body.category) ? body.category : undefined;
+
+    const entry = await createFeedback({
+      requestNumber: job?.requestNumber ?? persisted?.request_number ?? null,
+      source: "web",
+      rating,
+      category: category ?? null,
+      comment: body.comment ? String(body.comment).trim().slice(0, 2000) : null,
+      webClientId: body.clientId ? String(body.clientId).slice(0, 64) : null,
+      jobId: jobId ?? null,
+      sourceType: job?.sourceType ?? persisted?.source_type ?? "web",
+      sourceUrl: job?.sourceUrl ?? persisted?.source_url ?? null,
+      sourceLang: job?.sourceLang ?? persisted?.source_lang ?? null,
+      targetLang: job?.targetLang ?? persisted?.target_lang ?? null,
+      provider: job?.result?.provider ?? persisted?.provider ?? null,
+      model: job?.result?.model ?? persisted?.model ?? null,
+    });
+
+    logger.info("Web feedback recorded", {
+      feedbackId: entry.id,
+      rating,
+      jobId,
+      requestNumber: entry.request_number,
+    });
+
+    alertWebFeedback(entry);
+
+    res.json({ ok: true, id: entry.id, requestNumber: entry.request_number });
+  } catch (err) {
+    logger.error("Web feedback error", { error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+/**
+ * Attach the reason and free-text comment the user supplies after the initial
+ * rating. This updates the existing row rather than writing a new one, so a
+ * single complaint is counted once.
+ */
+export async function handleWebFeedbackDetails(req: Request, res: Response): Promise<void> {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "Invalid feedback id" });
+      return;
+    }
+
+    const body = req.body as { category?: string; comment?: string };
+    const updates: { category?: string; comment?: string } = {};
+    if (body.category && FEEDBACK_CATEGORIES.has(body.category)) updates.category = body.category;
+    if (body.comment) {
+      const comment = String(body.comment).trim().slice(0, 2000);
+      if (comment) updates.comment = comment;
+    }
+
+    if (!updates.category && !updates.comment) {
+      res.json({ ok: true, id, updated: false });
+      return;
+    }
+
+    const entry = await updateFeedback(id, updates);
+    if (!entry) {
+      res.status(404).json({ error: "Feedback not found" });
+      return;
+    }
+
+    logger.info("Web feedback details added", { feedbackId: id, category: entry.category });
+    alertWebFeedback(entry, true);
+
+    res.json({ ok: true, id, updated: true });
+  } catch (err) {
+    logger.error("Web feedback details error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    res.status(500).json({ error: "Internal server error" });
+  }
 }
