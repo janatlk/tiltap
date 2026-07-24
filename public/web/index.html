@@ -939,12 +939,13 @@
     }
 
     function renderDirectTranslation(data, targetLang) {
-      // Plain text translation is not a job, so there is nothing to rate.
+      // Not a job: rated by its public request number instead. The number has to
+      // be in place before resetFeedback decides whether to show the ask.
       currentJobId = null;
-      resetFeedback();
       currentCleanText = data.translatedText;
       currentDetectedLang = data.detectedLang;
       currentRequestNumber = data.requestId || null;
+      resetFeedback();
       currentDownloadText = data.translatedText;
       currentDownloadFilename = "translation_" + Date.now() + ".txt";
 
@@ -1076,13 +1077,22 @@
       fbId = null;
       fbPending = null;
       if (fbCommentEl) fbCommentEl.value = "";
-      // Only ask about a real transcription/YouTube job — a direct text
-      // translation has no job to rate.
-      document.getElementById("feedbackBox").classList.toggle("hidden", !currentJobId);
+      // A job (audio/YouTube) is identified by its id; a plain text translation
+      // has no job and is identified by its public request number. Either one is
+      // ratable, so ask whenever we have something the server can resolve.
+      document.getElementById("feedbackBox").classList.toggle("hidden", !currentJobId && !currentRequestNumber);
       feedbackAsk.classList.remove("hidden");
       feedbackDetail.classList.add("hidden");
       feedbackThanksEl.classList.add("hidden");
       document.querySelectorAll("#fbReasons [data-cat]").forEach((b) => b.classList.remove("btn-primary"));
+
+      // Nothing was transcribed or downloaded for a typed-in translation, so
+      // those two reasons would only produce misleading rows.
+      const textOnly = !currentJobId && !!currentRequestNumber;
+      ["stt", "download"].forEach((cat) => {
+        const btn = document.querySelector(`#fbReasons [data-cat="${cat}"]`);
+        if (btn) btn.classList.toggle("hidden", textOnly);
+      });
     }
 
     async function sendFeedback(rating) {
@@ -1091,7 +1101,8 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            jobId: currentJobId,
+            jobId: currentJobId || undefined,
+            requestNumber: currentJobId ? undefined : currentRequestNumber || undefined,
             clientId: getClientId(),
             rating: rating,
           }),

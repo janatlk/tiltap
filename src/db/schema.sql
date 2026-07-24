@@ -291,7 +291,7 @@ CREATE TABLE IF NOT EXISTS feedback (
   web_client_id VARCHAR(64),           -- anonymous browser id (localStorage)
   job_id VARCHAR(64),                  -- web job id when source = 'web'
   -- Context snapshot
-  source_type VARCHAR(20),             -- telegram_media | youtube | web | ...
+  source_type VARCHAR(20),             -- telegram_media | youtube | web | text | ...
   source_url TEXT,
   source_lang VARCHAR(10),
   target_lang VARCHAR(10),

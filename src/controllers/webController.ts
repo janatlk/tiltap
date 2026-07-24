@@ -7,6 +7,7 @@ import { cleanupTranscription, detectTranscriptionIssues } from "../services/cle
 import { isSupportedMediaUrl, validateMediaUrl, transcribeMediaLink } from "../services/youtubeService";
 import type { TranslateRequest } from "../types";
 import * as webJobRepo from "../db/repos/webJobRepo";
+import * as translationRepo from "../db/repos/translationRepo";
 import {
   createFeedback,
   updateFeedback,
@@ -420,7 +421,10 @@ function alertWebFeedback(entry: FeedbackEntry, isFollowUp = false): void {
   const lines = [
     isFollowUp ? "💬 <b>Комментарий к отзыву (веб)</b>" : "👎 <b>Негативный отзыв (веб)</b>",
     entry.request_number ? `Запрос: #${entry.request_number}` : "Запрос: —",
-    entry.source_lang ? `Язык: ${entry.source_lang}` : null,
+    entry.source_type === "text" ? "Тип: перевод текста" : null,
+    entry.source_lang || entry.target_lang
+      ? `Пара: ${entry.source_lang ?? "?"} → ${entry.target_lang ?? "?"}`
+      : null,
     entry.provider || entry.model ? `Движок: ${entry.provider ?? "?"} / ${entry.model ?? "?"}` : null,
     entry.category ? `Причина: ${entry.category}` : null,
     entry.comment ? `\n«${escapeHtml(entry.comment)}»` : null,
@@ -433,14 +437,20 @@ function alertWebFeedback(entry: FeedbackEntry, isFollowUp = false): void {
 }
 
 /**
- * Store a rating for a finished web job. The job's context (request number,
+ * Store a rating for a finished web result. The context (request number,
  * languages, engine) is snapshotted onto the feedback row so an admin can judge
  * the complaint without looking anything up.
+ *
+ * Two kinds of result can be rated. Audio/YouTube runs are jobs and arrive with
+ * a jobId. Plain text translation is not a job — it is answered synchronously —
+ * so it arrives with only its public request number, and the context is read
+ * back from translation_requests rather than taken from the client.
  */
 export async function handleWebFeedback(req: Request, res: Response): Promise<void> {
   try {
     const body = req.body as {
       jobId?: string;
+      requestNumber?: number | string;
       rating?: string;
       category?: string;
       comment?: string;
@@ -459,23 +469,42 @@ export async function handleWebFeedback(req: Request, res: Response): Promise<vo
     const job = jobId ? getJob(jobId) : undefined;
     const persisted = !job && jobId ? await webJobRepo.getWebJobById(jobId).catch(() => null) : null;
 
+    // Text translations identify themselves by request number only. Look the row
+    // up so provider/model/langs come from what actually ran, not from the page.
+    const claimedNumber = Number(body.requestNumber);
+    const requestNumber = Number.isInteger(claimedNumber) && claimedNumber > 0 ? claimedNumber : null;
+    const translation =
+      !job && !persisted && requestNumber
+        ? await translationRepo.findTranslationRequestByNumber(requestNumber).catch(() => null)
+        : null;
+
+    // Require some identifier, but do not insist the lookup succeeded: an old
+    // job may have been evicted from memory, and losing a real complaint is
+    // worse than storing one with thin context.
+    if (!jobId && !requestNumber) {
+      res.status(400).json({ error: "jobId or requestNumber is required" });
+      return;
+    }
+
     const category =
       body.category && FEEDBACK_CATEGORIES.has(body.category) ? body.category : undefined;
 
     const entry = await createFeedback({
-      requestNumber: job?.requestNumber ?? persisted?.request_number ?? null,
+      requestNumber: job?.requestNumber ?? persisted?.request_number ?? translation?.request_number ?? null,
       source: "web",
       rating,
       category: category ?? null,
       comment: body.comment ? String(body.comment).trim().slice(0, 2000) : null,
       webClientId: body.clientId ? String(body.clientId).slice(0, 64) : null,
       jobId: jobId ?? null,
-      sourceType: job?.sourceType ?? persisted?.source_type ?? "web",
-      sourceUrl: job?.sourceUrl ?? persisted?.source_url ?? null,
-      sourceLang: job?.sourceLang ?? persisted?.source_lang ?? null,
-      targetLang: job?.targetLang ?? persisted?.target_lang ?? null,
-      provider: job?.result?.provider ?? persisted?.provider ?? null,
-      model: job?.result?.model ?? persisted?.model ?? null,
+      // "text" marks a plain translation, so the admin panel can tell a bad
+      // translation apart from a bad transcription without opening the row.
+      sourceType: job?.sourceType ?? persisted?.source_type ?? translation?.source_type ?? (requestNumber && !jobId ? "text" : "web"),
+      sourceUrl: job?.sourceUrl ?? persisted?.source_url ?? translation?.source_url ?? null,
+      sourceLang: job?.sourceLang ?? persisted?.source_lang ?? translation?.source_lang ?? null,
+      targetLang: job?.targetLang ?? persisted?.target_lang ?? translation?.target_lang ?? null,
+      provider: job?.result?.provider ?? persisted?.provider ?? translation?.provider ?? null,
+      model: job?.result?.model ?? persisted?.model ?? translation?.model ?? null,
     });
 
     logger.info("Web feedback recorded", {

@@ -68,6 +68,7 @@ import {
   createFeedback,
   updateFeedback,
   getTranscriptionRequestByNumber,
+  findTranslationRequestByNumber,
   type Transcription,
   type FeedbackEntry,
 } from "../db/repos";
@@ -402,12 +403,20 @@ async function processTextTranslation(
     const caption = result.requestId ? `#${result.requestId}` : "";
     const outputText = result.translatedText;
 
+    // A text translation is as ratable as a transcription: the result keyboard
+    // carries 👍/👎 keyed by the public request number, which resolves back to
+    // the translation_requests row. Without a number there is nothing to key on,
+    // so fall back to the plain menu rather than a thumb that goes nowhere.
+    const resultKeyboard = result.requestId
+      ? createResultKeyboard(lang, result.requestId)
+      : createMainKeyboard(lang);
+
     if (outputText.length > TEXT_FILE_THRESHOLD) {
       const fs = await import("fs/promises");
       const buffer = Buffer.from(outputText, "utf-8");
-      await sendDocument(chatId, buffer, caption || "translation.txt", undefined, createMainKeyboard(lang));
+      await sendDocument(chatId, buffer, caption || "translation.txt", undefined, resultKeyboard);
     } else {
-      await sendTextMessage(chatId, escapeHtml(outputText), { replyMarkup: createMainKeyboard(lang) });
+      await sendTextMessage(chatId, escapeHtml(outputText), { replyMarkup: resultKeyboard });
     }
 
     if (statusMessageId) {
@@ -680,8 +689,15 @@ async function recordTelegramFeedback(params: {
   interfaceLang: string;
 }): Promise<number | undefined> {
   let context: Awaited<ReturnType<typeof getTranscriptionRequestByNumber>> = null;
+  // A plain text translation never opens a transcription_requests row, so fall
+  // back to translation_requests. Both draw from one shared sequence, so the
+  // number cannot mean two different requests.
+  let translation: Awaited<ReturnType<typeof findTranslationRequestByNumber>> = null;
   if (params.requestNumber) {
     context = await getTranscriptionRequestByNumber(params.requestNumber).catch(() => null);
+    if (!context) {
+      translation = await findTranslationRequestByNumber(params.requestNumber).catch(() => null);
+    }
   }
 
   const name = [params.user?.first_name, params.user?.last_name].filter(Boolean).join(" ") || null;
@@ -694,11 +710,12 @@ async function recordTelegramFeedback(params: {
       telegramChatId: params.chatId,
       telegramUsername: params.user?.username ?? null,
       telegramName: name,
-      sourceType: context?.source_type ?? null,
-      sourceUrl: context?.source_url ?? null,
-      sourceLang: context?.language ?? null,
-      provider: context?.provider ?? null,
-      model: context?.model ?? null,
+      sourceType: context?.source_type ?? translation?.source_type ?? null,
+      sourceUrl: context?.source_url ?? translation?.source_url ?? null,
+      sourceLang: context?.language ?? translation?.source_lang ?? null,
+      targetLang: translation?.target_lang ?? null,
+      provider: context?.provider ?? translation?.provider ?? null,
+      model: context?.model ?? translation?.model ?? null,
       interfaceLang: params.interfaceLang,
     });
     logger.info("Feedback recorded", {
