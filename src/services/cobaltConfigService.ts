@@ -111,6 +111,35 @@ export interface CobaltTestResult {
   status?: string;
   error?: string;
   latencyMs: number;
+  /** Bytes pulled from the tunnel during the probe. */
+  probedBytes?: number;
+}
+
+/** Enough to tell a real stream from an instance that answers with nothing. */
+const TUNNEL_PROBE_BYTES = 16 * 1024;
+
+/**
+ * Read a few KB from a tunnel URL and stop. An instance whose YouTube access is
+ * blocked still hands out a tunnel and then closes it with an empty 200, so
+ * resolving proves nothing — only bytes do.
+ */
+async function probeTunnel(tunnelUrl: string): Promise<number> {
+  const resp = await fetch(tunnelUrl, { signal: AbortSignal.timeout(20000) });
+  if (!resp.ok || !resp.body) return 0;
+
+  const reader = resp.body.getReader();
+  let received = 0;
+  try {
+    while (received < TUNNEL_PROBE_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value?.length ?? 0;
+    }
+  } finally {
+    // Never drain the whole file: a probe must stay cheap.
+    await reader.cancel().catch(() => {});
+  }
+  return received;
 }
 
 export async function testCobaltApiUrl(apiUrl: string, testUrl?: string): Promise<CobaltTestResult> {
@@ -128,11 +157,30 @@ export async function testCobaltApiUrl(apiUrl: string, testUrl?: string): Promis
       body: JSON.stringify({ url: target, downloadMode: "audio" }),
       signal: AbortSignal.timeout(15000),
     });
-    const data = await resp.json() as { status?: string; error?: { code?: string } };
+    const data = await resp.json() as { status?: string; error?: { code?: string }; url?: string };
     const latencyMs = Date.now() - start;
 
     if (resp.ok && (data.status === "tunnel" || data.status === "redirect")) {
-      return { ok: true, status: data.status, latencyMs };
+      if (!data.url) {
+        return { ok: false, status: data.status, error: "no tunnel url", latencyMs };
+      }
+      let probedBytes = 0;
+      try {
+        probedBytes = await probeTunnel(data.url);
+      } catch (err) {
+        return {
+          ok: false,
+          status: data.status,
+          error: `tunnel unreachable: ${err instanceof Error ? err.message : String(err)}`,
+          latencyMs: Date.now() - start,
+        };
+      }
+      if (probedBytes === 0) {
+        // The exact failure that used to read as "healthy" in the panel while
+        // every download through this instance came back empty.
+        return { ok: false, status: data.status, error: "tunnel returned no data", latencyMs: Date.now() - start, probedBytes };
+      }
+      return { ok: true, status: data.status, latencyMs: Date.now() - start, probedBytes };
     }
 
     return {

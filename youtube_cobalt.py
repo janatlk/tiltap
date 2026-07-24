@@ -39,6 +39,9 @@ COBALT_VALIDATE_TIMEOUT = int(os.environ.get("COBALT_VALIDATE_TIMEOUT", "12"))
 # so a hanging instance does not keep the (short-lived) process alive for long.
 COBALT_RESOLVE_TIMEOUT = int(os.environ.get("COBALT_RESOLVE_TIMEOUT", "20"))
 DOWNLOAD_TIMEOUT = 300
+# A tunnel that "succeeds" with a few bytes is a failed instance, not a short
+# clip: real audio is orders of magnitude bigger.
+MIN_MEDIA_BYTES = 1024
 
 
 def _api_urls() -> list[str]:
@@ -93,28 +96,32 @@ def _resolve_one(api: str, payload: dict, timeout: int):
     return api, resp, data
 
 
-def _race_resolve(payload: dict, timeout: int, progress_cb=None):
-    """Query all configured Cobalt instances in parallel and return (api, data)
-    for the FIRST one that resolves the link to a stream.
+def _iter_resolved(payload: dict, timeout: int, progress_cb=None, resolve_errors: list | None = None):
+    """Yield (api, data) for every instance that resolves the link, fastest first.
 
-    Instances vary a lot in speed and health, and a slow/dead one used to block
-    the whole download while it timed out. Racing picks the fastest responder
-    per request and never waits on the slow ones.
+    Resolving is raced because instances vary a lot in speed and a slow/dead one
+    used to block the whole download while it timed out. But the race must not
+    end the rotation: an instance can hand out a tunnel URL that then streams
+    nothing, and a broken instance tends to *win* the race precisely because it
+    does no real work. So the slower responders stay available as fallbacks and
+    the caller keeps pulling until one actually delivers bytes.
 
     Workers run as daemon threads so a request left hanging on a dead instance
     is abandoned at process exit instead of holding the (short-lived) process
     open until its timeout.
+
+    Instances that fail to resolve are appended to `resolve_errors` so the caller
+    can report them too: when some instances resolve and the download still
+    fails, the ones that never got that far are exactly the missing half of the
+    picture.
     """
     apis = _api_urls()
     if not apis:
         raise RuntimeError("No Cobalt API URLs configured")
-    if len(apis) == 1:
-        api, resp, data = _resolve_one(apis[0], payload, timeout)
-        if resp.ok and data.get("status") in ("tunnel", "redirect") and data.get("url"):
-            return apis[0], data
-        raise RuntimeError(_cobalt_error_text(data) if data.get("status") == "error" else f"HTTP {resp.status_code}")
 
-    _emit(progress_cb, 8, f"Выбираю быстрейший Cobalt из {len(apis)}...")
+    if len(apis) > 1:
+        _emit(progress_cb, 8, f"Выбираю быстрейший Cobalt из {len(apis)}...")
+
     result_q: "queue.Queue" = queue.Queue()
     errors = []
     errors_lock = threading.Lock()
@@ -127,7 +134,7 @@ def _race_resolve(payload: dict, timeout: int, progress_cb=None):
                 return
             with errors_lock:
                 if isinstance(data, dict) and data.get("status") == "error":
-                    errors.append(_cobalt_error_text(data))
+                    errors.append(f"{api}: {_cobalt_error_text(data)}")
                 else:
                     errors.append(f"{api}: HTTP {getattr(resp, 'status_code', '?')}")
         except Exception as e:  # network error / timeout for this instance
@@ -138,18 +145,28 @@ def _race_resolve(payload: dict, timeout: int, progress_cb=None):
     for api in apis:
         threading.Thread(target=worker, args=(api,), daemon=True).start()
 
-    completed = 0
+    received = 0
+    yielded = 0
     deadline = time.time() + timeout + 5
-    while completed < len(apis):
+    while received < len(apis):
         try:
             item = result_q.get(timeout=max(0.1, deadline - time.time()))
         except queue.Empty:
             break
-        if item is not None:
-            return item  # first valid tunnel = fastest healthy instance
-        completed += 1
+        received += 1
+        if item is None:
+            continue
+        yielded += 1
+        yield item
+        # The consumer just spent a download's worth of time on the previous
+        # candidate; give the remaining workers a fresh window to be collected.
+        deadline = time.time() + timeout + 5
 
-    raise RuntimeError("; ".join(errors) or "all Cobalt instances failed")
+    with errors_lock:
+        if resolve_errors is not None:
+            resolve_errors.extend(errors)
+        if yielded == 0:
+            raise RuntimeError("; ".join(errors) or "all Cobalt instances failed")
 
 
 def _download_media(media_url: str, output_path: str):
@@ -182,21 +199,36 @@ def download_media_via_cobalt(
     if download_mode == "audio":
         payload["audioFormat"] = audio_format
 
-    # Race all instances; the fastest to return a working tunnel wins.
-    api, data = _race_resolve(payload, COBALT_RESOLVE_TIMEOUT, progress_cb)
+    # Try instances fastest-first and keep going until one actually delivers
+    # bytes. Resolving successfully proves nothing: an instance whose YouTube
+    # access is blocked still answers with a tunnel that then streams zero bytes.
+    errors = []
+    resolve_errors: list = []
+    for api, data in _iter_resolved(payload, COBALT_RESOLVE_TIMEOUT, progress_cb, resolve_errors):
+        media_url = data.get("url")
+        # basename: a service-supplied filename must never escape output_dir.
+        filename = os.path.basename(data.get("filename") or "") or "audio.mp3"
+        output_path = os.path.join(output_dir, filename)
 
-    media_url = data.get("url")
-    filename = data.get("filename") or "audio.mp3"
-    output_path = os.path.join(output_dir, filename)
+        _emit(progress_cb, 15, "Скачиваю аудио через Cobalt...")
+        try:
+            _download_media(media_url, output_path)
+            size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
+            if size < MIN_MEDIA_BYTES:
+                raise RuntimeError(f"empty audio file ({size} bytes)")
+            _emit(progress_cb, 85, "Обрабатываю аудио...")
+            return output_path
+        except Exception as e:
+            # Leave nothing behind: the caller picks the first media file it
+            # finds in this directory, and a truncated carcass would win.
+            try:
+                os.remove(output_path)
+            except OSError:
+                pass
+            errors.append(f"{api}: {e}")
+            _emit(progress_cb, 10, "Инстанс не отдал аудио, пробую следующий...")
 
-    _emit(progress_cb, 15, "Скачиваю аудио через Cobalt...")
-    _download_media(media_url, output_path)
-
-    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-        raise RuntimeError("Cobalt returned an empty audio file")
-
-    _emit(progress_cb, 85, "Обрабатываю аудио...")
-    return output_path
+    raise RuntimeError("; ".join(errors + resolve_errors) or "all Cobalt instances failed")
 
 
 def validate_via_cobalt(url: str, download_mode: str = "auto") -> dict:
@@ -212,9 +244,10 @@ def validate_via_cobalt(url: str, download_mode: str = "auto") -> dict:
     if download_mode == "audio":
         payload["audioFormat"] = "mp3"
 
-    # Race all instances; validation succeeds as soon as any one resolves.
+    # Validation only needs to know the link is resolvable, so the first
+    # responder is enough — no download is attempted here.
     try:
-        _race_resolve(payload, COBALT_VALIDATE_TIMEOUT)
+        next(_iter_resolved(payload, COBALT_VALIDATE_TIMEOUT))
         return {"ok": True, "title": "", "duration": 0, "uploader": ""}
     except Exception as e:
         text = str(e).lower()
