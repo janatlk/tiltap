@@ -173,7 +173,7 @@
         </div>
         <button id="compareBtn" class="btn btn-primary btn-block mt-4">Run A/B comparison</button>
         <div class="alert alert-info alert-soft text-sm mt-4" role="alert">
-          Runs Model A first, then Model B on the same audio, streaming progress for each. First run after a server restart may be slow while the model loads into memory.
+          Runs Model A first, then Model B on the same audio, streaming progress for each. Time is wall clock measured around the whole run, so it includes model load — the first run after a server restart is slower, and a busy server inflates both numbers. Compare only on an otherwise idle box, and re-run once to warm up before trusting the figures.
         </div>
         <div id="compareProgress" class="mt-4 space-y-3"></div>
       </div>
@@ -455,6 +455,22 @@
       return div.innerHTML;
     }
 
+    // Wall time measured server-side around the python process, so it includes
+    // model load — the first run after a restart is legitimately slower.
+    function timingBadges(data, extraClass) {
+      if (typeof data.elapsedMs !== "number") return "";
+      const secs = (data.elapsedMs / 1000).toFixed(1);
+      const cls = extraClass || "badge-ghost";
+      let html = `<span class="badge ${cls}">Time: ${secs}s</span>`;
+      if (typeof data.rtf === "number") {
+        html += `<span class="badge badge-ghost" title="Wall time ÷ audio duration; lower is faster">RTF: ${data.rtf.toFixed(3)}</span>`;
+      }
+      if (typeof data.audioSeconds === "number") {
+        html += `<span class="badge badge-ghost">Audio: ${data.audioSeconds.toFixed(1)}s</span>`;
+      }
+      return html;
+    }
+
     function renderSegments(container, segments) {
       container.innerHTML = "";
       (segments || []).forEach((seg) => {
@@ -498,6 +514,7 @@
           <span class="badge badge-ghost">Detected: ${(data.language || "auto").toUpperCase()}</span>
           <span class="badge badge-ghost">Segments: ${(data.segments || []).length}</span>
           <span class="badge badge-ghost">Chars: ${(data.text || "").length}</span>
+          ${timingBadges(data, "badge-primary")}
         `;
         resultText.textContent = data.text || "";
         renderSegments(segmentsBox, data.segments);
@@ -605,7 +622,10 @@
               if (ev.type === "progress") {
                 updateProgress(ev.key, ev.model, ev.percent, ev.label);
               } else if (ev.type === "result") {
-                finishProgress(ev.key, true, `${ev.model} completed`);
+                const took = typeof ev.data?.elapsedMs === "number"
+                  ? ` in ${(ev.data.elapsedMs / 1000).toFixed(1)}s`
+                  : "";
+                finishProgress(ev.key, true, `${ev.model} completed${took}`);
                 results[ev.key] = ev.data;
               } else if (ev.type === "error") {
                 finishProgress(ev.key, false, ev.error);
@@ -638,6 +658,20 @@
       const nameB = models.find((m) => m.path === modelBPath)?.name || modelBPath;
       compareGrid.innerHTML = "";
 
+      // Which side won on speed, so the comparison does not require mental math.
+      const msA = results.a && typeof results.a.elapsedMs === "number" ? results.a.elapsedMs : null;
+      const msB = results.b && typeof results.b.elapsedMs === "number" ? results.b.elapsedMs : null;
+      const faster = msA !== null && msB !== null ? (msA <= msB ? "a" : "b") : null;
+      if (faster) {
+        const fastMs = Math.min(msA, msB);
+        const slowMs = Math.max(msA, msB);
+        const winner = faster === "a" ? nameA : nameB;
+        const ratio = fastMs > 0 ? (slowMs / fastMs).toFixed(2) : "—";
+        compareResultMeta.innerHTML +=
+          `<span class="badge badge-success ms-2">Faster: ${escapeHtml(winner)}` +
+          ` — ${(fastMs / 1000).toFixed(1)}s vs ${(slowMs / 1000).toFixed(1)}s (${ratio}x)</span>`;
+      }
+
       ["a", "b"].forEach((key) => {
         const data = results[key];
         const modelName = key === "a" ? nameA : nameB;
@@ -659,6 +693,7 @@
               <span class="badge badge-ghost">Segments: ${segments.length}</span>
               <span class="badge badge-ghost">Chars: ${text.length}</span>
               <span class="badge badge-ghost">Words: ${text.split(/\s+/).filter(Boolean).length}</span>
+              ${timingBadges(data, faster === key ? "badge-success" : "badge-warning")}
             </div>
             <label class="label-text text-xs uppercase opacity-70">Raw text</label>
             <div class="bg-base-300 rounded-box p-3 text-box mb-3">${escapeHtml(text)}</div>

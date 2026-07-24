@@ -287,6 +287,8 @@ async function runBetaStt(
     modelName,
   });
 
+  const startedAt = Date.now();
+
   return new Promise((resolve, reject) => {
     const proc = spawn(
       PYTHON_PATH,
@@ -346,8 +348,13 @@ async function runBetaStt(
         reject(new Error("Failed to parse beta STT output"));
         return;
       }
-      updateBetaJob(job, { status: "completed", progress: 100, label: "Completed" });
-      resolve(finalResult);
+      const timed = withTiming(finalResult, startedAt);
+      updateBetaJob(job, {
+        status: "completed",
+        progress: 100,
+        label: `Completed in ${((timed.elapsedMs as number) / 1000).toFixed(1)}s`,
+      });
+      resolve(timed);
     });
 
     proc.on("error", async (err) => {
@@ -356,6 +363,26 @@ async function runBetaStt(
       reject(err);
     });
   });
+}
+
+// Wall time of the python process, so the number on the page includes model
+// load and audio decode — the same thing a user waits for. Kept alongside a
+// realtime factor derived from the last segment end, which is the only audio
+// duration the engines report back.
+function withTiming(
+  result: Record<string, unknown>,
+  startedAt: number,
+): Record<string, unknown> {
+  const elapsedMs = Date.now() - startedAt;
+  const segments = Array.isArray(result.segments) ? result.segments : [];
+  const last = segments[segments.length - 1] as { end?: unknown } | undefined;
+  const audioSeconds = typeof last?.end === "number" ? last.end : undefined;
+  return {
+    ...result,
+    elapsedMs,
+    audioSeconds,
+    rtf: audioSeconds && audioSeconds > 0 ? elapsedMs / 1000 / audioSeconds : undefined,
+  };
 }
 
 function parseLastJsonLine(lines: string[]): Record<string, unknown> | undefined {
@@ -415,6 +442,8 @@ async function runBetaSttStream(
     filename,
     modelName,
   });
+
+  const startedAt = Date.now();
 
   return new Promise((resolve, reject) => {
     const proc = spawn(
@@ -488,8 +517,13 @@ async function runBetaSttStream(
         reject(new Error("Failed to parse beta STT output"));
         return;
       }
-      updateBetaJob(job, { status: "completed", progress: 100, label: "Completed" });
-      resolve(finalResult);
+      const timed = withTiming(finalResult, startedAt);
+      updateBetaJob(job, {
+        status: "completed",
+        progress: 100,
+        label: `Completed in ${((timed.elapsedMs as number) / 1000).toFixed(1)}s`,
+      });
+      resolve(timed);
     });
 
     proc.on("error", async (err) => {
