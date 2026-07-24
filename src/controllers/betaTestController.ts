@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 import { writeFile, unlink, readdir, stat } from "fs/promises";
+import { existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { logger } from "../utils/logger";
@@ -25,6 +26,25 @@ const GIGAAM_BETA_MODELS: LocalModelInfo[] = [
   { name: "gigaam-multilingual-ctc (ky/uz/ru primary, 220M)", path: "gigaam:ctc", type: "gigaam", api: false },
   { name: "gigaam-multilingual-large-ctc (600M)", path: "gigaam:large_ctc", type: "gigaam", api: false },
 ];
+
+// ONNX Runtime exports of the same 600M weights, produced on the server by
+// gigaam's to_onnx (see docs/GIGAAM_ONNX.md). Listed only when the export is
+// actually on disk, so a machine without it does not offer a failing choice.
+const GIGAAM_ONNX_VARIANTS: { variant: string; dir: string; label: string }[] = [
+  { variant: "fp32", dir: "onnx", label: "gigaam-large-ctc ONNX fp32 (600M)" },
+  { variant: "int8", dir: "onnx_int8", label: "gigaam-large-ctc ONNX int8 (600M, quantised)" },
+];
+
+function gigaamOnnxModels(): LocalModelInfo[] {
+  return GIGAAM_ONNX_VARIANTS.filter(({ dir }) =>
+    existsSync(join(MODELS_DIR, dir, "multilingual_large_ctc.onnx")),
+  ).map(({ variant, label }) => ({
+    name: label,
+    path: `gigaam-onnx:${variant}`,
+    type: "gigaam" as const,
+    api: false,
+  }));
+}
 
 // Models that are baked into the RunPod Serverless GPU endpoint. These are the
 // models the GPU worker can actually load, regardless of local Hetzner copies.
@@ -133,7 +153,7 @@ export async function listBetaModels(req: Request, res: Response): Promise<void>
     return;
   }
   try {
-    const models: LocalModelInfo[] = [...GIGAAM_BETA_MODELS];
+    const models: LocalModelInfo[] = [...GIGAAM_BETA_MODELS, ...gigaamOnnxModels()];
     const entries = await readdir(MODELS_DIR).catch(() => [] as string[]);
 
     for (const entry of entries) {

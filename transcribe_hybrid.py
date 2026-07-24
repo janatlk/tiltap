@@ -1570,6 +1570,130 @@ def transcribe_gigaam(wav_path: str, language: str, progress_label: str = "Ра�
     }
 
 
+# ---------------------------------------------------------------------------
+# GigaAM Multilingual via ONNX Runtime — same weights as transcribe_gigaam, but
+# exported with gigaam's to_onnx and run through ORT instead of PyTorch.
+# Measured 2026-07-24 on the Hetzner box (8 vCPU EPYC Rome, 90 s of Kyrgyz
+# audio, same 600M large_ctc weights both ways):
+#   torch fp32 -> 9.4-11.2 s (RTF 0.10-0.12), peak RSS 3.2 GB
+#   ONNX  fp32 -> 13.6-16.6 s (RTF 0.15-0.18), peak RSS 4.9 GB
+# So the fp32 export is a REGRESSION on this CPU and exists only as the base for
+# the int8 quantised variant, which is where any win has to come from. Zen 2 has
+# AVX2 but no VNNI, so do not expect the int8 speedups quoted for Xeon parts.
+# Kept as a separate engine: the PyTorch path stays the default either way.
+# ---------------------------------------------------------------------------
+GIGAAM_ONNX_SRC = os.environ.get("TILTAB_GIGAAM_ONNX_SRC", "/opt/tiltap/vendor/gigaam-src")
+GIGAAM_ONNX_MODEL = "multilingual_large_ctc"
+GIGAAM_ONNX_DIRS = {
+    "fp32": os.environ.get("TILTAB_GIGAAM_ONNX_FP32", "/opt/tiltap/models/onnx"),
+    "int8": os.environ.get("TILTAB_GIGAAM_ONNX_INT8", "/opt/tiltap/models/onnx_int8"),
+}
+# infer_onnx batches the chunks; 8 keeps peak RSS sane on a 15 GB box that also
+# runs the resident PyTorch worker.
+GIGAAM_ONNX_BATCH = int(os.environ.get("TILTAB_GIGAAM_ONNX_BATCH", "8"))
+
+_gigaam_onnx: dict = {}
+
+
+def gigaam_onnx_available(variant: str = "fp32") -> bool:
+    onnx_dir = GIGAAM_ONNX_DIRS.get(variant)
+    return bool(onnx_dir) and os.path.isfile(os.path.join(onnx_dir, f"{GIGAAM_ONNX_MODEL}.onnx"))
+
+
+def get_gigaam_onnx(variant: str = "fp32"):
+    """Load, once per variant, the ORT sessions and config for an export."""
+    if variant not in _gigaam_onnx:
+        if not gigaam_onnx_available(variant):
+            raise RuntimeError(
+                f"GigaAM ONNX export '{variant}' not found in {GIGAAM_ONNX_DIRS.get(variant)}"
+            )
+        if GIGAAM_ONNX_SRC not in sys.path:
+            sys.path.insert(0, GIGAAM_ONNX_SRC)
+        from gigaam.onnx_utils import load_onnx
+
+        _gigaam_onnx[variant] = load_onnx(GIGAAM_ONNX_DIRS[variant], GIGAAM_ONNX_MODEL)
+    return _gigaam_onnx[variant]
+
+
+def transcribe_gigaam_onnx(
+    wav_path: str,
+    language: str,
+    progress_label: str = "Распознаю",
+    variant: str = "fp32",
+):
+    """Transcribe with an exported GigaAM CTC model through ONNX Runtime.
+
+    Slices into <=24 s chunks like the PyTorch path, but hands the whole list to
+    infer_onnx at once so ORT batches them instead of running one at a time.
+    """
+    import wave as _wave
+
+    emit_progress(5, f"{progress_label} (GigaAM ONNX {variant})...")
+    sessions, model_cfg = get_gigaam_onnx(variant)
+    from gigaam.onnx_utils import infer_onnx
+
+    chunk_paths: list[str] = []
+    spans: list[tuple[float, float]] = []
+    with _wave.open(wav_path, "rb") as wf:
+        framerate = wf.getframerate()
+        nchannels = wf.getnchannels()
+        sampwidth = wf.getsampwidth()
+        total_frames = wf.getnframes()
+        step = GIGAAM_CHUNK_SECONDS * framerate
+
+        pos = 0
+        while pos < total_frames:
+            wf.setpos(pos)
+            frames = wf.readframes(min(step, total_frames - pos))
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                chunk_path = tmp.name
+            with _wave.open(chunk_path, "wb") as out:
+                out.setnchannels(nchannels)
+                out.setsampwidth(sampwidth)
+                out.setframerate(framerate)
+                out.writeframes(frames)
+            chunk_paths.append(chunk_path)
+            spans.append((pos / framerate, min(total_frames, pos + step) / framerate))
+            pos += step
+
+    emit_progress(20, f"{progress_label} (GigaAM ONNX {variant})...")
+    try:
+        # shuffle=False in the loader, so results come back in submission order
+        # and the spans above stay aligned with the texts.
+        texts = infer_onnx(
+            chunk_paths, model_cfg, sessions,
+            batch_size=GIGAAM_ONNX_BATCH, progress=False,
+        )
+    finally:
+        for path in chunk_paths:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+    segments = []
+    text_parts = []
+    for (start, end), raw in zip(spans, texts):
+        text = (raw if isinstance(raw, str) else str(raw)).strip()
+        if not text:
+            continue
+        segments.append({
+            "id": len(segments),
+            "start": round(start, 3),
+            "end": round(end, 3),
+            "text": text,
+        })
+        text_parts.append(text)
+
+    emit_progress(95, f"{progress_label} (GigaAM ONNX {variant})...")
+    return {
+        "text": " ".join(text_parts),
+        "language": language,
+        "segments": segments,
+        "model": f"gigaam-{GIGAAM_ONNX_MODEL}-onnx-{variant}",
+    }
+
+
 def gigaam_or_fallback(wav_path: str, language: str, fallback, progress_label: str = "Распознаю"):
     """Try GigaAM first for supported languages; fall back to the legacy engine."""
     if language in gigaam_languages():
@@ -1604,6 +1728,17 @@ def _run_beta_transcription(wav_path: str, language: str | None, model_path: str
     Used by the admin beta-test page to compare raw model outputs.
     Supports Vosk, CTranslate2 Whisper, and HuggingFace Whisper models.
     """
+    # ONNX entries are virtual too: "gigaam-onnx:fp32" / "gigaam-onnx:int8".
+    # Checked before the plain "gigaam" prefix, which would otherwise swallow them.
+    if model_path.lower().startswith("gigaam-onnx"):
+        variant = model_path.split(":", 1)[1] if ":" in model_path else "fp32"
+        return transcribe_gigaam_onnx(
+            wav_path,
+            language or "auto",
+            progress_label="GigaAM ONNX beta",
+            variant=variant,
+        )
+
     # GigaAM entries are virtual (not directories): "gigaam:ctc" / "gigaam:large_ctc".
     if model_path.lower().startswith("gigaam"):
         revision = model_path.split(":", 1)[1] if ":" in model_path else "ctc"
