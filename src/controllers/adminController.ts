@@ -431,7 +431,9 @@ export async function listFeedbackEntries(req: Request, res: Response): Promise<
     const limit = Math.min(Number(req.query.limit) || 100, 500);
     const ratingParam = String(req.query.rating || "");
     const rating =
-      ratingParam === "up" || ratingParam === "down" ? (ratingParam as feedbackRepo.FeedbackRating) : undefined;
+      ratingParam === "up" || ratingParam === "down" || ratingParam === "issue"
+        ? (ratingParam as feedbackRepo.FeedbackRating)
+        : undefined;
 
     const [items, stats] = await Promise.all([
       feedbackRepo.listFeedback({ limit, rating }),

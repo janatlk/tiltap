@@ -411,15 +411,20 @@ function escapeHtml(text: string): string {
 }
 
 /**
- * Ping the admin about a negative web rating. Positive ones are only stored —
+ * Ping the admin about a negative web rating or a problem report. Positive ones
+ * are only stored —
  * the admin panel shows them — so the alert channel stays quiet and useful.
  * The follow-up (reason + comment) arrives as its own message because the user
  * may take a while to type it, and it must not be throttled away.
  */
 function alertWebFeedback(entry: FeedbackEntry, isFollowUp = false): void {
-  if (entry.rating !== "down") return;
+  if (entry.rating !== "down" && entry.rating !== "issue") return;
+  const header =
+    entry.rating === "issue"
+      ? "🛠 <b>Сообщение о проблеме (веб)</b>"
+      : "👎 <b>Негативный отзыв (веб)</b>";
   const lines = [
-    isFollowUp ? "💬 <b>Комментарий к отзыву (веб)</b>" : "👎 <b>Негативный отзыв (веб)</b>",
+    isFollowUp ? "💬 <b>Комментарий к отзыву (веб)</b>" : header,
     entry.request_number ? `Запрос: #${entry.request_number}` : "Запрос: —",
     entry.source_type === "text" ? "Тип: перевод текста" : null,
     entry.source_lang || entry.target_lang
@@ -458,9 +463,15 @@ export async function handleWebFeedback(req: Request, res: Response): Promise<vo
     };
 
     const rating: FeedbackRating | null =
-      body.rating === "up" ? "up" : body.rating === "down" ? "down" : null;
+      body.rating === "up" || body.rating === "down" || body.rating === "issue" ? body.rating : null;
     if (!rating) {
-      res.status(400).json({ error: "rating must be 'up' or 'down'" });
+      res.status(400).json({ error: "rating must be 'up', 'down' or 'issue'" });
+      return;
+    }
+
+    // A problem report is the text; an empty one carries no information at all.
+    if (rating === "issue" && !String(body.comment ?? "").trim()) {
+      res.status(400).json({ error: "comment is required for a problem report" });
       return;
     }
 

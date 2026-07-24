@@ -175,10 +175,11 @@
               <span class="text-sm text-base-content/60" id="feedbackTitle" data-i18n="fbTitle">Was this result helpful?</span>
               <button class="btn btn-xs btn-ghost" id="fbUpBtn" type="button">👍 <span data-i18n="fbGood">Good</span></button>
               <button class="btn btn-xs btn-ghost" id="fbDownBtn" type="button">👎 <span data-i18n="fbBad">Poor</span></button>
+              <button class="btn btn-xs btn-ghost" id="fbIssueBtn" type="button">🛠 <span data-i18n="fbReport">Report a problem</span></button>
             </div>
 
             <div id="feedbackDetail" class="hidden mt-3 space-y-2">
-              <div class="text-sm text-base-content/70" data-i18n="fbReason">What went wrong?</div>
+              <div class="text-sm text-base-content/70" id="fbDetailTitle" data-i18n="fbReason">What went wrong?</div>
               <div class="flex flex-wrap gap-2" id="fbReasons">
                 <button class="btn btn-xs btn-outline" data-cat="stt" type="button" data-i18n="fbStt">Bad transcription</button>
                 <button class="btn btn-xs btn-outline" data-cat="translation" type="button" data-i18n="fbTranslation">Bad translation</button>
@@ -243,6 +244,9 @@
         fbSpeed: "Too slow",
         fbOther: "Other",
         fbComment: "Add details (optional)",
+        fbReport: "Report a problem",
+        fbReportTitle: "Describe the problem you ran into",
+        fbReportPlaceholder: "What happened, and what did you expect?",
         fbSend: "Send",
         translationFailed: "Translation failed",
         errorSelectFile: "Please select a file first",
@@ -299,6 +303,9 @@
         fbSpeed: "Слишком долго",
         fbOther: "Другое",
         fbComment: "Опишите подробнее (необязательно)",
+        fbReport: "Сообщить о проблеме",
+        fbReportTitle: "Опишите проблему, с которой вы столкнулись",
+        fbReportPlaceholder: "Что произошло и чего вы ожидали?",
         fbSend: "Отправить",
         translationFailed: "Ошибка перевода",
         errorSelectFile: "Сначала выберите файл",
@@ -355,6 +362,9 @@
         fbSpeed: "Өтө жай",
         fbOther: "Башка",
         fbComment: "Чечмелеп жазыңыз (милдеттүү эмес)",
+        fbReport: "Көйгөй жөнүндө билдирүү",
+        fbReportTitle: "Кездешкен көйгөйдү жазыңыз",
+        fbReportPlaceholder: "Эмне болду жана эмнени күттүңүз?",
         fbSend: "Жиберүү",
         translationFailed: "Которуу ката",
         errorSelectFile: "Алгач файл тандаңыз",
@@ -411,6 +421,9 @@
         fbSpeed: "Хеле суст",
         fbOther: "Дигар",
         fbComment: "Шарҳ диҳед (ихтиёрӣ)",
+        fbReport: "Дар бораи мушкилӣ хабар диҳед",
+        fbReportTitle: "Мушкилиеро, ки дучор шудед, тавсиф кунед",
+        fbReportPlaceholder: "Чӣ шуд ва шумо чиро интизор будед?",
         fbSend: "Фиристодан",
         translationFailed: "Хатои тарҷума",
         errorSelectFile: "Аввал файлро интихоб кунед",
@@ -467,6 +480,9 @@
         fbSpeed: "Juda sekin",
         fbOther: "Boshqa",
         fbComment: "Batafsil yozing (ixtiyoriy)",
+        fbReport: "Muammo haqida xabar berish",
+        fbReportTitle: "Duch kelgan muammoni yozing",
+        fbReportPlaceholder: "Nima bo'ldi va nimani kutgan edingiz?",
         fbSend: "Yuborish",
         translationFailed: "Tarjima xatosi",
         errorSelectFile: "Avval faylni tanlang",
@@ -1065,6 +1081,10 @@
     const feedbackThanksEl = document.getElementById("feedbackThanks");
     const fbCommentEl = document.getElementById("fbComment");
     let fbCategory = null;
+    // "down" keeps the old flow (rating first, details after). "issue" is a
+    // problem report: the text is the whole point, so nothing is sent until the
+    // user actually writes something.
+    let fbMode = null;
     // Id of the row created by the thumb tap; the reason/comment update it
     // instead of writing a second row.
     let fbId = null;
@@ -1076,7 +1096,13 @@
       fbCategory = null;
       fbId = null;
       fbPending = null;
-      if (fbCommentEl) fbCommentEl.value = "";
+      fbMode = null;
+      if (fbCommentEl) {
+        fbCommentEl.value = "";
+        fbCommentEl.placeholder = t("fbComment");
+      }
+      document.getElementById("fbDetailTitle").textContent = t("fbReason");
+      document.getElementById("fbReasons").classList.remove("hidden");
       // A job (audio/YouTube) is identified by its id; a plain text translation
       // has no job and is identified by its public request number. Either one is
       // ratable, so ask whenever we have something the server can resolve.
@@ -1095,7 +1121,7 @@
       });
     }
 
-    async function sendFeedback(rating) {
+    async function sendFeedback(rating, comment) {
       try {
         const res = await fetch(API + "/api/web/feedback", {
           method: "POST",
@@ -1105,6 +1131,7 @@
             requestNumber: currentJobId ? undefined : currentRequestNumber || undefined,
             clientId: getClientId(),
             rating: rating,
+            comment: comment || undefined,
           }),
         });
         const data = await res.json();
@@ -1144,9 +1171,22 @@
 
     document.getElementById("fbDownBtn").addEventListener("click", () => {
       // Record the signal immediately, then let the user optionally elaborate.
+      fbMode = "down";
       fbPending = sendFeedback("down");
       feedbackAsk.classList.add("hidden");
       feedbackDetail.classList.remove("hidden");
+    });
+
+    document.getElementById("fbIssueBtn").addEventListener("click", () => {
+      // No row yet: a report with no text tells an admin nothing, so it is
+      // written only when the user presses Send with something in the box.
+      fbMode = "issue";
+      document.getElementById("fbDetailTitle").textContent = t("fbReportTitle");
+      document.getElementById("fbReasons").classList.add("hidden");
+      fbCommentEl.placeholder = t("fbReportPlaceholder");
+      feedbackAsk.classList.add("hidden");
+      feedbackDetail.classList.remove("hidden");
+      fbCommentEl.focus();
     });
 
     document.querySelectorAll("#fbReasons [data-cat]").forEach((btn) => {
@@ -1158,7 +1198,18 @@
     });
 
     document.getElementById("fbSendBtn").addEventListener("click", () => {
-      sendFeedbackDetails(fbCategory, fbCommentEl.value.trim());
+      const comment = fbCommentEl.value.trim();
+      if (fbMode === "issue") {
+        // Nothing to report yet — keep the box open instead of thanking the
+        // user for an empty message.
+        if (!comment) {
+          fbCommentEl.focus();
+          return;
+        }
+        fbPending = sendFeedback("issue", comment);
+      } else {
+        sendFeedbackDetails(fbCategory, comment);
+      }
       showFeedbackThanks();
     });
 

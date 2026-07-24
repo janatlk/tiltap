@@ -281,7 +281,7 @@ CREATE TABLE IF NOT EXISTS feedback (
   id SERIAL PRIMARY KEY,
   request_number BIGINT,               -- public number the user can quote
   source VARCHAR(20) NOT NULL,         -- 'telegram' | 'web'
-  rating VARCHAR(10) NOT NULL,         -- 'up' | 'down'
+  rating VARCHAR(10) NOT NULL,         -- 'up' | 'down' | 'issue' (free-text problem report)
   category VARCHAR(40),                -- 'stt' | 'translation' | 'download' | 'speed' | 'other'
   comment TEXT,
   -- Who

@@ -199,7 +199,7 @@
         if (tab === "web-jobs") {
           renderWebJobs(data.items || []);
         } else if (tab === "feedback") {
-          renderFeedback(data.items || [], data.stats || { up: 0, down: 0, total: 0 });
+          renderFeedback(data.items || [], data.stats || { up: 0, down: 0, issue: 0, total: 0 });
         } else {
           renderList(tab, data.items || []);
         }
@@ -572,6 +572,7 @@
         <div class="stats stats-horizontal bg-base-200 mb-4 w-full">
           <div class="stat"><div class="stat-title">👍 Positive</div><div class="stat-value text-success text-3xl">${stats.up}</div></div>
           <div class="stat"><div class="stat-title">👎 Negative</div><div class="stat-value text-error text-3xl">${stats.down}</div></div>
+          <div class="stat"><div class="stat-title">🛠 Problem reports</div><div class="stat-value text-warning text-3xl">${stats.issue || 0}</div><div class="stat-desc">free-text, not a rating</div></div>
           <div class="stat"><div class="stat-title">Satisfaction</div><div class="stat-value text-3xl">${rate === null ? "—" : rate + "%"}</div><div class="stat-desc">${stats.total} ratings total</div></div>
         </div>
       `;
@@ -600,7 +601,7 @@
         div.innerHTML = `
           <div class="card-body">
             <div class="flex flex-wrap gap-2 mb-3">
-              <span class="badge badge-sm ${item.rating === "up" ? "badge-success" : "badge-error"}">${item.rating === "up" ? "👍 GOOD" : "👎 POOR"}</span>
+              <span class="badge badge-sm ${item.rating === "up" ? "badge-success" : item.rating === "issue" ? "badge-warning" : "badge-error"}">${item.rating === "up" ? "👍 GOOD" : item.rating === "issue" ? "🛠 PROBLEM" : "👎 POOR"}</span>
               ${item.requestNumber ? `<span class="badge badge-sm badge-ghost" title="Public request number">#${item.requestNumber}</span>` : ""}
               <span class="badge badge-sm badge-ghost">${escapeHtml(item.source)}</span>
               ${item.category ? `<span class="badge badge-sm badge-warning">${escapeHtml(FEEDBACK_CATEGORY_LABELS[item.category] || item.category)}</span>` : ""}

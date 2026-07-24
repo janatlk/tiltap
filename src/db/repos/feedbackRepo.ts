@@ -1,6 +1,10 @@
 import { query, queryOne } from "../connection";
 
-export type FeedbackRating = "up" | "down";
+// "issue" is not a rating but a free-text problem report. It rides on the same
+// row so a complaint keeps its context snapshot, and it is excluded from the
+// satisfaction denominator: nobody said the result was bad, only that something
+// went wrong.
+export type FeedbackRating = "up" | "down" | "issue";
 export type FeedbackSource = "telegram" | "web";
 
 export interface FeedbackEntry {
@@ -123,15 +127,24 @@ export async function listFeedback(
   return rows ?? [];
 }
 
-export async function getFeedbackStats(): Promise<{ up: number; down: number; total: number }> {
+export async function getFeedbackStats(): Promise<{
+  up: number;
+  down: number;
+  issue: number;
+  total: number;
+}> {
   const rows = await query<{ rating: FeedbackRating; count: string }>(
     `SELECT rating, COUNT(*)::text AS count FROM feedback GROUP BY rating`
   );
   let up = 0;
   let down = 0;
+  let issue = 0;
   for (const row of rows ?? []) {
     if (row.rating === "up") up = Number(row.count);
     if (row.rating === "down") down = Number(row.count);
+    if (row.rating === "issue") issue = Number(row.count);
   }
-  return { up, down, total: up + down };
+  // total stays the rating count so the satisfaction rate keeps its meaning;
+  // problem reports are counted alongside, not folded in.
+  return { up, down, issue, total: up + down };
 }

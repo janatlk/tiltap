@@ -176,8 +176,9 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
     // An invited feedback comment: ordinary prose typed right after the user
     // picked a reason for a negative rating. Checked after the pending action so
     // an in-flight translation request is never swallowed.
-    const feedbackId = text ? takePendingFeedbackComment(chatId) : undefined;
-    if (feedbackId) {
+    const pendingText = text ? takePendingFeedbackText(chatId) : undefined;
+    if (pendingText?.feedbackId) {
+      const feedbackId = pendingText.feedbackId;
       const updated = await updateFeedback(feedbackId, { comment: text.slice(0, 2000) }).catch((err) => {
         logger.warn("Failed to save feedback comment", {
           error: err instanceof Error ? err.message : String(err),
@@ -191,6 +192,21 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
       if (updated) {
         void notifyAdminFeedback(updated, true);
       }
+      return;
+    }
+    if (pendingText) {
+      // Problem report: the row is created now, with the text as its content.
+      await recordTelegramFeedback({
+        chatId,
+        requestNumber: pendingText.issueRequestNumber,
+        rating: "issue",
+        comment: text.slice(0, 2000),
+        user: msg.from,
+        interfaceLang: lang,
+      });
+      await sendTextMessage(chatId, t("feedbackCommentSaved", lang), {
+        replyMarkup: createMainKeyboard(lang),
+      });
       return;
     }
     await sendMainMenu(chatId, prefs);
@@ -639,13 +655,15 @@ function createSpinnerStatus(
  * Each feedback row gets its own throttle key so nothing is suppressed.
  */
 async function notifyAdminFeedback(entry: FeedbackEntry, isFollowUp = false): Promise<void> {
-  if (entry.rating !== "down") return;
+  if (entry.rating !== "down" && entry.rating !== "issue") return;
 
   const who = [entry.telegram_name, entry.telegram_username ? `@${entry.telegram_username}` : null]
     .filter(Boolean)
     .join(" ");
+  const header =
+    entry.rating === "issue" ? "🛠 <b>Сообщение о проблеме</b>" : "👎 <b>Негативный отзыв</b>";
   const lines = [
-    isFollowUp ? "💬 <b>Комментарий к отзыву</b>" : "👎 <b>Негативный отзыв</b>",
+    isFollowUp ? "💬 <b>Комментарий к отзыву</b>" : header,
     entry.request_number ? `Запрос: #${entry.request_number}` : "Запрос: —",
     `От: ${escapeHtml(who || "—")} (chat ${entry.telegram_chat_id ?? "—"})`,
     entry.category ? `Причина: ${entry.category}` : null,
@@ -661,19 +679,34 @@ async function notifyAdminFeedback(entry: FeedbackEntry, isFollowUp = false): Pr
 // After a user picks a reason for a negative rating we invite a free-text
 // comment. The next plain message from that chat is attached to this feedback
 // row. In-memory and short-lived on purpose: losing it on restart is harmless.
-const pendingFeedbackComments = new Map<number, { feedbackId: number; expiresAt: number }>();
+// Either a comment on a row that already exists (the negative-rating flow), or
+// a problem report that has no row yet — for those the text is the whole
+// content, so the row is written when it arrives rather than on the tap.
+interface PendingFeedbackText {
+  feedbackId?: number;
+  issueRequestNumber?: number;
+  expiresAt: number;
+}
+const pendingFeedbackComments = new Map<number, PendingFeedbackText>();
 const FEEDBACK_COMMENT_WINDOW_MS = 10 * 60 * 1000;
 
 function setPendingFeedbackComment(chatId: number, feedbackId: number): void {
   pendingFeedbackComments.set(chatId, { feedbackId, expiresAt: Date.now() + FEEDBACK_COMMENT_WINDOW_MS });
 }
 
-function takePendingFeedbackComment(chatId: number): number | undefined {
+function setPendingIssueReport(chatId: number, requestNumber?: number): void {
+  pendingFeedbackComments.set(chatId, {
+    issueRequestNumber: requestNumber,
+    expiresAt: Date.now() + FEEDBACK_COMMENT_WINDOW_MS,
+  });
+}
+
+function takePendingFeedbackText(chatId: number): PendingFeedbackText | undefined {
   const entry = pendingFeedbackComments.get(chatId);
   if (!entry) return undefined;
   pendingFeedbackComments.delete(chatId);
   if (entry.expiresAt < Date.now()) return undefined;
-  return entry.feedbackId;
+  return entry;
 }
 
 /**
@@ -684,7 +717,8 @@ function takePendingFeedbackComment(chatId: number): number | undefined {
 async function recordTelegramFeedback(params: {
   chatId: number;
   requestNumber?: number;
-  rating: "up" | "down";
+  rating: "up" | "down" | "issue";
+  comment?: string;
   user?: { username?: string; first_name?: string; last_name?: string };
   interfaceLang: string;
 }): Promise<number | undefined> {
@@ -707,6 +741,7 @@ async function recordTelegramFeedback(params: {
       requestNumber: params.requestNumber ?? null,
       source: "telegram",
       rating: params.rating,
+      comment: params.comment ?? null,
       telegramChatId: params.chatId,
       telegramUsername: params.user?.username ?? null,
       telegramName: name,
@@ -1537,6 +1572,16 @@ async function handleCallbackQuery(callbackQuery: {
   if (data.startsWith("fb:")) {
     const [, rating, ref] = data.split(":");
     const requestNumber = Number(ref) > 0 ? Number(ref) : undefined;
+
+    // A problem report writes nothing yet: it is the text that follows, and an
+    // empty report would only add noise to the admin panel.
+    if (rating === "issue") {
+      setPendingIssueReport(chatId, requestNumber);
+      await answerCallbackQuery(callbackQuery.id, t("feedbackReportHint", lang), true).catch(() => {});
+      await editMessageReplyMarkup(chatId, messageId, createBackToMenuKeyboard(lang)).catch(() => {});
+      return;
+    }
+
     const feedbackId = await recordTelegramFeedback({
       chatId,
       requestNumber,

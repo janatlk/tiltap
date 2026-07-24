@@ -215,11 +215,17 @@ paths:
   /api/web/feedback:
     post:
       tags: [Web]
-      summary: Rate a result
+      summary: Rate a result or report a problem
       description: |
-        Records a thumbs up/down for a finished job. The job context (request
-        number, languages, engine) is snapshotted onto the feedback row.
+        Records a thumbs up/down, or a free-text problem report (`issue`), for a
+        finished result. Identify the result with `jobId` for audio/YouTube runs
+        or with `requestNumber` for a plain text translation, which is not a job;
+        one of the two is required. The context (request number, languages,
+        engine) is snapshotted onto the feedback row server-side.
         Returns the feedback id, used to attach a reason and comment later.
+
+        `issue` rows require a `comment` and are excluded from the satisfaction
+        rate: they report a problem rather than judging the result.
       requestBody:
         required: true
         content:
@@ -230,10 +236,16 @@ paths:
               properties:
                 rating:
                   type: string
-                  enum: [up, down]
+                  enum: [up, down, issue]
                 jobId:
                   type: string
                   description: Job the rating refers to
+                requestNumber:
+                  type: integer
+                  description: Public request number, for results that are not jobs
+                comment:
+                  type: string
+                  description: Free text; required when rating is `issue`
                 clientId:
                   type: string
                   description: Anonymous browser id, used to spot repeat reporters

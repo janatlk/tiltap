@@ -395,6 +395,20 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     en: "👎 Poor",
     ru: "👎 Плохо",
   },
+  feedbackReport: {
+    ky: "🛠 Көйгөй жөнүндө билдирүү",
+    tg: "🛠 Дар бораи мушкилӣ хабар диҳед",
+    uz: "🛠 Muammo haqida xabar berish",
+    en: "🛠 Report a problem",
+    ru: "🛠 Сообщить о проблеме",
+  },
+  feedbackReportHint: {
+    ky: "Кездешкен көйгөйдү кийинки билдирүүдө жазыңыз.",
+    tg: "Мушкилиеро, ки дучор шудед, дар паёми навбатӣ нависед.",
+    uz: "Duch kelgan muammoni keyingi xabarda yozing.",
+    en: "Describe the problem you ran into in your next message.",
+    ru: "Опишите проблему, с которой вы столкнулись, следующим сообщением.",
+  },
   feedbackThanks: {
     ky: "Пикириңиз үчүн рахмат!",
     tg: "Ташаккур барои фикри шумо!",
@@ -1187,6 +1201,9 @@ export function createResultKeyboard(
         { text: t("feedbackGood", lang), callback_data: `fb:up:${ref}` },
         { text: t("feedbackBad", lang), callback_data: `fb:down:${ref}` },
       ],
+      // Own row: a problem report is not a rating and asks for typing, so it
+      // should not look like a third thumb.
+      [{ text: t("feedbackReport", lang), callback_data: `fb:issue:${ref}` }],
       [{ text: `← ${t("backToMenu", lang)}`, callback_data: "action:main" }],
     ],
   };
