@@ -13,8 +13,13 @@ import {
   isSupportedMediaUrl,
   validateMediaUrl,
   downloadMediaAudio,
+  detectMediaSource,
+  mediaSourceName,
+  mediaAudioFilename,
 } from "../services/youtubeService";
 import { renderLoadingStages } from "../utils/progressBar";
+import { isQueueFull, MAX_QUEUED_PER_USER } from "../services/concurrencyGate";
+import { config } from "../config";
 
 import { combinedAccuracy } from "../utils/textSimilarity";
 import { getTestFixture, TEST_FIXTURES, type TestFixture } from "../utils/testFixtures";
@@ -526,7 +531,14 @@ async function editConfirmationMessage(chatId: number, messageId: number, prefs:
   if (!pending || pending.type === "translate_text") return;
 
   const text = buildConfirmationText(lang, pending.sourceLanguage ?? prefs.sourceLanguage, pending.targetLanguage ?? prefs.targetLanguage, pending.type === "youtube" ? pending.title : undefined);
-  await editMessageText(chatId, messageId, text, { replyMarkup: createConfirmationKeyboard(pending.actionId, lang, pending.targetLanguage ?? prefs.targetLanguage) });
+  await editMessageText(chatId, messageId, text, {
+    replyMarkup: createConfirmationKeyboard(
+      pending.actionId,
+      lang,
+      pending.targetLanguage ?? prefs.targetLanguage,
+      pending.sourceLanguage ?? prefs.sourceLanguage
+    ),
+  });
 }
 
 async function startPendingAction(chatId: number, force = false, cardMessageId?: number): Promise<void> {
@@ -562,6 +574,15 @@ async function startPendingAction(chatId: number, force = false, cardMessageId?:
   if (!pending.sourceLanguage) {
     await sendTextMessage(chatId, t("chooseSourceLanguage", lang), {
       replyMarkup: createSourceLanguageKeyboard(`confirm:${pending.actionId}`, lang, "action:main"),
+    });
+    return;
+  }
+
+  // Refuse only a runaway backlog. Fair ordering already stops one person's
+  // batch from blocking everyone, so this is a safety net, not a ration.
+  if (queueIsFullFor(chatId)) {
+    await sendTextMessage(chatId, t("queueFull", lang, { max: String(MAX_QUEUED_PER_USER) }), {
+      replyMarkup: createMainKeyboard(lang),
     });
     return;
   }
@@ -603,6 +624,35 @@ const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 
 function renderSpinner(frame: number, label: string): string {
   return `${SPINNER_FRAMES[frame % SPINNER_FRAMES.length]} <i>${escapeHtml(label)}</i>`;
+}
+
+/**
+ * Queue identity: everyone competes as themselves, so one person's batch cannot
+ * crowd out everyone else. Admins are exempt from the count cap because batch
+ * runs are a deliberate part of how they use the bot.
+ */
+function queueOwner(chatId: number): string {
+  return `tg:${chatId}`;
+}
+
+function isQueueAdmin(chatId: number): boolean {
+  return config.TILTAB_ADMIN_CHAT_ID !== undefined && chatId === config.TILTAB_ADMIN_CHAT_ID;
+}
+
+/** True when this person already has too many jobs waiting. */
+function queueIsFullFor(chatId: number): boolean {
+  if (isQueueAdmin(chatId)) return false;
+  return isQueueFull(queueOwner(chatId));
+}
+
+// Rough per-job estimate for the queue wait. Measured end-to-end time over the
+// last 60 days averaged 40s, so 45 is a deliberate round-up: a wait that ends
+// early is a good surprise, one that runs over is not.
+const QUEUE_ESTIMATE_SEC = 45;
+
+function queuedLabel(lang: SupportedLanguage, position: number): string {
+  const minutes = Math.max(1, Math.ceil((position * QUEUE_ESTIMATE_SEC) / 60));
+  return t("stageQueued", lang, { position: String(position), minutes: String(minutes) });
 }
 
 interface SpinnerStatus {
@@ -921,7 +971,10 @@ async function processAudio(
         });
       },
       undefined,
-      abortController.signal
+      abortController.signal,
+      (position) =>
+        spinner.setPhase(position > 0 ? queuedLabel(lang, position) : t("transcribing", lang)),
+      queueOwner(chatId)
     );
     clearActiveProcess(chatId);
 
@@ -986,7 +1039,6 @@ async function processAudio(
       replyToMessageId,
       qualityWarning,
       undefined,
-      cleanup.warning,
       undefined,
       "telegram_media",
       requestNumber
@@ -1020,22 +1072,30 @@ async function downloadAndTranscribeYouTube(
   const prefs = await getUserPreferences(chatId);
   const lang = prefs.interfaceLanguage;
   let tmpWav = "";
+
+  // Name the actual service in both the status text and the stored filename.
+  const downloadLabel =
+    detectMediaSource(url) === "link"
+      ? t("stageDownloadGeneric", lang)
+      : t("stageDownload", lang, { source: mediaSourceName(url) });
+  const audioFilename = mediaAudioFilename(url);
+
   const statusMsgId = await openStatusMessage(
     chatId,
     lang,
-    renderSpinner(0, t("stageDownload", lang)),
+    renderSpinner(0, downloadLabel),
     cardMessageId
   );
 
   const removeKeyboard = { replyMarkup: { inline_keyboard: [] as InlineKeyboardButton[][] } };
   const abortController = new AbortController();
   // Two phases, spinner animates throughout: download → transcription.
-  const spinner = createSpinnerStatus(chatId, statusMsgId, lang, t("stageDownload", lang));
+  const spinner = createSpinnerStatus(chatId, statusMsgId, lang, downloadLabel);
   const requestNumber = await openTranscriptionRequest({
     chatId,
     sourceType: "youtube",
     sourceUrl: url,
-    filename: "youtube_audio.wav",
+    filename: audioFilename,
     language,
   });
 
@@ -1047,18 +1107,17 @@ async function downloadAndTranscribeYouTube(
       type: "youtube",
       language,
       sourceUrl: url,
-      filename: "youtube_audio.wav",
+      filename: audioFilename,
     });
 
-    const downloadResult = await downloadMediaAudio(url, undefined, abortController.signal);
-    const audioBuffer = downloadResult.audioBuffer;
+    const downloadResult = await downloadMediaAudio(url, undefined, abortController.signal, queueOwner(chatId));
     tmpWav = downloadResult.tmpWav;
 
     spinner.setPhase(t("stageTranscribe", lang));
 
     const result = await transcribeAudio(
-      audioBuffer,
-      "youtube_audio.wav",
+      downloadResult.readAudio,
+      audioFilename,
       language,
       (pid) => {
         setActiveProcess(chatId, {
@@ -1069,11 +1128,14 @@ async function downloadAndTranscribeYouTube(
           type: "youtube",
           language,
           sourceUrl: url,
-          filename: "youtube_audio.wav",
+          filename: audioFilename,
         });
       },
       undefined,
-      abortController.signal
+      abortController.signal,
+      (position) =>
+        spinner.setPhase(position > 0 ? queuedLabel(lang, position) : t("stageTranscribe", lang)),
+      queueOwner(chatId)
     );
     await unlink(tmpWav).catch(() => {});
     clearActiveProcess(chatId);
@@ -1128,7 +1190,6 @@ async function downloadAndTranscribeYouTube(
       undefined,
       undefined,
       "YouTube",
-      cleanup.warning,
       url,
       "youtube",
       requestNumber
@@ -1262,7 +1323,6 @@ async function sendResultDocument(
   replyToMessageId?: number,
   qualityWarning?: string,
   titlePrefix?: string,
-  cleanupWarning?: string,
   sourceUrl?: string,
   sourceType?: string,
   requestNumber?: number
@@ -1289,8 +1349,10 @@ async function sendResultDocument(
 
       const targetLabel = LANGUAGE_LABELS[targetLang as SupportedLanguage] ?? targetLang;
       const title = `${targetLabel}`;
+      // Cleanup diagnostics stay in the logs: when cleanup is skipped we still
+      // deliver the raw transcript, which is a correct result, so a warning in
+      // the user's file only alarms them about something they cannot act on.
       const warnings = [
-        cleanupWarning,
         translation.warning,
       ].filter(Boolean);
       const warningNote = warnings.length ? `\n\n⚠️ ${warnings.join(" ")}` : "";
@@ -1323,8 +1385,7 @@ async function sendResultDocument(
 
   const title = titlePrefix ? `${titlePrefix} — ${sourceLabel}` : `${sourceLabel}`;
   const subtitles = formatSubtitles(segments);
-  const warningHeader = cleanupWarning ? `\n\n⚠️ ${cleanupWarning}` : "";
-  const fileContent = `${title}${warningHeader}\n\n${cleanedText}\n\n---\n\n${subtitles}`;
+  const fileContent = `${title}\n\n${cleanedText}\n\n---\n\n${subtitles}`;
   const numberSuffix = requestNumber ? ` #${requestNumber}` : "";
   const caption = `${qualityWarning ? qualityWarning : title}${numberSuffix}`;
   await sendDocument(

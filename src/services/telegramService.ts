@@ -60,11 +60,11 @@ export const INTERFACE_LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
 // ---------------------------------------------------------------------------
 const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> = {
   welcome: {
-    ky: "<b>TilTap</b>ке кош келиңиз!\n\nМен аудио, видео жана төмөнкү шилтемелердеги сүйлөмдү текстке айлантам:\n• YouTube\n• TikTok\n• Instagram Reels\n\nКыргызча, тоҷикӣ, ўзбекча, русча жана англисча иштеиет.\n\nЖөн гана мага жибериңиз: файл, үн кат же шилтеме.",
-    tg: "Хуш омадед ба <b>TilTap</b>!\n\nМан аудио, видео ва пайвандҳои зеринро матн мекунам:\n• YouTube\n• TikTok\n• Instagram Reels\n\nБа забонҳои қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ва англисӣ.\n\nФақат ба ман фиристед: файл, садо ё пайванд.",
-    uz: "<b>TilTap</b>ga xush kelibsiz!\n\nMen audio, video va quyidagi havolalardagi nutqni matnga aylantiraman:\n• YouTube\n• TikTok\n• Instagram Reels\n\nQirg'iz, tojik, o'zbek, rus va ingliz tillarida.\n\nShunchaki menga yuboring: fayl, ovozli xabar yoki havola.",
-    en: "Welcome to <b>TilTap</b>!\n\nI turn speech from audio, video, and the following links into text:\n• YouTube\n• TikTok\n• Instagram Reels\n\nIn Kyrgyz, Tajik, Uzbek, Russian, and English.\n\nJust send me a file, voice message, or link.",
-    ru: "Добро пожаловать в <b>TilTap</b>!\n\nЯ превращаю речь из аудио, видео и следующих ссылок в текст:\n• YouTube\n• TikTok\n• Instagram Reels\n\nПоддерживаю кыргызский, таджикский, узбекский, русский и английский.\n\nПросто отправьте мне файл, голосовое сообщение или ссылку.",
+    ky: "<b>TilTap</b>ке кош келиңиз!\n\nМен аудио, видео жана төмөнкү шилтемелердеги сүйлөмдү текстке айлантам:\n• YouTube\n• TikTok\n• Instagram Reels\n\nТөмөнкү тилдерди колдойм:\n• Кыргызча\n• Тоҷикӣ\n• Ўзбекча\n• Русча\n• Англисче\n\nМындан тышкары, даяр текстти сиз тандаган тилге которуп берем.\n\nЖөн гана мага аудио, видео, үн кат же шилтеме жибериңиз.",
+    tg: "Хуш омадед ба <b>TilTap</b>!\n\nМан аудио, видео ва пайвандҳои зеринро ба матн табдил медиҳам:\n• YouTube\n• TikTok\n• Instagram Reels\n\nЗабонҳои зеринро дастгирӣ мекунам:\n• Қирғизӣ\n• Тоҷикӣ\n• Ўзбекӣ\n• Русӣ\n• Англисӣ\n\nҲамчунин, натиҷаи тайёрро ба забони интихобкардаатон тарҷума мекунам.\n\nФақат ба ман аудио, видео, паёми овозӣ ё пайванд фиристед.",
+    uz: "<b>TilTap</b>ga xush kelibsiz!\n\nMen audio, video va quyidagi havolalardagi nutqni matnga aylantiraman:\n• YouTube\n• TikTok\n• Instagram Reels\n\nQuyidagi tillarni qo‘llab-quvvatlayman:\n• Qirg‘iz tili\n• Tojik tili\n• O‘zbek tili\n• Rus tili\n• Ingliz tili\n\nShuningdek, tayyor natijani siz tanlagan tilga tarjima qilib beraman.\n\nShunchaki menga audio, video, ovozli xabar yoki havola yuboring — men uni matn ko‘rinishiga aylantiraman.",
+    en: "Welcome to <b>TilTap</b>!\n\nI turn speech from audio, video, and the following links into text:\n• YouTube\n• TikTok\n• Instagram Reels\n\nI support these languages:\n• Kyrgyz\n• Tajik\n• Uzbek\n• Russian\n• English\n\nI can also translate the result into the language you choose.\n\nJust send me audio, video, a voice message, or a link.",
+    ru: "Добро пожаловать в <b>TilTap</b>!\n\nЯ превращаю речь из аудио, видео и следующих ссылок в текст:\n• YouTube\n• TikTok\n• Instagram Reels\n\nПоддерживаю следующие языки:\n• Кыргызский\n• Таджикский\n• Узбекский\n• Русский\n• Английский\n\nА ещё переведу готовый результат на выбранный вами язык.\n\nПросто отправьте мне аудио, видео, голосовое сообщение или ссылку.",
   },
   help: {
     ky: "<b>Жардам</b>\n\n<b>Файл жиберүү:</b> аудио, видео, үн каттуу же документ жибериңиз. Бот тилди сурайт, андан кийин иштей баштайт.\n\n<b>Шилтемелер:</b> YouTube, TikTok, Instagram Reels шилтемелерин түз эле жибериңиз.\n\n<b>Тил орнотуулар:</b> «Орнотуулар» менен интерфейстин тилин жана которуу үчүн демейки тилди тандаңыз.\n\n<b>Командаалар:</b>\n/start — негизки меню\n/help — бул жардам\n/settings — тил орнотуулар\n/stop — активдүү процессти токтотуу",
@@ -123,11 +123,11 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     ru: "Улучшаю качество текста...",
   },
   sessionExpired: {
-    ky: "Сессия аяктады. Файлды же YouTube шилтемесин кайра жибериңиз.",
-    tg: "Сессия ба охир расид. Лутфан файл ё пайванди YouTube-ро дубора фиристед.",
-    uz: "Sessiya tugadi. Iltimos, faylni yoki YouTube havolasini qayta yuboring.",
-    en: "Session expired. Please send the file or YouTube link again.",
-    ru: "Сессия истекла. Отправьте файл или ссылку на YouTube заново.",
+    ky: "Сессия аяктады. Файлды же шилтемени кайра жибериңиз.",
+    tg: "Сессия ба охир расид. Лутфан файл ё пайвандро дубора фиристед.",
+    uz: "Sessiya tugadi. Iltimos, faylni yoki havolani qayta yuboring.",
+    en: "Session expired. Please send the file or link again.",
+    ru: "Сессия истекла. Отправьте файл или ссылку заново.",
   },
   fixtureNotFound: {
     ky: "Тест үчүн аудио табылган жок. Администраторго кайрылыңыз.",
@@ -143,12 +143,46 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     en: "Starting...",
     ru: "Начинаю...",
   },
+  // {source} is the service the link points at — YouTube, TikTok, Instagram.
+  // Hardcoding "YouTube" here told TikTok users we were downloading from the
+  // wrong site.
   stageDownload: {
-    ky: "YouTube'дан жүктөп жатам...",
-    tg: "Аз YouTube боргирӣ мекунам...",
-    uz: "YouTube'dan yuklanmoqda...",
-    en: "Downloading from YouTube...",
-    ru: "Скачиваю с YouTube...",
+    ky: "{source}'дан жүктөп жатам...",
+    tg: "Аз {source} боргирӣ мекунам...",
+    uz: "{source}'dan yuklanmoqda...",
+    en: "Downloading from {source}...",
+    ru: "Скачиваю с {source}...",
+  },
+  // For a link we accept but cannot name. Unreachable today — the URL check
+  // only lets the three known services through — but a named-service sentence
+  // with a placeholder word substituted reads badly in every language.
+  stageDownloadGeneric: {
+    ky: "Шилтеме боюнча жүктөп жатам...",
+    tg: "Аз пайванд боргирӣ мекунам...",
+    uz: "Havoladan yuklanmoqda...",
+    en: "Downloading from the link...",
+    ru: "Скачиваю по ссылке...",
+  },
+  // Shown only when someone has a runaway backlog waiting. Not a ration on how
+  // much or how long they may submit — fair ordering handles sharing — just a
+  // stop on a pasted folder of links or a looping client.
+  queueFull: {
+    ky: "Сизде кезекте {max} тапшырма бар. Алар бүткөндөн кийин жаңысын жибериңиз.",
+    tg: "Шумо {max} кор дар навбат доред. Пас аз анҷоми онҳо нави фиристед.",
+    uz: "Sizda navbatda {max} ta vazifa bor. Ular tugagach, yangisini yuboring.",
+    en: "You already have {max} jobs waiting. Send another once they finish.",
+    ru: "У вас уже {max} задач в очереди. Отправьте следующую, когда они завершатся.",
+  },
+  // Shown while the job is waiting for a transcription slot. {position} is the
+  // place in line and {minutes} a rough estimate. A wait with a visible end is
+  // tolerable; a silent spinner reads as "broken" and invites a resend, which
+  // makes the queue worse.
+  stageQueued: {
+    ky: "Кезекте: {position}-орун. Болжол менен {minutes} мүнөт.",
+    tg: "Дар навбат: ҷои {position}. Тахминан {minutes} дақиқа.",
+    uz: "Navbatda: {position}-o'rin. Taxminan {minutes} daqiqa.",
+    en: "In queue: position {position}. About {minutes} min.",
+    ru: "В очереди: {position}-й. Примерно {minutes} мин.",
   },
   stageTranscribe: {
     ky: "Распознаоо жатам...",
@@ -1131,22 +1165,41 @@ export function createTargetLanguageKeyboard(
   };
 }
 
+/**
+ * The two language buttons used to be asymmetric: one read "Language in
+ * recording" and the other just "🇷🇺 Русский". Naming a language without
+ * saying what it is for left people guessing which of the two settings the
+ * button changed. Both now name the setting and show its current value, one per
+ * row so the longer text is not truncated.
+ */
 export function createConfirmationKeyboard(
   actionId: string,
   lang: SupportedLanguage,
-  targetLanguage: SupportedLanguage | "none" = "none"
+  targetLanguage: SupportedLanguage | "none" = "none",
+  sourceLanguage?: SupportedLanguage
 ): { inline_keyboard: InlineKeyboardButton[][] } {
-  const targetLabel =
+  const targetValue =
     targetLanguage === "none"
       ? t("noDefaultTarget", lang)
       : `${LANGUAGE_FLAGS[targetLanguage]} ${LANGUAGE_LABELS[targetLanguage]}`;
 
+  const sourceValue = sourceLanguage
+    ? `${LANGUAGE_FLAGS[sourceLanguage]} ${LANGUAGE_LABELS[sourceLanguage]}`
+    : null;
+
+  const sourceText = sourceValue
+    ? `${t("settingsSourceLanguage", lang)}: ${sourceValue}`
+    : t("settingsSourceLanguage", lang);
+
   return {
     inline_keyboard: [
       [{ text: `▶ ${t("start", lang)}`, callback_data: `confirm:start:${actionId}` }],
+      [{ text: sourceText, callback_data: `confirm:lang:${actionId}` }],
       [
-        { text: t("settingsSourceLanguage", lang), callback_data: `confirm:lang:${actionId}` },
-        { text: targetLabel, callback_data: `confirm:target:${actionId}` },
+        {
+          text: `${t("settingsTargetLanguage", lang)}: ${targetValue}`,
+          callback_data: `confirm:target:${actionId}`,
+        },
       ],
       [{ text: `← ${t("back", lang)}`, callback_data: `confirm:cancel:${actionId}` }],
     ],

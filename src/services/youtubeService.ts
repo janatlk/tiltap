@@ -5,7 +5,9 @@ import { join } from "path";
 import { logger } from "../utils/logger";
 import { transcribeAudio, type TranscriptionProgress } from "./transcriptionService";
 import { getCobaltApiUrlsEnv } from "./cobaltConfigService";
+import { downloadGate } from "./concurrencyGate";
 import type { TranscriptionResult } from "../types";
+import { config } from "../config";
 
 const FFMPEG_PATH = require("ffmpeg-static");
 const PYTHON_PATH = process.platform === "win32" ? "python" : "python3";
@@ -24,6 +26,9 @@ function getCobaltEnv(): NodeJS.ProcessEnv {
     ...process.env,
     PYTHONIOENCODING: "utf-8",
     ...(cobaltUrls ? { COBALT_API_URLS: cobaltUrls } : {}),
+    // Instances that need an operator key answer auth.jwt.missing without it,
+    // so the key has to reach the Python downloader too, not just the monitor.
+    ...(config.COBALT_API_KEYS ? { COBALT_API_KEYS: config.COBALT_API_KEYS } : {}),
   };
 }
 
@@ -46,9 +51,90 @@ export function isSupportedMediaUrl(url: string): boolean {
   );
 }
 
+export type MediaSourceId = "youtube" | "tiktok" | "instagram" | "link";
+
+/**
+ * Which service a media link points at. We accept TikTok and Instagram as well
+ * as YouTube, but every user-facing string used to say "YouTube" regardless,
+ * down to the name of the produced file — so a TikTok link reported itself as a
+ * YouTube download.
+ */
+export function detectMediaSource(url: string): MediaSourceId {
+  if (/^(https?:\/\/)?(www\.|m\.)?(youtube\.com|youtu\.be)\//.test(url)) return "youtube";
+  if (/^(https?:\/\/)?(www\.|m\.|vm\.|vt\.)?tiktok\.com\//.test(url)) return "tiktok";
+  if (/^(https?:\/\/)?(www\.)?instagram\.com\//.test(url)) return "instagram";
+  return "link";
+}
+
+const MEDIA_SOURCE_NAMES: Record<MediaSourceId, string> = {
+  youtube: "YouTube",
+  tiktok: "TikTok",
+  instagram: "Instagram",
+  link: "the link",
+};
+
+/** Human-readable name of the service, for progress labels. */
+export function mediaSourceName(url: string): string {
+  return MEDIA_SOURCE_NAMES[detectMediaSource(url)];
+}
+
+/** Name for the audio we extracted, so the file reflects where it came from. */
+export function mediaAudioFilename(url: string): string {
+  const id = detectMediaSource(url);
+  return id === "link" ? "media_audio.wav" : `${id}_audio.wav`;
+}
+
 /** @deprecated Use isSupportedMediaUrl instead. */
 export function isValidYouTubeUrl(url: string): boolean {
   return isSupportedMediaUrl(url);
+}
+
+/**
+ * Liveness check for the yt-dlp fallback engine, used by the health monitor to
+ * decide whether downloads are truly dead or merely down to the last engine.
+ * The probe pulls real bytes and can take minutes (JS challenges), so it is
+ * only worth running once Cobalt has already failed everywhere.
+ */
+export async function probeYtdlp(url: string): Promise<{ ok: boolean; detail: string }> {
+  return new Promise((resolve) => {
+    const proc = spawn(PYTHON_PATH, ["youtube_ytdlp.py", "--probe", url], {
+      cwd: process.cwd(),
+      env: getCobaltEnv(),
+    });
+
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString("utf-8"); });
+    proc.stderr.on("data", (d: Buffer) => { stderr += d.toString("utf-8"); });
+
+    let settled = false;
+    const finish = (result: { ok: boolean; detail: string }) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
+    // Outer bound; the Python side has its own, tighter deadline.
+    const timeout = setTimeout(() => {
+      proc.kill("SIGKILL");
+      finish({ ok: false, detail: "probe timeout" });
+    }, 300_000);
+
+    proc.on("error", (err) => {
+      clearTimeout(timeout);
+      finish({ ok: false, detail: err.message });
+    });
+
+    proc.on("close", () => {
+      clearTimeout(timeout);
+      try {
+        const data = JSON.parse(stdout.trim().split("\n").pop() || "{}") as { ok?: boolean; detail?: string };
+        finish({ ok: Boolean(data.ok), detail: data.detail ?? "no detail" });
+      } catch {
+        finish({ ok: false, detail: stderr.trim().slice(-200) || "probe produced no result" });
+      }
+    });
+  });
 }
 
 export async function validateMediaUrl(url: string): Promise<MediaValidation> {
@@ -126,12 +212,37 @@ export async function validateMediaUrl(url: string): Promise<MediaValidation> {
 }
 
 export interface MediaDownloadResult {
-  audioBuffer: Buffer;
+  /**
+   * Reads the downloaded audio into memory. Deliberately not a Buffer field:
+   * the file may be a hundred megabytes for an hour-long video, and it used to
+   * be read eagerly and then held for the entire transcription queue wait.
+   * Call this at the point of use so the bytes live as briefly as possible.
+   */
+  readAudio: () => Promise<Buffer>;
   tmpWav: string;
   pid: number;
 }
 
 export async function downloadMediaAudio(
+  url: string,
+  onProgress?: (progress: TranscriptionProgress) => void,
+  abortSignal?: AbortSignal,
+  owner?: string
+): Promise<MediaDownloadResult> {
+  // Cap parallel downloads. Each one spawns Python and then ffmpeg, and
+  // unbounded ffmpeg processes starve the transcription doing the real work.
+  const ticket = downloadGate.take(owner);
+  const queuedAt = Date.now();
+  await ticket.wait(abortSignal);
+  downloadGate.logWait(Date.now() - queuedAt, url);
+  try {
+    return await runDownload(url, onProgress, abortSignal);
+  } finally {
+    ticket.release();
+  }
+}
+
+async function runDownload(
   url: string,
   onProgress?: (progress: TranscriptionProgress) => void,
   abortSignal?: AbortSignal
@@ -153,8 +264,27 @@ export async function downloadMediaAudio(
     let stderr = "";
     const stdoutLines: string[] = [];
 
+    // Idle timeout: abort only if the download makes no progress (no stdout/stderr
+    // output) for this long. This lets long videos download without a hard cap
+    // while still catching genuinely stalled processes.
+    const idleTimeoutMs = config.TILTAB_MEDIA_DOWNLOAD_IDLE_TIMEOUT_MS;
+    let idleTimer: NodeJS.Timeout;
+    const resetIdleTimer = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        proc.kill("SIGTERM");
+        reject(
+          new Error(
+            `Download stalled: no progress for ${Math.round(idleTimeoutMs / 1000)}s. The video may be unavailable.`
+          )
+        );
+      }, idleTimeoutMs);
+    };
+    resetIdleTimer();
+
     const rl = createInterface({ input: proc.stdout });
     rl.on("line", (line: string) => {
+      resetIdleTimer();
       const trimmed = line.trim();
       if (!trimmed) return;
       stdoutLines.push(trimmed);
@@ -162,7 +292,7 @@ export async function downloadMediaAudio(
         try {
           const data = JSON.parse(trimmed) as { type?: string; percent?: number; label?: string };
           if (data.type === "progress" && typeof data.percent === "number") {
-            onProgress?.({ percent: data.percent, label: data.label ?? "Downloading from YouTube..." });
+            onProgress?.({ percent: data.percent, label: data.label ?? `Downloading from ${mediaSourceName(url)}...` });
           }
         } catch {
           // ignore non-JSON
@@ -170,15 +300,10 @@ export async function downloadMediaAudio(
       }
     });
 
-    proc.stderr.on("data", (d: Buffer) => { stderr += d.toString("utf-8"); });
-
-    const timeout = setTimeout(() => {
-      proc.kill("SIGTERM");
-      reject(new Error("Download timed out after 120 seconds. The video may be too long or unavailable."));
-    }, 120_000);
+    proc.stderr.on("data", (d: Buffer) => { resetIdleTimer(); stderr += d.toString("utf-8"); });
 
     proc.on("close", (code: number) => {
-      clearTimeout(timeout);
+      clearTimeout(idleTimer);
       if (code !== 0) {
         const errMsg = stderr.trim() || stdoutLines.join("\n").trim() || `Download failed with code ${code}`;
         reject(new Error(errMsg));
@@ -187,14 +312,13 @@ export async function downloadMediaAudio(
       }
     });
     proc.on("error", (err: Error) => {
-      clearTimeout(timeout);
+      clearTimeout(idleTimer);
       reject(new Error(`Download process error: ${err.message}`));
     });
   });
 
   const fs = await import("fs/promises");
-  const audioBuffer = await fs.readFile(tmpWav);
-  return { audioBuffer, tmpWav, pid };
+  return { readAudio: () => fs.readFile(tmpWav), tmpWav, pid };
 }
 
 export async function cleanupTempFile(tmpWav: string): Promise<void> {
@@ -207,20 +331,24 @@ export async function transcribeMediaLink(
   language: string,
   onProgress?: (progress: TranscriptionProgress) => void,
   onProcessStart?: (pid: number) => void,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  onQueuePosition?: (position: number) => void,
+  owner?: string
 ): Promise<TranscriptionResult> {
-  const { audioBuffer, tmpWav, pid } = await downloadMediaAudio(url, onProgress, abortSignal);
+  const { readAudio, tmpWav, pid } = await downloadMediaAudio(url, onProgress, abortSignal, owner);
   if (onProcessStart && pid) {
     onProcessStart(pid);
   }
   try {
     const result = await transcribeAudio(
-      audioBuffer,
-      "youtube_audio.wav",
+      readAudio,
+      mediaAudioFilename(url),
       language,
       onProcessStart,
       onProgress,
-      abortSignal
+      abortSignal,
+      onQueuePosition,
+      owner
     );
     return result;
   } finally {

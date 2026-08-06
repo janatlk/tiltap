@@ -13,6 +13,7 @@ import { normalizeLanguageCodeOrKeep } from "../utils/languageCodes";
 import { transcribeWithRemoteService } from "./remoteSttService";
 import { isGpuSttEnabled, isGpuSttLanguageSupported, transcribeWithGpu } from "./gpuSttService";
 import { isGigaamServerEnabled, isGigaamServerLanguage, transcribeWithGigaamServer } from "./gigaamServerService";
+import { sttGate } from "./concurrencyGate";
 
 const FFMPEG_PATH = require("ffmpeg-static");
 const PYTHON_PATH = process.platform === "win32" ? "python" : "python3";
@@ -22,7 +23,59 @@ export interface TranscriptionProgress {
   label: string;
 }
 
+/**
+ * Either the audio itself, or a way to get it.
+ *
+ * Callers that already hold the bytes pass a Buffer. Callers that downloaded to
+ * a temp file pass a thunk, and we only read it once a transcription slot is
+ * free — otherwise an hour-long video sits in the heap for the whole queue wait,
+ * and a handful of those at once is enough to run the backend out of memory.
+ */
+export type AudioSource = Buffer | (() => Promise<Buffer>);
+
+/**
+ * Transcribe, waiting for a slot first. Only one transcription runs at a time:
+ * GigaAM already uses every core, so a second concurrent job makes both slower
+ * rather than finishing any sooner.
+ *
+ * `onQueuePosition` is called with 1, 2, 3… while queued, so the caller can tell
+ * the user where they stand instead of showing an unexplained spinner.
+ *
+ * `owner` identifies who submitted the job, so the queue can be shared fairly
+ * rather than served strictly first-come-first-served.
+ */
 export async function transcribeAudio(
+  audio: AudioSource,
+  filename: string,
+  language?: string,
+  onProcessStart?: (pid: number) => void,
+  onProgress?: (progress: TranscriptionProgress) => void,
+  abortSignal?: AbortSignal,
+  onQueuePosition?: (position: number) => void,
+  owner?: string
+): Promise<TranscriptionResult> {
+  const ticket = sttGate.take(owner);
+  if (onQueuePosition) {
+    ticket.onMove(onQueuePosition);
+    const initial = ticket.position();
+    if (initial > 0) onQueuePosition(initial);
+  }
+
+  const queuedAt = Date.now();
+  await ticket.wait(abortSignal);
+  sttGate.logWait(Date.now() - queuedAt, filename);
+  // Our turn: now it is worth spending the memory.
+  if (onQueuePosition) onQueuePosition(0);
+
+  try {
+    const audioBuffer = typeof audio === "function" ? await audio() : audio;
+    return await runTranscription(audioBuffer, filename, language, onProcessStart, onProgress, abortSignal);
+  } finally {
+    ticket.release();
+  }
+}
+
+async function runTranscription(
   audioBuffer: Buffer,
   filename: string,
   language?: string,

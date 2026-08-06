@@ -15,6 +15,8 @@ import {
   type FeedbackRating,
 } from "../db/repos/feedbackRepo";
 import { sendAdminAlert } from "../services/alertService";
+import { isQueueFull, beginJob, endJob, MAX_QUEUED_PER_USER } from "../services/concurrencyGate";
+import { normalizeLanguageCode } from "../utils/languageCodes";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
@@ -55,6 +57,11 @@ function generateJobId(): string {
 function cleanupExpiredJobs(): void {
   const now = Date.now();
   for (const [id, job] of jobs.entries()) {
+    // Never evict work that is still going. Tajik runs at about 1.9x realtime
+    // on this CPU, so an hour-long video needs roughly half an hour of
+    // transcription alone — a plain age check would drop the job mid-run and
+    // leave the browser polling an id that no longer exists.
+    if (job.status === "pending" || job.status === "running") continue;
     if (now - job.createdAt > JOB_TTL_MS) {
       jobs.delete(id);
     }
@@ -133,6 +140,7 @@ export function getJob(jobId: string): WebJob | undefined {
 }
 
 export async function handleWebTranscribe(req: Request, res: Response): Promise<void> {
+  let owner: string | undefined;
   try {
     const file = req.file;
     if (!file) {
@@ -148,6 +156,13 @@ export async function handleWebTranscribe(req: Request, res: Response): Promise<
     const sourceLang = typeof req.body.sourceLang === "string" ? req.body.sourceLang : "auto";
     const targetLang = typeof req.body.targetLang === "string" && req.body.targetLang !== "none" ? req.body.targetLang : undefined;
 
+    owner = queueOwner(req);
+    if (isQueueFull(owner)) {
+      res.status(429).json({ error: "queue_full", max: MAX_QUEUED_PER_USER });
+      return;
+    }
+    beginJob(owner);
+
     const job = await createJob("transcribe", {
       sourceLang,
       targetLang,
@@ -156,17 +171,19 @@ export async function handleWebTranscribe(req: Request, res: Response): Promise<
     });
     res.status(202).json({ jobId: job.id, requestNumber: job.requestNumber });
 
-    processAudioJob(job, file.buffer, file.originalname, sourceLang, targetLang, "web_upload").catch((err) => {
+    processAudioJob(job, file.buffer, file.originalname, sourceLang, targetLang, "web_upload", owner).catch((err) => {
       logger.error("Web transcribe job failed", { error: err instanceof Error ? err.message : String(err), jobId: job.id });
       updateJob(job, { status: "failed", error: err instanceof Error ? err.message : String(err) });
     });
   } catch (err) {
+    if (owner) endJob(owner);
     logger.error("Web transcribe request error", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Internal server error" });
   }
 }
 
 export async function handleWebYouTube(req: Request, res: Response): Promise<void> {
+  let owner: string | undefined;
   try {
     const { url, sourceLang, targetLang } = req.body as { url?: string; sourceLang?: string; targetLang?: string };
 
@@ -184,6 +201,13 @@ export async function handleWebYouTube(req: Request, res: Response): Promise<voi
     const language = sourceLang && sourceLang !== "none" ? sourceLang : "auto";
     const target = targetLang && targetLang !== "none" ? targetLang : undefined;
 
+    owner = queueOwner(req);
+    if (isQueueFull(owner)) {
+      res.status(429).json({ error: "queue_full", max: MAX_QUEUED_PER_USER });
+      return;
+    }
+    beginJob(owner);
+
     const job = await createJob("youtube", {
       sourceLang: language,
       targetLang: target,
@@ -192,11 +216,12 @@ export async function handleWebYouTube(req: Request, res: Response): Promise<voi
     });
     res.status(202).json({ jobId: job.id, requestNumber: job.requestNumber, title: validation.title });
 
-    processMediaLinkJob(job, url, language, target, "youtube").catch((err) => {
+    processMediaLinkJob(job, url, language, target, "youtube", owner).catch((err) => {
       logger.error("Web media link job failed", { error: err instanceof Error ? err.message : String(err), jobId: job.id });
       updateJob(job, { status: "failed", error: err instanceof Error ? err.message : String(err) });
     });
   } catch (err) {
+    if (owner) endJob(owner);
     logger.error("Web YouTube request error", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Internal server error" });
   }
@@ -211,6 +236,14 @@ export async function handleWebTranslate(req: Request, res: Response): Promise<v
     }
     if (!body.targetLang || typeof body.targetLang !== "string") {
       res.status(400).json({ error: "Missing or invalid 'targetLang' field" });
+      return;
+    }
+    if (!normalizeLanguageCode(body.targetLang)) {
+      res.status(400).json({ error: "unsupported_language", targetLang: body.targetLang });
+      return;
+    }
+    if (body.sourceLang && body.sourceLang !== "auto" && !normalizeLanguageCode(body.sourceLang)) {
+      res.status(400).json({ error: "unsupported_language", sourceLang: body.sourceLang });
       return;
     }
 
@@ -284,25 +317,55 @@ export function handleWebJobProgress(req: Request, res: Response): void {
   });
 }
 
+/**
+ * Progress entry for a job that is waiting for a transcription slot.
+ *
+ * The label is a marker rather than prose because the page is translated on the
+ * client: index.html turns "queued:3" into localised text. Percent stays at 0 —
+ * no work has started, and a moving bar would be a lie.
+ */
+/**
+ * Queue identity for a web visitor. There are no accounts here, so the client
+ * address is the best available stand-in: good enough to stop one browser tab
+ * from crowding out everyone else, and harmless when it is wrong.
+ */
+function queueOwner(req: Request): string {
+  return `web:${req.ip ?? "unknown"}`;
+}
+
+function queueProgress(position: number): TranscriptionProgress {
+  return position > 0
+    ? { percent: 0, label: `queued:${position}` }
+    : { percent: 0, label: "Transcribing..." };
+}
+
 async function processAudioJob(
   job: WebJob,
   buffer: Buffer,
   filename: string,
   language: string,
   targetLanguage?: string,
-  sourceType?: string
+  sourceType?: string,
+  owner?: string
 ): Promise<void> {
   updateJob(job, { status: "running", progress: { percent: 0, label: "Transcribing..." } });
 
-  const result = await transcribeAudio(
-    buffer,
-    filename,
-    language,
-    (pid) => updateJob(job, { pid }),
-    (progress) => setJobProgress(job, progress)
-  );
+  try {
+    const result = await transcribeAudio(
+      buffer,
+      filename,
+      language,
+      (pid) => updateJob(job, { pid }),
+      (progress) => setJobProgress(job, progress),
+      undefined,
+      (position) => setJobProgress(job, queueProgress(position)),
+      owner
+    );
 
-  await finalizeTranscription(job, result, targetLanguage, undefined, sourceType);
+    await finalizeTranscription(job, result, targetLanguage, undefined, sourceType);
+  } finally {
+    if (owner) endJob(owner);
+  }
 }
 
 async function processMediaLinkJob(
@@ -310,18 +373,26 @@ async function processMediaLinkJob(
   url: string,
   language: string,
   targetLanguage?: string,
-  sourceType?: string
+  sourceType?: string,
+  owner?: string
 ): Promise<void> {
   updateJob(job, { status: "running", progress: { percent: 0, label: "Starting..." } });
 
-  const result = await transcribeMediaLink(
-    url,
-    language,
-    (progress) => setJobProgress(job, progress),
-    (pid) => updateJob(job, { pid })
-  );
+  try {
+    const result = await transcribeMediaLink(
+      url,
+      language,
+      (progress) => setJobProgress(job, progress),
+      (pid) => updateJob(job, { pid }),
+      undefined,
+      (position) => setJobProgress(job, queueProgress(position)),
+      owner
+    );
 
-  await finalizeTranscription(job, result, targetLanguage, url, sourceType);
+    await finalizeTranscription(job, result, targetLanguage, url, sourceType);
+  } finally {
+    if (owner) endJob(owner);
+  }
 }
 
 async function finalizeTranscription(

@@ -49,12 +49,14 @@
     <header class="text-center space-y-2">
       <div class="flex justify-end">
         <div class="dropdown dropdown-end">
-          <div tabindex="0" role="button" class="btn btn-sm btn-ghost" id="langSwitcherBtn">
+          <div tabindex="0" role="button" class="btn btn-sm btn-ghost" id="langSwitcherBtn" data-i18n-title="uiLanguageHeader">
+            <span aria-hidden="true">🌐</span>
             <span class="lang-flag" id="currentLangFlag">🇬🇧</span>
             <span id="currentLangLabel">English</span>
             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </div>
-          <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-1 w-52 p-2 shadow-sm">
+          <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-1 w-56 p-2 shadow-sm">
+            <li class="menu-title text-xs" data-i18n="uiLanguageHeader">Interface language</li>
             <li><a data-ui-lang="en"><span class="lang-flag">🇬🇧</span>English</a></li>
             <li><a data-ui-lang="ru"><span class="lang-flag">🇷🇺</span>Русский</a></li>
             <li><a data-ui-lang="ky"><span class="lang-flag">🇰🇬</span>Кыргызча</a></li>
@@ -64,7 +66,7 @@
         </div>
       </div>
       <h1 class="text-3xl font-bold tracking-tight" data-i18n="title">TilTap Web</h1>
-      <p class="text-base-content/70" data-i18n="subtitle">Transcribe audio, video, and YouTube links. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.</p>
+      <p class="text-base-content/70" data-i18n="subtitle">Transcribe audio, video, and links from YouTube, TikTok, and Instagram. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.</p>
       <a href="/web/admin.html" class="link link-primary text-sm" data-i18n="adminLink">Admin panel</a>
     </header>
 
@@ -101,7 +103,7 @@
       <div class="card-body space-y-4">
         <div role="tablist" class="tabs tabs-lift">
           <button role="tab" class="tab tab-active" data-tab="file" data-i18n="tabUpload">Upload file</button>
-          <button role="tab" class="tab" data-tab="youtube" data-i18n="tabYouTube">YouTube link</button>
+          <button role="tab" class="tab" data-tab="youtube" data-i18n="tabYouTube">Video link</button>
           <button role="tab" class="tab" data-tab="text" data-i18n="tabTranslate">Translate text</button>
         </div>
 
@@ -116,8 +118,8 @@
 
         <div id="panel-youtube" style="display:none;">
           <div class="form-control">
-            <label class="label" for="youtubeUrl"><span class="label-text" data-i18n="youtubeLabel">YouTube URL</span></label>
-            <input type="text" id="youtubeUrl" class="input input-bordered w-full" placeholder="https://www.youtube.com/watch?v=...">
+            <label class="label" for="youtubeUrl"><span class="label-text" data-i18n="youtubeLabel">Video link (YouTube, TikTok, Instagram)</span></label>
+            <input type="text" id="youtubeUrl" class="input input-bordered w-full" placeholder="https://www.youtube.com/watch?v=... , tiktok.com/... , instagram.com/reel/...">
           </div>
           <div id="youtubePreview" class="hidden mt-3 aspect-video">
             <iframe id="youtubeIframe" class="w-full h-full rounded-box" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
@@ -207,7 +209,7 @@
     const I18N = {
       en: {
         title: "TilTap Web",
-        subtitle: "Transcribe audio, video, and YouTube links. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.",
+        subtitle: "Transcribe audio, video, and links from YouTube, TikTok, and Instagram. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.",
         adminLink: "Admin panel",
         sourceLangLabel: "Transcription language",
         sourceLanguageLabel: "Source language",
@@ -215,10 +217,10 @@
         autoDetect: "Auto detect",
         noTranslation: "No translation",
         tabUpload: "Upload file",
-        tabYouTube: "YouTube link",
+        tabYouTube: "Video link",
         tabTranslate: "Translate text",
         dropzoneText: "Drag & drop audio/video here or click to browse",
-        youtubeLabel: "YouTube URL",
+        youtubeLabel: "Video link (YouTube, TikTok, Instagram)",
         translateTextLabel: "Text to translate",
         translateTextPlaceholder: "Enter text to translate...",
         translateTextButton: "Translate",
@@ -251,7 +253,7 @@
         translationFailed: "Translation failed",
         errorSelectFile: "Please select a file first",
         errorFileTooLarge: "File is too large ({size} MB). Max allowed is 25 MB.",
-        errorEnterUrl: "Please enter a YouTube URL",
+        errorEnterUrl: "Please enter a video link",
         errorEnterText: "Please enter text to translate",
         errorUploadFailed: "Upload failed. Please check your connection and try again.",
         errorUploadCancelled: "Upload was cancelled.",
@@ -260,13 +262,18 @@
         errorSignInRequired: "This video requires a YouTube sign-in. The bot cannot download it. Try another video.",
         errorPrivate: "This is a private video. The bot cannot download it.",
         errorAgeRestricted: "This video is age-restricted. The bot cannot download it.",
-        errorInvalidUrl: "Invalid YouTube URL.",
-        errorTimeout: "YouTube check timed out. Please try again.",
+        errorInvalidUrl: "Unsupported link. Use YouTube, TikTok, or Instagram.",
+        errorTimeout: "The link check timed out. Please try again.",
         errorJobFailed: "Job failed",
+        retryButton: "Try again",
+        uiLanguageHeader: "Interface language",
+        progressQueued: "In queue: position {position}. About {minutes} min.",
+        errorQueueFull: "You already have {max} jobs waiting. Send another once they finish.",
+        uiLanguageShort: "Interface",
       },
       ru: {
         title: "TilTap Web",
-        subtitle: "Распознавайте аудио, видео и ссылки YouTube. Переводите на кыргызский, таджикский, узбекский, русский или английский.",
+        subtitle: "Распознавайте аудио, видео и ссылки с YouTube, TikTok и Instagram. Переводите на кыргызский, таджикский, узбекский, русский или английский.",
         adminLink: "Панель администратора",
         sourceLangLabel: "Язык распознавания",
         sourceLanguageLabel: "Язык оригинала",
@@ -274,10 +281,10 @@
         autoDetect: "Автоопределение",
         noTranslation: "Без перевода",
         tabUpload: "Загрузить файл",
-        tabYouTube: "Ссылка YouTube",
+        tabYouTube: "Ссылка на видео",
         tabTranslate: "Перевести текст",
         dropzoneText: "Перетащите аудио/видео сюда или нажмите для выбора",
-        youtubeLabel: "Ссылка YouTube",
+        youtubeLabel: "Ссылка на видео (YouTube, TikTok, Instagram)",
         translateTextLabel: "Текст для перевода",
         translateTextPlaceholder: "Введите текст для перевода...",
         translateTextButton: "Перевести",
@@ -310,7 +317,7 @@
         translationFailed: "Ошибка перевода",
         errorSelectFile: "Сначала выберите файл",
         errorFileTooLarge: "Файл слишком большой ({size} МБ). Максимум 25 МБ.",
-        errorEnterUrl: "Введите ссылку YouTube",
+        errorEnterUrl: "Введите ссылку на видео",
         errorEnterText: "Введите текст для перевода",
         errorUploadFailed: "Ошибка загрузки. Проверьте соединение и попробуйте снова.",
         errorUploadCancelled: "Загрузка отменена.",
@@ -319,13 +326,18 @@
         errorSignInRequired: "Видео требует входа в YouTube. Бот не может скачать его. Попробуйте другое видео.",
         errorPrivate: "Это приватное видео. Бот не может скачать его.",
         errorAgeRestricted: "Видео имеет возрастное ограничение. Бот не может скачать его.",
-        errorInvalidUrl: "Неверная ссылка YouTube.",
-        errorTimeout: "Проверка YouTube превысила время ожидания. Попробуйте снова.",
+        errorInvalidUrl: "Ссылка не поддерживается. Подойдут YouTube, TikTok или Instagram.",
+        errorTimeout: "Проверка ссылки превысила время ожидания. Попробуйте снова.",
         errorJobFailed: "Ошибка задания",
+        retryButton: "Попробовать снова",
+        uiLanguageHeader: "Язык интерфейса",
+        progressQueued: "В очереди: {position}-й. Примерно {minutes} мин.",
+        errorQueueFull: "У вас уже {max} задач в очереди. Отправьте следующую, когда они завершатся.",
+        uiLanguageShort: "Интерфейс",
       },
       ky: {
         title: "TilTap Web",
-        subtitle: "Аудио, видео жана YouTube шилтемелерин таанып, кыргызча, тоҷикча, ўзбекча, орусча же англисча которуңуз.",
+        subtitle: "Аудио, видео жана YouTube, TikTok, Instagram шилтемелерин таанып, кыргызча, тоҷикча, ўзбекча, орусча же англисча которуңуз.",
         adminLink: "Админ панели",
         sourceLangLabel: "Таануу тили",
         sourceLanguageLabel: "Баштапкы тил",
@@ -333,10 +345,10 @@
         autoDetect: "Авто аныктоо",
         noTranslation: "Которуу жок",
         tabUpload: "Файл жүктөө",
-        tabYouTube: "YouTube шилтемеси",
+        tabYouTube: "Видео шилтемеси",
         tabTranslate: "Текст которуу",
         dropzoneText: "Аудио/видеону бул жерге сүйрөп алып келиңиз же басып көрүңүз",
-        youtubeLabel: "YouTube шилтемеси",
+        youtubeLabel: "Видео шилтемеси (YouTube, TikTok, Instagram)",
         translateTextLabel: "Которула турган текст",
         translateTextPlaceholder: "Которула турган текстти киргизиңиз...",
         translateTextButton: "Которуу",
@@ -369,7 +381,7 @@
         translationFailed: "Которуу ката",
         errorSelectFile: "Алгач файл тандаңыз",
         errorFileTooLarge: "Файл өтө чоң ({size} МБ). Максимум 25 МБ.",
-        errorEnterUrl: "YouTube шилтемесин киргизиңиз",
+        errorEnterUrl: "Видео шилтемесин киргизиңиз",
         errorEnterText: "Которула турган текстти киргизиңиз",
         errorUploadFailed: "Жүктөө ката. Туташууну текшерип, кайра аракет кылыңыз.",
         errorUploadCancelled: "Жүктөө токтотулду.",
@@ -378,13 +390,18 @@
         errorSignInRequired: "Бул видео YouTube'га кирүүнү талап кылат. Бот аны жүктөй албайт. Башка видео аракет кылыңыз.",
         errorPrivate: "Бул жабык видео. Бот аны жүктөй албайт.",
         errorAgeRestricted: "Бул видео жаш чектөөсү бар. Бот аны жүктөй албайт.",
-        errorInvalidUrl: "Туура эмес YouTube шилтемеси.",
-        errorTimeout: "YouTube текшерүү убактысы бүттү. Кайра аракет кылыңыз.",
+        errorInvalidUrl: "Шилтеме колдоого алынбайт. YouTube, TikTok же Instagram колдонуңуз.",
+        errorTimeout: "Шилтемени текшерүү убактысы бүттү. Кайра аракет кылыңыз.",
         errorJobFailed: "Тапшырма ката",
+        retryButton: "Кайра аракет кылуу",
+        uiLanguageHeader: "Интерфейс тили",
+        progressQueued: "Кезекте: {position}-орун. Болжол менен {minutes} мүнөт.",
+        errorQueueFull: "Сизде кезекте {max} тапшырма бар. Алар бүткөндөн кийин жаңысын жибериңиз.",
+        uiLanguageShort: "Интерфейс",
       },
       tg: {
         title: "TilTap Web",
-        subtitle: "Аудио, видео ва пайвандҳои YouTube-ро шинос кунед. Ба забони қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ё англисӣ тарҷума кунед.",
+        subtitle: "Аудио, видео ва пайвандҳои YouTube, TikTok, Instagram-ро шинос кунед. Ба забони қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ё англисӣ тарҷума кунед.",
         adminLink: "Панели администратор",
         sourceLangLabel: "Забони шиносоӣ",
         sourceLanguageLabel: "Забони манбаъ",
@@ -392,10 +409,10 @@
         autoDetect: "Автошиносӣ",
         noTranslation: "Бе тарҷума",
         tabUpload: "Боргузории файл",
-        tabYouTube: "Пайванди YouTube",
+        tabYouTube: "Пайванди видео",
         tabTranslate: "Тарҷумаи матн",
         dropzoneText: "Аудио/видео-ро ба ин ҷо кашида оред ё барои интихоб кардан пахш кунед",
-        youtubeLabel: "Пайванди YouTube",
+        youtubeLabel: "Пайванди видео (YouTube, TikTok, Instagram)",
         translateTextLabel: "Матни тарҷума",
         translateTextPlaceholder: "Матни тарҷумаашро ворид кунед...",
         translateTextButton: "Тарҷума",
@@ -428,7 +445,7 @@
         translationFailed: "Хатои тарҷума",
         errorSelectFile: "Аввал файлро интихоб кунед",
         errorFileTooLarge: "Файл хеле калон аст ({size} МБ). Ҳадди аксар 25 МБ.",
-        errorEnterUrl: "Пайванди YouTube-ро ворид кунед",
+        errorEnterUrl: "Пайванди видеоро ворид кунед",
         errorEnterText: "Матни тарҷумаашро воред",
         errorUploadFailed: "Хатои боргузорӣ. Пайвастшавиро тафтиш кунед ва аз нав кӯшиш кунед.",
         errorUploadCancelled: "Боргузорӣ бекор карда шуд.",
@@ -437,13 +454,18 @@
         errorSignInRequired: "Ин видео талаб мекунад, ки шумо ба YouTube ворид шавед. Бот онро боргузорӣ карда наметавонад. Видеои дигарро кӯшиш кунед.",
         errorPrivate: "Ин видеои хусусӣ аст. Бот онро боргузорӣ карда наметавонад.",
         errorAgeRestricted: "Ин видео дорои маҳдудияти синну сол аст. Бот онро боргузорӣ карда наметавонад.",
-        errorInvalidUrl: "Пайванди нодурусти YouTube.",
-        errorTimeout: "Тафтиши YouTube аз вақт гузашт. Аз нав кӯшиш кунед.",
+        errorInvalidUrl: "Пайванд дастгирӣ намешавад. YouTube, TikTok ё Instagram-ро истифода баред.",
+        errorTimeout: "Тафтиши пайванд аз вақт гузашт. Аз нав кӯшиш кунед.",
         errorJobFailed: "Хатои кор",
+        retryButton: "Аз нав кӯшиш кунед",
+        uiLanguageHeader: "Забони интерфейс",
+        progressQueued: "Дар навбат: ҷои {position}. Тахминан {minutes} дақиқа.",
+        errorQueueFull: "Шумо {max} кор дар навбат доред. Пас аз анҷоми онҳо нави фиристед.",
+        uiLanguageShort: "Интерфейс",
       },
       uz: {
         title: "TilTap Web",
-        subtitle: "Audio, video va YouTube havolalarini tanib oling. Qirgʻiz, tojik, oʻzbek, rus yoki ingliz tiliga tarjima qiling.",
+        subtitle: "Audio, video va YouTube, TikTok, Instagram havolalarini tanib oling. Qirgʻiz, tojik, oʻzbek, rus yoki ingliz tiliga tarjima qiling.",
         adminLink: "Admin paneli",
         sourceLangLabel: "Tanish tili",
         sourceLanguageLabel: "Manba tili",
@@ -451,10 +473,10 @@
         autoDetect: "Avto aniqlash",
         noTranslation: "Tarjimasiz",
         tabUpload: "Fayl yuklash",
-        tabYouTube: "YouTube havolasi",
+        tabYouTube: "Video havolasi",
         tabTranslate: "Matn tarjima",
         dropzoneText: "Audio/videoni bu yerga sudrab olib keling yoki ko'rish uchun bosing",
-        youtubeLabel: "YouTube havolasi",
+        youtubeLabel: "Video havolasi (YouTube, TikTok, Instagram)",
         translateTextLabel: "Tarjima qilinadigan matn",
         translateTextPlaceholder: "Tarjima qilinadigan matnni kiriting...",
         translateTextButton: "Tarjima",
@@ -487,7 +509,7 @@
         translationFailed: "Tarjima xatosi",
         errorSelectFile: "Avval faylni tanlang",
         errorFileTooLarge: "Fayl juda katta ({size} MB). Maksimum 25 MB.",
-        errorEnterUrl: "YouTube havolasini kiriting",
+        errorEnterUrl: "Video havolasini kiriting",
         errorEnterText: "Tarjima qilinadigan matnni kiriting",
         errorUploadFailed: "Yuklash xatosi. Ulanishni tekshirib, qayta urinib ko'ring.",
         errorUploadCancelled: "Yuklash bekor qilindi.",
@@ -496,9 +518,14 @@
         errorSignInRequired: "Bu video YouTube'ga kirishni talab qiladi. Bot uni yuklay olmaydi. Boshqa videoni sinab ko'ring.",
         errorPrivate: "Bu xususiy video. Bot uni yuklay olmaydi.",
         errorAgeRestricted: "Bu video yosh chegarasiga ega. Bot uni yuklay olmaydi.",
-        errorInvalidUrl: "Noto'g'ri YouTube havolasi.",
-        errorTimeout: "YouTube tekshiruvi vaqti tugadi. Qayta urinib ko'ring.",
+        errorInvalidUrl: "Havola qo'llab-quvvatlanmaydi. YouTube, TikTok yoki Instagram ishlating.",
+        errorTimeout: "Havolani tekshirish vaqti tugadi. Qayta urinib ko'ring.",
         errorJobFailed: "Vazifa xatosi",
+        retryButton: "Qayta urinish",
+        uiLanguageHeader: "Interfeys tili",
+        progressQueued: "Navbatda: {position}-o'rin. Taxminan {minutes} daqiqa.",
+        errorQueueFull: "Sizda navbatda {max} ta vazifa bor. Ular tugagach, yangisini yuboring.",
+        uiLanguageShort: "Interfeys",
       },
     };
 
@@ -547,11 +574,20 @@
         el.placeholder = t(key);
       });
 
+      // Tooltips, for controls whose own text cannot be replaced because it
+      // holds child elements — the language switcher keeps its flag and name.
+      document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+        el.title = t(el.dataset.i18nTitle);
+      });
+
       // Update language switcher button
       const flag = UI_LANG_FLAGS[currentUiLang];
       const name = UI_LANG_NAMES[currentUiLang];
       document.getElementById("currentLangFlag").textContent = flag;
-      document.getElementById("currentLangLabel").textContent = name;
+      // Say what the control does. On its own, "English" was routinely read
+      // as the translation target, which is a different control below.
+      document.getElementById("currentLangLabel").textContent =
+        t("uiLanguageShort") + ": " + name;
     }
 
     function setUiLang(lang) {
@@ -716,15 +752,38 @@
       currentRequestNumber = null;
     }
 
-    function showError(msg) {
-      errorBox.textContent = msg;
+    // What to re-run when the user presses "Try again". Set by whatever started
+    // the work, so the button repeats that exact action rather than guessing.
+    let lastAction = null;
+
+    function showError(msg, retryFn) {
+      errorBox.innerHTML = "";
+      const text = document.createElement("span");
+      text.className = "flex-1";
+      text.textContent = msg;
+      errorBox.appendChild(text);
+
+      const retry = retryFn || lastAction;
+      if (retry) {
+        const btn = document.createElement("button");
+        btn.className = "btn btn-sm";
+        btn.textContent = t("retryButton");
+        btn.addEventListener("click", () => {
+          errorBox.classList.add("hidden");
+          retry();
+        });
+        errorBox.appendChild(btn);
+      }
+
       errorBox.classList.remove("hidden");
       progressWrap.classList.add("hidden");
       startBtn.disabled = false;
     }
 
-    function mapErrorMessage(error, reason) {
+    function mapErrorMessage(error, reason, max) {
       const code = reason || error;
+      // Carries a count, so it cannot go in the plain lookup below.
+      if (code === "queue_full") return t("errorQueueFull", { max: max });
       const keys = {
         not_available: "errorNotAvailable",
         sign_in_required: "errorSignInRequired",
@@ -736,10 +795,26 @@
       return t(keys[code]) || error || t("errorJobFailed");
     }
 
+    // Matches the estimate the bot uses, so the two surfaces agree.
+    const QUEUE_ESTIMATE_SEC = 45;
+
     function updateProgress(progress) {
       const pct = Math.max(0, Math.min(100, progress.percent));
       progressBar.value = pct;
-      progressLabel.textContent = progress.label || t("progressStarting");
+
+      // "queued:3" — a place in line rather than a stage. The server sends a
+      // marker because this page is translated on the client.
+      const queued = /^queued:(\d+)$/.exec(progress.label || "");
+      if (queued) {
+        const position = Number(queued[1]);
+        progressLabel.textContent = t("progressQueued", {
+          position: position,
+          minutes: Math.max(1, Math.ceil((position * QUEUE_ESTIMATE_SEC) / 60)),
+        });
+      } else {
+        progressLabel.textContent = progress.label || t("progressStarting");
+      }
+
       progressPercent.textContent = pct + "%";
     }
 
@@ -890,6 +965,7 @@
     }
 
     async function startJob() {
+      lastAction = startJob;
       resetUI();
       try {
         const sourceLang = document.getElementById("sourceLang").value;
@@ -928,7 +1004,7 @@
           form.append("sourceLang", sourceLang);
           form.append("targetLang", targetLang);
           const res = await uploadFileWithProgress(form, API + "/api/web/transcribe");
-          if (!res.ok) throw new Error(mapErrorMessage(res.data.error, res.data.details?.reason) || t("errorJobFailed"));
+          if (!res.ok) throw new Error(mapErrorMessage(res.data.error, res.data.details?.reason, res.data.max) || t("errorJobFailed"));
           data = res.data;
         } else {
           if (!youtubeUrl.value.trim()) throw new Error(t("errorEnterUrl"));
@@ -943,7 +1019,7 @@
             const text = await res.text().catch(() => "");
             throw new Error(text || `Server returned ${res.status}`);
           }
-          if (!res.ok) throw new Error(mapErrorMessage(data.error, data.details?.reason) || t("errorJobFailed"));
+          if (!res.ok) throw new Error(mapErrorMessage(data.error, data.details?.reason, data.max) || t("errorJobFailed"));
         }
 
         currentJobId = data.jobId;
