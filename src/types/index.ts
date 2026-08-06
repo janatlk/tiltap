@@ -129,6 +129,12 @@ export interface TranslateResponse {
   warning?: string;
   /** Estimated provider cost in USD for this translation. */
   costUsd?: number;
+  /**
+   * The model that actually produced this translation. Recorded because the
+   * model is chosen per language pair at runtime, so the configured default
+   * says nothing about what really ran.
+   */
+  model?: string;
   /** Public request number that the user can quote when reporting errors. */
   requestId?: number;
 }

@@ -56,11 +56,14 @@ export async function cleanupTranscription(
 
   const systemPrompt = buildSystemPrompt(language);
   const userPrompt = text;
-  // Cap cleanup output roughly to input size plus a small margin; this avoids
-  // over-allocating tokens on short transcripts while still allowing larger outputs.
+  // Cleanup rewrites the transcript almost one-to-one, so the budget has to
+  // cover the whole input. The old `length / 3` assumed a Latin-calibrated
+  // ~3 chars per token; our transcripts are Cyrillic, where it runs closer to
+  // 1.2 tokens per character — roughly a fourfold underestimate that truncated
+  // long transcripts, which the sanity gate then discarded as "too short".
   const maxTokens = Math.min(
-    4096,
-    Math.max(256, Math.ceil(text.length / 3) + 256)
+    config.TILTAB_CLEANUP_MAX_TOKENS || 8192,
+    Math.max(256, Math.ceil(text.length * 1.2) + 512)
   );
 
   const providers = buildProviderChain(lang);
@@ -102,8 +105,11 @@ export async function cleanupTranscription(
     }
   }
 
-  logger.warn("All LLM cleanup providers failed; returning raw transcript");
-  return { cleanedText: text, provider: "fallback", model: "", warning: "LLM cleanup failed (rate limit or provider error). Returned raw transcript." };
+  // Reached both when providers error out and when they answered but the
+  // sanity gate rejected the rewrite. In practice rejection is the common case,
+  // so do not claim a provider failure here.
+  logger.warn("No LLM cleanup result accepted; returning raw transcript", { language: lang });
+  return { cleanedText: text, provider: "fallback", model: "" };
 }
 
 // ---------------------------------------------------------------------------

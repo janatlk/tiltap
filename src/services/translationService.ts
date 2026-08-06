@@ -6,14 +6,17 @@ import { latinToCyrillic } from "../utils/uzbekTransliteration";
 import { similarity } from "../utils/textSimilarity";
 import { createHash } from "crypto";
 import * as translationRepo from "../db/repos/translationRepo";
+import * as glossaryRepo from "../db/repos/glossaryRepo";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 const AZURE_TRANSLATOR_API_VERSION = "3.0";
 
 // Keep each LLM translation request small enough that its output cannot exceed
-// the max_tokens budget (which would truncate). With ~2 chars/token and the
-// generous estimate below, ~4000 chars → ~2500 output tokens, well under the cap.
-const TRANSLATION_CHUNK_CHARS = 4000;
+// the max_tokens budget (which would truncate mid-sentence, invisibly to the
+// user). The previous 4000 assumed ~2 chars/token, which only holds for Latin
+// script: our targets are mostly Cyrillic, where the tokenizer is far less
+// efficient and a 4000-char chunk regularly blew past the cap.
+const TRANSLATION_CHUNK_CHARS = 2500;
 
 // Azure Translator character cost (USD per character).
 const AZURE_TRANSLATOR_COST_PER_CHAR = 10 / 1_000_000;
@@ -175,6 +178,7 @@ async function translateWithLingva(req: TranslateRequest): Promise<TranslateResp
     translatedText: translatedChunks.join("\n\n"),
     detectedLang: source === "auto" ? "auto" : source,
     costUsd: 0,
+    model: "lingva",
   };
 }
 
@@ -251,6 +255,7 @@ async function translateWithAzure(req: TranslateRequest): Promise<TranslateRespo
     translatedText: translatedChunks.join("\n\n"),
     detectedLang: source === "auto" ? "auto" : source,
     costUsd,
+    model: "azure-translator",
   };
 }
 
@@ -326,6 +331,7 @@ async function translateWithYandex(req: TranslateRequest): Promise<TranslateResp
     translatedText: translatedChunks.join("\n\n"),
     detectedLang: source === "auto" ? "auto" : source,
     costUsd,
+    model: "yandex-translate",
   };
 }
 
@@ -344,7 +350,113 @@ function buildSystemPrompt(targetName: string, sourceName?: string): string {
     "Rules: translate every sentence and word; preserve sentence structure and repetitions; " +
     "keep names, numbers, and dates accurate; use established target-language forms for names when they exist; " +
     "do not add, omit, infer, reframe, or explain. " +
+    // Sources reach us from speech recognition and from users pasting text, so
+    // stray sentence breaks are common. Carrying one through produces a
+    // fragment in the target language that reads as a translation error, when
+    // the punctuation was wrong to begin with. Rejoining is the one structural
+    // liberty worth allowing: it changes no wording and adds no meaning.
+    "One exception to preserving structure: if a sentence break is clearly a " +
+    "typo — a full stop followed by a lower-case word, or a fragment that " +
+    "cannot stand alone — treat the parts as one sentence and translate them " +
+    "as such. Never split or merge sentences for any other reason. " +
     "Output only the translation, no markdown, no XML, no notes."
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Glossary
+// ---------------------------------------------------------------------------
+
+export interface GlossaryMatch {
+  term: string;
+  translation: string;
+  note?: string | null;
+}
+
+/**
+ * Find glossary terms that occur in the text.
+ *
+ * Matching is prefix-based on purpose. Kyrgyz and Uzbek are agglutinative:
+ * a term appears in running text with case and possessive suffixes attached
+ * ("китеп" -> "китепти", "китебинде"), so requiring an exact word would miss
+ * nearly every real occurrence. Short terms are matched exactly instead,
+ * because a three-letter prefix would fire on half the vocabulary.
+ */
+export function findGlossaryMatches(
+  text: string,
+  entries: { term: string; translation: string; note?: string | null }[]
+): GlossaryMatch[] {
+  const lower = text.toLowerCase();
+  // Split on anything that is not a letter, digit or hyphen, so word-internal
+  // hyphens survive but punctuation does not glue onto the token.
+  const words = lower.split(/[^\p{L}\p{N}-]+/u).filter(Boolean);
+  const wordSet = new Set(words);
+
+  const matches: GlossaryMatch[] = [];
+  for (const entry of entries) {
+    const term = entry.term.toLowerCase().trim();
+    if (!term) continue;
+
+    let hit: boolean;
+    if (term.includes(" ")) {
+      // Multi-word terms: look them up in the raw text, since the words must
+      // stay adjacent for the term to mean what the glossary says.
+      hit = lower.includes(term);
+    } else if (term.length <= 3) {
+      hit = wordSet.has(term);
+    } else {
+      hit = wordSet.has(term) || words.some((w) => w.startsWith(term));
+    }
+
+    if (hit) {
+      matches.push({ term: entry.term, translation: entry.translation, note: entry.note });
+    }
+  }
+  return matches;
+}
+
+/** Load the glossary for a direction and match it against the text. */
+async function glossaryFor(text: string, sourceLang: string, targetLang: string): Promise<GlossaryMatch[]> {
+  if (!config.TILTAB_GLOSSARY_ENABLED) return [];
+  try {
+    const entries = await glossaryRepo.listForDirection(sourceLang, targetLang);
+    if (entries.length === 0) return [];
+    const matches = findGlossaryMatches(text, entries);
+    const cap = config.TILTAB_GLOSSARY_MAX_TERMS || 120;
+    // listForDirection already orders by term length descending, so slicing
+    // keeps the most specific terms and drops the generic ones first.
+    const applied = matches.slice(0, cap);
+    if (matches.length > 0) {
+      logger.info("Glossary terms applied", {
+        sourceLang,
+        targetLang,
+        matched: matches.length,
+        applied: applied.length,
+        available: entries.length,
+        ...(matches.length > cap ? { droppedOverCap: matches.length - cap } : {}),
+      });
+    }
+    return applied;
+  } catch (err) {
+    // The glossary improves a translation; it must never prevent one.
+    logger.warn("Glossary lookup failed, translating without it", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+}
+
+function glossaryPrompt(matches: GlossaryMatch[]): string {
+  if (matches.length === 0) return "";
+  const lines = matches.map((m) =>
+    m.note ? `${m.term} = ${m.translation} (${m.note})` : `${m.term} = ${m.translation}`
+  );
+  return (
+    " A glossary of approved translations for terms appearing in this text is " +
+    "given below. Use exactly these renderings, adjusting only grammatical form " +
+    "to fit the sentence:\n" +
+    lines.join("\n")
   );
 }
 
@@ -353,12 +465,16 @@ function buildPayload(
   sourceName: string | undefined,
   text: string,
   model: string,
-  maxTokens?: number
+  maxTokens?: number,
+  glossary: GlossaryMatch[] = []
 ): object {
   const payload: Record<string, unknown> = {
     model,
     messages: [
-      { role: "system", content: buildSystemPrompt(targetName, sourceName) },
+      {
+        role: "system",
+        content: buildSystemPrompt(targetName, sourceName) + glossaryPrompt(glossary),
+      },
       {
         role: "user",
         content: `<SOURCE>\n${text}\n</SOURCE>`,
@@ -436,7 +552,11 @@ function logTranslationCost(provider: string, model: string, promptTokens: numbe
 // input/3 estimate under-budgeted badly for Cyrillic and caused truncation.
 // Long inputs are chunked (see TRANSLATION_CHUNK_CHARS) so this stays under cap.
 function estimateMaxTokens(text: string, cap: number): number {
-  return Math.min(cap, Math.max(256, Math.ceil(text.length / 2) + 512));
+  // Budget ~1.2 tokens per character. That is deliberately pessimistic for
+  // Latin text and roughly right for Cyrillic; under-budgeting silently
+  // truncates the user's translation, over-budgeting costs nothing because
+  // billing is on tokens actually produced.
+  return Math.min(cap, Math.max(256, Math.ceil(text.length * 1.2) + 512));
 }
 
 function isRetryableError(status: number, body: string): boolean {
@@ -459,7 +579,8 @@ async function translateChunkWithOpenAI(
   targetName: string,
   sourceName: string | undefined,
   model: string,
-  apiKey: string
+  apiKey: string,
+  glossary: GlossaryMatch[] = []
 ): Promise<{ text: string; costUsd: number }> {
   const cap = config.TILTAB_TRANSLATION_MAX_TOKENS || 4096;
   const maxTokens = estimateMaxTokens(text, cap);
@@ -467,7 +588,7 @@ async function translateChunkWithOpenAI(
     return await callTranslationProvider(
       OPENAI_API_URL,
       apiKey,
-      buildPayload(targetName, sourceName, text, model, maxTokens),
+      buildPayload(targetName, sourceName, text, model, maxTokens, glossary),
       "OpenAI",
       maxTokens
     );
@@ -481,7 +602,7 @@ async function translateChunkWithOpenAI(
     const parts: string[] = [];
     let cost = 0;
     for (const half of halves) {
-      const r = await translateChunkWithOpenAI(half, targetName, sourceName, model, apiKey);
+      const r = await translateChunkWithOpenAI(half, targetName, sourceName, model, apiKey, glossary);
       parts.push(r.text);
       cost += r.costUsd;
     }
@@ -489,9 +610,33 @@ async function translateChunkWithOpenAI(
   }
 }
 
+/**
+ * Choose the translation model from the language pair.
+ *
+ * The cheap mini model is only good enough when both ends are high-resource
+ * languages. On Kyrgyz, Tajik and Uzbek it invents word forms and produces
+ * Russian/Turkic hybrids, so anything touching those — or an unknown source,
+ * which may well be one of them — goes to the stronger model. The price
+ * difference is a fraction of a cent per request, so quality wins.
+ */
+function pickTranslationModel(sourceLang: string, targetLang: string): string {
+  const lowResource = config.TILTAB_LOWRESOURCE_LANGUAGES;
+  const strong = config.TILTAB_TRANSLATION_MODEL_LOWRESOURCE || "gpt-4o";
+  const cheap = config.TILTAB_TRANSLATION_MODEL || "gpt-4o-mini";
+
+  const source = sourceLang.toLowerCase();
+  const target = targetLang.toLowerCase();
+  const needsStrong =
+    source === "auto" ||
+    lowResource.includes(source) ||
+    lowResource.includes(target);
+
+  return needsStrong ? strong : cheap;
+}
+
 async function translateWithOpenAI(
   req: TranslateRequest,
-  options: { skipCache?: boolean } = {}
+  options: { skipCache?: boolean; model?: string; skipSave?: boolean } = {}
 ): Promise<TranslateResponse> {
   const openaiKey = config.OPENAI_API_KEY;
   if (!openaiKey) {
@@ -510,33 +655,44 @@ async function translateWithOpenAI(
     }
   }
 
-  const model = config.TILTAB_TRANSLATION_MODEL || "gpt-4o-mini";
+  // The override exists for the beta comparison page, which needs to run the
+  // same code path on a named model rather than the one routing would choose.
+  const model = options.model || pickTranslationModel(sourceLang, req.targetLang);
 
   // Chunk long inputs so no single request can hit the output token limit.
   const chunks =
     req.text.length > TRANSLATION_CHUNK_CHARS ? chunkText(req.text, TRANSLATION_CHUNK_CHARS) : [req.text];
 
+  // Matched once against the whole text, not per chunk: a term can appear in
+  // one chunk and its translation must stay consistent across all of them.
+  const glossary = await glossaryFor(req.text, sourceLang, req.targetLang);
+
   const parts: string[] = [];
   let costUsd = 0;
   for (const chunk of chunks) {
-    const r = await translateChunkWithOpenAI(chunk, targetName, sourceName, model, openaiKey);
+    const r = await translateChunkWithOpenAI(chunk, targetName, sourceName, model, openaiKey, glossary);
     parts.push(r.text);
     costUsd += r.costUsd;
   }
   const translatedText = parts.join("\n\n");
 
   logger.info("Translated with OpenAI", { targetLang: req.targetLang, model, chunks: chunks.length, costUsd });
-  await translationRepo.saveTranslationCache({
-    sourceHash: hash,
-    sourceText: req.text,
-    sourceLang,
-    targetLang: req.targetLang,
-    translatedText,
-    provider: "openai",
-    model,
-    costUsd,
-  });
-  return { translatedText, detectedLang: sourceLang, costUsd };
+  // Comparison runs must not write to the cache: they deliberately produce
+  // several translations of the same text, and the last one to finish would
+  // otherwise become the cached answer for real users.
+  if (!options.skipSave) {
+    await translationRepo.saveTranslationCache({
+      sourceHash: hash,
+      sourceText: req.text,
+      sourceLang,
+      targetLang: req.targetLang,
+      translatedText,
+      provider: "openai",
+      model,
+      costUsd,
+    });
+  }
+  return { translatedText, detectedLang: sourceLang, costUsd, model };
 }
 
 // ---------------------------------------------------------------------------
@@ -703,7 +859,9 @@ async function reviewTranslation(
   }
 
   const key = config.OPENAI_API_KEY;
-  const model = config.TILTAB_REVIEW_MODEL || config.TILTAB_TRANSLATION_MODEL || "gpt-4o-mini";
+  // A reviewer weaker than the translator is pointless: for low-resource pairs
+  // the mini model cannot judge what it could not translate in the first place.
+  const model = config.TILTAB_REVIEW_MODEL || pickTranslationModel(sourceLang, req.targetLang);
 
   if (!key) {
     return { reviewedText: translatedText, costUsd: previousCostUsd };
@@ -759,6 +917,7 @@ function mockTranslation(req: TranslateRequest): TranslateResponse {
     translatedText: `[MOCK TRANSLATION to ${req.targetLang}]\n\n${req.text}`,
     detectedLang: "auto",
     costUsd: 0,
+    model: "mock",
   };
 }
 
@@ -982,7 +1141,11 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
   const sourceLang = normalizeLanguageCodeOrKeep(translateReq.sourceLang) ?? "auto";
   const hash = createHash("sha256").update(translateReq.text).digest("hex");
   const provider = config.TILTAB_TRANSLATION_PROVIDER;
-  const model = config.TILTAB_TRANSLATION_MODEL || "unknown";
+  // Only a placeholder for the failure paths below: the real model is chosen
+  // per language pair inside doTranslate and comes back on the result, so
+  // recording the configured default here would misreport every low-resource
+  // translation as the cheap model that never ran.
+  const configuredModel = config.TILTAB_TRANSLATION_MODEL || "unknown";
 
   // Every user-facing translation gets a public request number. This lets users
   // report problems by quoting the number, and lets admins look up the exact
@@ -1037,7 +1200,7 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
       targetLang: translateReq.targetLang,
       translatedText: result.translatedText,
       provider: provider ?? "auto",
-      model,
+      model: result.model ?? configuredModel,
       sourceUrl: translateReq.sourceUrl,
       sourceType: translateReq.sourceType,
       requestNumber,
@@ -1051,7 +1214,7 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
       targetLang: translateReq.targetLang,
       translatedText: result.translatedText,
       provider: provider ?? "auto",
-      model,
+      model: result.model ?? configuredModel,
       status: "pending",
       sourceUrl: translateReq.sourceUrl,
       sourceType: translateReq.sourceType,
@@ -1088,7 +1251,7 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
       targetLang: translateReq.targetLang,
       errorMessage,
       provider: provider ?? "auto",
-      model,
+      model: configuredModel,
       sourceUrl: translateReq.sourceUrl,
       sourceType: translateReq.sourceType,
       requestNumber,
@@ -1103,7 +1266,7 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
       sourceLang,
       targetLang: translateReq.targetLang,
       provider: provider ?? "auto",
-      model,
+      model: configuredModel,
       status: "error",
       errorMessage,
       sourceUrl: translateReq.sourceUrl,
@@ -1116,4 +1279,141 @@ export async function translateText(req: TranslateRequest): Promise<TranslateRes
 
     throw err;
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// Beta comparison
+//
+// Runs one text through every translation engine the project has, so the
+// options can be judged side by side on real input instead of in the abstract.
+// Nothing here writes to the cache or the audit log: a comparison produces
+// several competing translations of the same text, and letting any of them
+// reach the cache would poison the answer real users get.
+// ---------------------------------------------------------------------------
+
+export interface TranslationEngineInfo {
+  /** Stable id used by the API and the UI. */
+  id: string;
+  label: string;
+  /** Why the engine cannot run, when it cannot. */
+  unavailable?: string;
+  /** Roughly what a million characters through this engine costs, for orientation. */
+  pricing: string;
+}
+
+export interface EngineComparisonResult extends TranslationEngineInfo {
+  translatedText?: string;
+  model?: string;
+  durationMs: number;
+  costUsd?: number;
+  error?: string;
+  /** Flags from the same quality check that guards production translations. */
+  qualityFlags?: string[];
+  /** True for the engine production would have chosen for this language pair. */
+  isProductionChoice?: boolean;
+}
+
+export function listTranslationEngines(): TranslationEngineInfo[] {
+  const strong = config.TILTAB_TRANSLATION_MODEL_LOWRESOURCE || "gpt-4o";
+  const cheap = config.TILTAB_TRANSLATION_MODEL || "gpt-4o-mini";
+  return [
+    {
+      id: `openai:${cheap}`,
+      label: `OpenAI ${cheap}`,
+      pricing: "$0.15 / $0.60 за 1M токенов",
+      unavailable: config.OPENAI_API_KEY ? undefined : "OPENAI_API_KEY не задан",
+    },
+    {
+      id: `openai:${strong}`,
+      label: `OpenAI ${strong}`,
+      pricing: "$2.50 / $10.00 за 1M токенов",
+      unavailable: config.OPENAI_API_KEY ? undefined : "OPENAI_API_KEY не задан",
+    },
+    {
+      id: "lingva",
+      label: "Lingva (Google Translate)",
+      pricing: "бесплатно",
+      unavailable: config.LINGVA_TRANSLATE_URL ? undefined : "LINGVA_TRANSLATE_URL не задан",
+    },
+    {
+      id: "azure",
+      label: "Azure Translator",
+      pricing: "$10 за 1M символов",
+      unavailable: config.AZURE_TRANSLATOR_KEY ? undefined : "AZURE_TRANSLATOR_KEY не задан",
+    },
+    {
+      id: "yandex",
+      label: "Yandex Translate",
+      pricing: "$4.10 за 1M символов",
+      unavailable: config.YANDEX_TRANSLATE_API_KEY ? undefined : "YANDEX_TRANSLATE_API_KEY не задан",
+    },
+  ];
+}
+
+/** The engine id production routing would pick for this pair. */
+export function productionEngineId(sourceLang: string, targetLang: string): string {
+  const provider = config.TILTAB_TRANSLATION_PROVIDER;
+  if (provider === "openai" || provider === "auto") {
+    return `openai:${pickTranslationModel(normalizeLanguageCodeOrKeep(sourceLang) ?? "auto", targetLang)}`;
+  }
+  return provider;
+}
+
+async function runEngine(id: string, req: TranslateRequest): Promise<TranslateResponse> {
+  if (id.startsWith("openai:")) {
+    return await translateWithOpenAI(req, {
+      model: id.slice("openai:".length),
+      skipCache: true,
+      skipSave: true,
+    });
+  }
+  if (id === "lingva") return await translateWithLingva(req);
+  if (id === "azure") return await translateWithAzure(req);
+  if (id === "yandex") return await translateWithYandex(req);
+  throw new Error(`Unknown engine: ${id}`);
+}
+
+export async function compareTranslationEngines(
+  req: TranslateRequest,
+  engineIds?: string[]
+): Promise<EngineComparisonResult[]> {
+  const all = listTranslationEngines();
+  const selected = engineIds?.length ? all.filter((e) => engineIds.includes(e.id)) : all;
+  const productionChoice = productionEngineId(req.sourceLang ?? "auto", req.targetLang);
+
+  // In parallel: these are independent providers, and a serial run of five
+  // engines over a long text is slow enough that nobody would use the page.
+  return await Promise.all(
+    selected.map(async (engine): Promise<EngineComparisonResult> => {
+      const base: EngineComparisonResult = {
+        ...engine,
+        durationMs: 0,
+        isProductionChoice: engine.id === productionChoice,
+      };
+      if (engine.unavailable) return base;
+
+      const started = Date.now();
+      try {
+        const result = await runEngine(engine.id, req);
+        return {
+          ...base,
+          durationMs: Date.now() - started,
+          translatedText: result.translatedText,
+          model: result.model,
+          costUsd: result.costUsd,
+          qualityFlags: detectTranslationIssues(result.translatedText).flags,
+        };
+      } catch (err) {
+        // Providers that answer with an HTML error page (a Cloudflare challenge,
+        // for one) would otherwise dump the whole document into the UI.
+        const raw = err instanceof Error ? err.message : String(err);
+        return {
+          ...base,
+          durationMs: Date.now() - started,
+          error: raw.length > 300 ? raw.slice(0, 300) + "…" : raw,
+        };
+      }
+    })
+  );
 }

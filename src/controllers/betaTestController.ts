@@ -7,7 +7,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { logger } from "../utils/logger";
 import { config } from "../config";
-import { isSupportedMediaUrl, validateMediaUrl, downloadMediaAudio, cleanupTempFile } from "../services/youtubeService";
+import { isSupportedMediaUrl, validateMediaUrl, downloadMediaAudio, cleanupTempFile, mediaAudioFilename } from "../services/youtubeService";
+import { listTranslationEngines, compareTranslationEngines } from "../services/translationService";
 
 const PYTHON_PATH = process.platform === "win32" ? "python" : "python3";
 const FFMPEG_PATH = require("ffmpeg-static");
@@ -250,11 +251,13 @@ export async function handleBetaLink(req: Request, res: Response): Promise<void>
       return;
     }
 
-    const { audioBuffer, tmpWav } = await downloadMediaAudio(url);
+    const { readAudio, tmpWav } = await downloadMediaAudio(url);
+    // The beta bench needs the bytes right away, so read them here.
+    const audioBuffer = await readAudio();
     try {
       const result = await runBetaStt(
         audioBuffer,
-        "youtube_audio.wav",
+        mediaAudioFilename(url),
         model,
         language && language !== "auto" ? language : undefined,
         { sourceUrl: url },
@@ -571,9 +574,9 @@ export async function handleBetaCompare(req: Request, res: Response): Promise<vo
         return;
       }
       const download = await downloadMediaAudio(body.url);
-      audioBuffer = download.audioBuffer;
+      audioBuffer = await download.readAudio();
       tmpWav = download.tmpWav;
-      filename = "youtube_audio.wav";
+      filename = mediaAudioFilename(body.url);
       title = validation.title;
     } else {
       res.status(400).json({ error: "Upload a file or provide a supported media URL" });
@@ -642,4 +645,72 @@ async function getModelNames(): Promise<Map<string, string>> {
     }
   }
   return names;
+}
+
+// ---------------------------------------------------------------------------
+// Translation engine comparison
+// ---------------------------------------------------------------------------
+
+/** Engines available for comparison, with the reason for any that cannot run. */
+export async function listTranslationEnginesHandler(req: Request, res: Response): Promise<void> {
+  if (!isAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  res.json({ engines: listTranslationEngines() });
+}
+
+/**
+ * Translate one text with every engine and return the results side by side.
+ *
+ * Deliberately bypasses the cache and the audit log: this is a bench, not a
+ * user-facing translation, and its competing outputs must not become the
+ * answer production serves.
+ */
+export async function handleTranslationCompare(req: Request, res: Response): Promise<void> {
+  if (!isAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const { text, sourceLang, targetLang, engines } = req.body as {
+    text?: string;
+    sourceLang?: string;
+    targetLang?: string;
+    engines?: string[];
+  };
+
+  if (!text?.trim()) {
+    res.status(400).json({ error: "text is required" });
+    return;
+  }
+  if (!targetLang) {
+    res.status(400).json({ error: "targetLang is required" });
+    return;
+  }
+  // The bench runs every engine on the same input, so a long text multiplies
+  // straight into cost. Keep it to something a human would actually eyeball.
+  if (text.length > 10000) {
+    res.status(400).json({ error: `text too long: ${text.length} chars (max 10000)` });
+    return;
+  }
+
+  try {
+    const results = await compareTranslationEngines(
+      { text, sourceLang: sourceLang || "auto", targetLang },
+      engines
+    );
+    logger.info("Translation comparison finished", {
+      sourceLang: sourceLang || "auto",
+      targetLang,
+      chars: text.length,
+      engines: results.map((r) => `${r.id}:${r.error ? "error" : r.durationMs + "ms"}`),
+      totalCostUsd: results.reduce((sum, r) => sum + (r.costUsd ?? 0), 0),
+    });
+    res.json({ sourceLang: sourceLang || "auto", targetLang, chars: text.length, results });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("Translation comparison failed", { error: message });
+    res.status(500).json({ error: message });
+  }
 }

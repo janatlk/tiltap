@@ -191,6 +191,129 @@
       </div>
     </div>
 
+    <!-- Translation bench: one text through every engine the project has, so the
+         options can be judged on real input rather than in the abstract. -->
+    <div class="card bg-base-100 shadow-sm border border-secondary/20">
+      <div class="card-body space-y-4">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <h2 class="card-title text-lg">Translation bench</h2>
+          <span class="text-xs opacity-60">Все движки перевода на одном тексте</span>
+        </div>
+
+        <div>
+          <label class="label" for="benchText"><span class="label-text">Текст для перевода</span></label>
+          <textarea id="benchText" class="textarea textarea-bordered w-full h-32" placeholder="Вставьте текст (до 10000 символов)"></textarea>
+          <div class="text-xs opacity-60 mt-1" id="benchCharCount">0 символов</div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="label" for="benchSource"><span class="label-text">Исходный язык</span></label>
+            <select id="benchSource" class="select select-bordered w-full">
+              <option value="auto">Определить автоматически</option>
+              <option value="ky">Кыргызский</option>
+              <option value="tg">Таджикский</option>
+              <option value="uz">Узбекский</option>
+              <option value="ru">Русский</option>
+              <option value="en">Английский</option>
+            </select>
+          </div>
+          <div>
+            <label class="label" for="benchTarget"><span class="label-text">Язык перевода</span></label>
+            <select id="benchTarget" class="select select-bordered w-full">
+              <option value="ru">Русский</option>
+              <option value="en">Английский</option>
+              <option value="ky">Кыргызский</option>
+              <option value="tg">Таджикский</option>
+              <option value="uz">Узбекский</option>
+              <option value="uz_cyrl">Узбекский (кириллица)</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="label"><span class="label-text">Движки</span></label>
+          <div class="flex flex-wrap gap-3" id="benchEngines">
+            <span class="text-sm opacity-60">Загрузка…</span>
+          </div>
+        </div>
+
+        <button class="btn btn-secondary" id="benchBtn">Перевести всеми движками</button>
+        <div class="text-xs opacity-60">
+          Результаты не попадают ни в кэш, ни в журнал переводов — это стенд, а не рабочий перевод.
+        </div>
+      </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-sm border border-accent/20">
+      <div class="card-body space-y-4">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <h2 class="card-title text-lg">Глоссарий</h2>
+          <span class="text-xs opacity-60" id="glossaryCount"></span>
+        </div>
+        <div class="text-xs opacity-70">
+          Термины подставляются в запрос к модели, если найдены в тексте. Поиск учитывает
+          киргизские и узбекские суффиксы: «китеп» найдётся в «китепти».
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-5 gap-2 items-end">
+          <div>
+            <label class="label" for="glSource"><span class="label-text text-xs">Из</span></label>
+            <select id="glSource" class="select select-bordered select-sm w-full">
+              <option value="ky">ky</option>
+              <option value="tg">tg</option>
+              <option value="uz">uz</option>
+              <option value="ru">ru</option>
+              <option value="en">en</option>
+            </select>
+          </div>
+          <div>
+            <label class="label" for="glTarget"><span class="label-text text-xs">В</span></label>
+            <select id="glTarget" class="select select-bordered select-sm w-full">
+              <option value="ru">ru</option>
+              <option value="en">en</option>
+              <option value="ky">ky</option>
+              <option value="tg">tg</option>
+              <option value="uz">uz</option>
+              <option value="uz_cyrl">uz_cyrl</option>
+            </select>
+          </div>
+          <div>
+            <label class="label" for="glTerm"><span class="label-text text-xs">Термин</span></label>
+            <input id="glTerm" class="input input-bordered input-sm w-full" placeholder="кол чатыр">
+          </div>
+          <div>
+            <label class="label" for="glTranslation"><span class="label-text text-xs">Перевод</span></label>
+            <input id="glTranslation" class="input input-bordered input-sm w-full" placeholder="зонт">
+          </div>
+          <button class="btn btn-accent btn-sm" id="glAddBtn">Добавить</button>
+        </div>
+
+        <div>
+          <label class="label" for="glNote"><span class="label-text text-xs">Примечание для модели (необязательно)</span></label>
+          <input id="glNote" class="input input-bordered input-sm w-full" placeholder="имя человека, не переводить">
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr><th>Направление</th><th>Термин</th><th>Перевод</th><th>Примечание</th><th></th></tr>
+            </thead>
+            <tbody id="glTableBody">
+              <tr><td colspan="5" class="opacity-60">Введите admin token</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-sm hidden" id="benchResultBox">
+      <div class="card-body space-y-4">
+        <div class="text-sm text-base-content/70" id="benchMeta"></div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4" id="benchGrid"></div>
+      </div>
+    </div>
+
     <div class="card bg-base-100 shadow-sm hidden" id="compareResultBox">
       <div class="card-body space-y-4">
         <div class="text-sm text-base-content/70" id="compareResultMeta"></div>
@@ -705,6 +828,218 @@
         renderSegments(document.getElementById("segments-" + key), segments);
       });
     }
+
+    // --- Translation bench -------------------------------------------------
+    const benchText = document.getElementById("benchText");
+    const benchSource = document.getElementById("benchSource");
+    const benchTarget = document.getElementById("benchTarget");
+    const benchEngines = document.getElementById("benchEngines");
+    const benchBtn = document.getElementById("benchBtn");
+    const benchResultBox = document.getElementById("benchResultBox");
+    const benchMeta = document.getElementById("benchMeta");
+    const benchGrid = document.getElementById("benchGrid");
+    const benchCharCount = document.getElementById("benchCharCount");
+
+    benchText.addEventListener("input", () => {
+      const n = benchText.value.length;
+      benchCharCount.textContent = n + " \u0441\u0438\u043c\u0432\u043e\u043b\u043e\u0432" + (n > 10000 ? " \u2014 \u043f\u0440\u0435\u0432\u044b\u0448\u0435\u043d \u043b\u0438\u043c\u0438\u0442 10000" : "");
+      benchCharCount.className = "text-xs mt-1 " + (n > 10000 ? "text-error" : "opacity-60");
+    });
+
+    async function loadBenchEngines() {
+      if (!adminToken.value.trim()) {
+        benchEngines.innerHTML = "<span class='text-sm opacity-60'>Введите admin token</span>";
+        return;
+      }
+      try {
+        const res = await fetch(API + "/translation-engines", { headers: { "X-Admin-Token": adminToken.value } });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        benchEngines.innerHTML = "";
+        (data.engines || []).forEach((e) => {
+          const wrap = document.createElement("label");
+          wrap.className = "label cursor-pointer gap-2 justify-start";
+          // An engine with no key configured is listed but not selectable, so the
+          // page states what exists instead of silently hiding half of it.
+          wrap.innerHTML =
+            "<input type='checkbox' class='checkbox checkbox-sm' value='" + e.id + "' " + (e.unavailable ? "disabled" : "checked") + ">" +
+            "<span class='label-text " + (e.unavailable ? "opacity-40" : "") + "'>" + e.label + "</span>" +
+            "<span class='text-xs opacity-50'>" + (e.unavailable ? "— " + e.unavailable : e.pricing) + "</span>";
+          benchEngines.appendChild(wrap);
+        });
+      } catch (err) {
+        benchEngines.innerHTML = "<span class='text-sm text-error'>Не удалось загрузить список: " + err.message + "</span>";
+      }
+    }
+
+    async function runBench() {
+      if (!adminToken.value.trim()) { alert("Admin token is required"); return; }
+      const text = benchText.value.trim();
+      if (!text) { alert("Введите текст"); return; }
+
+      const engines = [...benchEngines.querySelectorAll("input:checked")].map((i) => i.value);
+      if (engines.length === 0) { alert("Выберите хотя бы один движок"); return; }
+
+      benchBtn.disabled = true;
+      benchBtn.innerHTML = "<span class='loading loading-spinner loading-sm'></span> Перевожу…";
+      benchResultBox.classList.add("hidden");
+
+      try {
+        const res = await fetch(API + "/translation-compare", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Admin-Token": adminToken.value },
+          body: JSON.stringify({ text, sourceLang: benchSource.value, targetLang: benchTarget.value, engines }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+        renderBench(data);
+      } catch (err) {
+        benchGrid.innerHTML = "<div class='alert alert-error'>" + err.message + "</div>";
+        benchMeta.textContent = "";
+        benchResultBox.classList.remove("hidden");
+      } finally {
+        benchBtn.disabled = false;
+        benchBtn.textContent = "Перевести всеми движками";
+      }
+    }
+
+    function renderBench(data) {
+      const total = data.results.reduce((sum, r) => sum + (r.costUsd || 0), 0);
+      benchMeta.textContent = data.sourceLang + " → " + data.targetLang + " · " + data.chars +
+        " символов · суммарная стоимость прогона $" + total.toFixed(6);
+
+      benchGrid.innerHTML = "";
+      data.results.forEach((r) => {
+        const col = document.createElement("div");
+        col.className = "border border-base-300 rounded-box p-4 space-y-2";
+
+        let body;
+        if (r.unavailable) {
+          body = "<div class='text-sm opacity-50'>Не настроен: " + r.unavailable + "</div>";
+        } else if (r.error) {
+          body = "<div class='alert alert-error text-sm'>" + r.error + "</div>";
+        } else {
+          const flags = (r.qualityFlags || []).length
+            ? "<div class='badge badge-warning badge-sm'>проверка качества: " + r.qualityFlags.join(", ") + "</div>"
+            : "";
+          body = flags +
+            "<div class='text-box text-sm'>" + (r.translatedText || "").replace(/</g, "&lt;") + "</div>" +
+            "<div class='text-xs opacity-60'>" + r.durationMs + " мс · $" + (r.costUsd || 0).toFixed(6) +
+            (r.model ? " · " + r.model : "") + "</div>";
+        }
+
+        col.innerHTML =
+          "<div class='flex items-center gap-2 flex-wrap'>" +
+          "<span class='font-semibold'>" + r.label + "</span>" +
+          (r.isProductionChoice ? "<span class='badge badge-primary badge-sm'>сейчас в проде</span>" : "") +
+          "</div>" + body;
+        benchGrid.appendChild(col);
+      });
+      benchResultBox.classList.remove("hidden");
+    }
+
+    // --- Glossary ----------------------------------------------------------
+    const GLOSSARY_API = "/api/admin/glossary";
+    const glSource = document.getElementById("glSource");
+    const glTarget = document.getElementById("glTarget");
+    const glTerm = document.getElementById("glTerm");
+    const glTranslation = document.getElementById("glTranslation");
+    const glNote = document.getElementById("glNote");
+    const glAddBtn = document.getElementById("glAddBtn");
+    const glTableBody = document.getElementById("glTableBody");
+    const glossaryCount = document.getElementById("glossaryCount");
+
+    function glRow(text) {
+      return "<tr><td colspan='5' class='opacity-60'>" + text + "</td></tr>";
+    }
+
+    async function loadGlossary() {
+      if (!adminToken.value.trim()) {
+        glTableBody.innerHTML = glRow("Введите admin token");
+        return;
+      }
+      try {
+        const res = await fetch(GLOSSARY_API, { headers: { "X-Admin-Token": adminToken.value } });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        const entries = data.entries || [];
+        glossaryCount.textContent = entries.length ? entries.length + " терминов" : "пусто";
+
+        if (entries.length === 0) {
+          glTableBody.innerHTML = glRow("Пока ничего нет — добавьте первый термин");
+          return;
+        }
+        glTableBody.innerHTML = "";
+        entries.forEach((e) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            "<td class='opacity-70'>" + e.source_lang + " → " + e.target_lang + "</td>" +
+            "<td class='font-medium'>" + e.term + "</td>" +
+            "<td>" + e.translation + "</td>" +
+            "<td class='opacity-60 text-xs'>" + (e.note || "") + "</td>" +
+            "<td><button class='btn btn-ghost btn-xs text-error' data-id='" + e.id + "'>удалить</button></td>";
+          tr.querySelector("button").addEventListener("click", () => deleteGlossary(e.id));
+          glTableBody.appendChild(tr);
+        });
+      } catch (err) {
+        glTableBody.innerHTML = glRow("Ошибка: " + err.message);
+      }
+    }
+
+    async function addGlossary() {
+      if (!adminToken.value.trim()) { alert("Admin token is required"); return; }
+      const term = glTerm.value.trim();
+      const translation = glTranslation.value.trim();
+      if (!term || !translation) { alert("Заполните термин и перевод"); return; }
+
+      glAddBtn.disabled = true;
+      try {
+        const res = await fetch(GLOSSARY_API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Admin-Token": adminToken.value },
+          body: JSON.stringify({
+            sourceLang: glSource.value,
+            targetLang: glTarget.value,
+            term: term,
+            translation: translation,
+            note: glNote.value.trim() || null,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+        glTerm.value = "";
+        glTranslation.value = "";
+        glNote.value = "";
+        await loadGlossary();
+      } catch (err) {
+        alert("Не удалось сохранить: " + err.message);
+      } finally {
+        glAddBtn.disabled = false;
+      }
+    }
+
+    async function deleteGlossary(id) {
+      if (!confirm("Удалить термин?")) return;
+      try {
+        const res = await fetch(GLOSSARY_API + "/" + id, {
+          method: "DELETE",
+          headers: { "X-Admin-Token": adminToken.value },
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        await loadGlossary();
+      } catch (err) {
+        alert("Не удалось удалить: " + err.message);
+      }
+    }
+
+    glAddBtn.addEventListener("click", addGlossary);
+    glTranslation.addEventListener("keydown", (e) => { if (e.key === "Enter") addGlossary(); });
+    adminToken.addEventListener("change", loadGlossary);
+    loadGlossary();
+
+    benchBtn.addEventListener("click", runBench);
+    adminToken.addEventListener("change", loadBenchEngines);
+    loadBenchEngines();
 
     runBtn.addEventListener("click", runTest);
     compareBtn.addEventListener("click", runCompare);

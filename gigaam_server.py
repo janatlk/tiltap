@@ -51,11 +51,18 @@ def _warm_up():
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, obj):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionError) as e:
+            # The client (backend) hung up before we finished — typically it
+            # timed out and aborted a long transcription. Nothing to send to a
+            # dead socket; log a single line instead of a scary traceback.
+            print(f"[gigaam-server] client disconnected before response ({e})",
+                  file=sys.stderr, flush=True)
 
     def do_GET(self):
         if self.path == "/health":
