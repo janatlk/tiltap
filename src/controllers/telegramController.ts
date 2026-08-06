@@ -174,7 +174,7 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
     const pending = getPendingAction(chatId);
     if (pending?.type === "translate_text") {
       clearPendingAction(chatId);
-      await processTextTranslation(chatId, text, pending.targetLanguage, prefs);
+      await processTextTranslation(chatId, text, pending.targetLanguage, prefs, pending.sourceLanguage);
       return;
     }
 
@@ -386,14 +386,13 @@ async function startTranslateTextFlow(chatId: number, prefs: UserPreferences, in
   const lang = prefs.interfaceLanguage;
   const targetLang = prefs.targetLanguage === "none" ? undefined : prefs.targetLanguage;
 
-  if (initialText && targetLang) {
-    await processTextTranslation(chatId, initialText, targetLang, prefs);
-    return;
-  }
-
   const actionId = setPendingAction(chatId, {
     type: "translate_text",
     targetLanguage: targetLang ?? "ru",
+    // Held until both questions are answered. Translating it straight away
+    // would skip the source-language question for anyone using /translate with
+    // the text on the same line, which is exactly where guessing goes wrong.
+    text: initialText,
     createdAt: Date.now(),
   });
 
@@ -406,7 +405,8 @@ async function processTextTranslation(
   chatId: number,
   text: string,
   targetLang: SupportedLanguage,
-  prefs: UserPreferences
+  prefs: UserPreferences,
+  sourceLang?: SupportedLanguage
 ): Promise<void> {
   const lang = prefs.interfaceLanguage;
   const statusMessageId = await sendTextMessage(chatId, t("translating", lang), {
@@ -417,6 +417,7 @@ async function processTextTranslation(
     const result = await translateText({
       text,
       targetLang,
+      sourceLang,
       sourceUrl: undefined,
       sourceType: "telegram_text",
     });
@@ -1706,6 +1707,17 @@ async function handleCallbackQuery(callbackQuery: {
         updatePendingAction(chatId, { sourceLanguage: normalized });
       }
       await editConfirmationMessage(chatId, messageId, prefs);
+    } else if (action === "translate_text" && actionId) {
+      const pending = getPendingAction(chatId);
+      if (pending && pending.type === "translate_text" && pending.actionId === actionId) {
+        updatePendingAction(chatId, { sourceLanguage: normalized });
+        if (pending.text) {
+          clearPendingAction(chatId);
+          await processTextTranslation(chatId, pending.text, pending.targetLanguage, prefs, normalized);
+          return;
+        }
+      }
+      await sendTextMessage(chatId, t("sendTextToTranslate", lang), { replyMarkup: createMainKeyboard(lang) });
     }
     return;
   }
@@ -1733,7 +1745,13 @@ async function handleCallbackQuery(callbackQuery: {
           updatePendingAction(chatId, { targetLanguage: normalized });
         }
       }
-      await sendTextMessage(chatId, t("sendTextToTranslate", lang), { replyMarkup: createMainKeyboard(lang) });
+      // Ask which language the text is in before taking it. Pasted text has no
+      // language attached, and a wrong assumption is not a small error: garbled
+      // Kyrgyz sent into Russian without a stated source comes back
+      // untranslated, because the model reads the Cyrillic as Russian already.
+      await sendTextMessage(chatId, t("chooseTextSourceLanguage", lang), {
+        replyMarkup: createSourceLanguageKeyboard(`translate_text:${actionId}`, lang, "action:main"),
+      });
     }
     return;
   }

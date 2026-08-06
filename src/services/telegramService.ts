@@ -80,6 +80,15 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     en: "Choose interface language:",
     ru: "Выберите язык интерфейса:",
   },
+  // Asked before taking pasted text. Unlike a recording, text carries no clue
+  // the recogniser could have supplied.
+  chooseTextSourceLanguage: {
+    ky: "Текст кайсы тилде жазылган? Тандаңыз:",
+    tg: "Матн ба кадом забон навишта шудааст? Интихоб кунед:",
+    uz: "Matn qaysi tilda yozilgan? Tanlang:",
+    en: "What language is the text in? Choose:",
+    ru: "На каком языке текст? Выберите:",
+  },
   chooseSourceLanguage: {
     ky: "Бул жазууда кайсы тилде сүйлөнүп жатат? Тандаңыз:",
     tg: "Дар ин сабт ба кадом забон сухан меравад? Интихоб кунед:",
@@ -731,6 +740,15 @@ export interface PendingYouTube {
 export interface PendingTranslateText {
   type: "translate_text";
   targetLanguage: SupportedLanguage;
+  /**
+   * Pasted text carries no language, and guessing from the script only works
+   * when the letters are distinctive. Asking is cheaper than being wrong:
+   * garbled Kyrgyz sent into Russian without a stated source came back
+   * untranslated, because the model read the Cyrillic as Russian already.
+   */
+  sourceLanguage?: SupportedLanguage;
+  /** Text supplied with the command, held while we ask the two questions. */
+  text?: string;
   createdAt: number;
 }
 
@@ -1133,7 +1151,7 @@ export function createInterfaceLanguageKeyboard(
 }
 
 export function createSourceLanguageKeyboard(
-  action: "default" | `confirm:${string}`,
+  action: "default" | `confirm:${string}` | `translate_text:${string}`,
   lang: SupportedLanguage,
   backAction = "action:settings"
 ): { inline_keyboard: InlineKeyboardButton[][] } {
