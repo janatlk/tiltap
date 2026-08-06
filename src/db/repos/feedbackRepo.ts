@@ -8,6 +8,13 @@ export type FeedbackRating = "up" | "down" | "issue";
 export type FeedbackSource = "telegram" | "web";
 
 export interface FeedbackEntry {
+  status: string | null;
+  admin_reply: string | null;
+  admin_reply_at: Date | null;
+  reply_delivered: boolean | null;
+  reply_seen_at: Date | null;
+  status_changed_at: Date | null;
+  last_reminded_at: Date | null;
   id: number;
   request_number: number | null;
   source: FeedbackSource;
@@ -147,4 +154,86 @@ export async function getFeedbackStats(): Promise<{
   // total stays the rating count so the satisfaction rate keeps its meaning;
   // problem reports are counted alongside, not folded in.
   return { up, down, issue, total: up + down };
+}
+
+// ---------------------------------------------------------------------------
+// Admin handling: reply, resolve, defer
+// ---------------------------------------------------------------------------
+
+export type FeedbackStatus = "new" | "resolved" | "deferred";
+
+/** Record the admin's reply. Delivery is the caller's job and is reported back. */
+export async function saveAdminReply(
+  id: number,
+  reply: string,
+  delivered: boolean
+): Promise<FeedbackEntry | null> {
+  return queryOne<FeedbackEntry>(
+    `UPDATE feedback
+     SET admin_reply = $1, admin_reply_at = NOW(), reply_delivered = $2
+     WHERE id = $3
+     RETURNING *`,
+    [reply, delivered, id]
+  );
+}
+
+export async function setStatus(id: number, status: FeedbackStatus): Promise<FeedbackEntry | null> {
+  return queryOne<FeedbackEntry>(
+    `UPDATE feedback
+     SET status = $1,
+         status_changed_at = NOW(),
+         -- Clear the reminder clock so a freshly deferred item is not treated
+         -- as already reminded today.
+         last_reminded_at = NULL
+     WHERE id = $2
+     RETURNING *`,
+    [status, id]
+  );
+}
+
+/**
+ * Deferred items that have not been reported to the admin in the last `hours`.
+ * Driven by a stored timestamp rather than a timer so restarts do not reset the
+ * schedule or cause a double reminder.
+ */
+export async function listDeferredDueForReminder(hours: number): Promise<FeedbackEntry[]> {
+  const rows = await query<FeedbackEntry>(
+    `SELECT * FROM feedback
+     WHERE status = 'deferred'
+       AND (last_reminded_at IS NULL OR last_reminded_at < NOW() - ($1 || ' hours')::interval)
+     ORDER BY created_at ASC`,
+    [String(hours)]
+  );
+  return rows ?? [];
+}
+
+export async function markReminded(ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  await query(`UPDATE feedback SET last_reminded_at = NOW() WHERE id = ANY($1::int[])`, [ids]);
+}
+
+/** Undelivered replies for a returning web visitor. */
+export async function listPendingWebReplies(webClientId: string): Promise<FeedbackEntry[]> {
+  const rows = await query<FeedbackEntry>(
+    `SELECT * FROM feedback
+     WHERE web_client_id = $1 AND admin_reply IS NOT NULL AND reply_seen_at IS NULL
+     ORDER BY admin_reply_at ASC`,
+    [webClientId]
+  );
+  return rows ?? [];
+}
+
+export async function markRepliesSeen(ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  await query(`UPDATE feedback SET reply_seen_at = NOW() WHERE id = ANY($1::int[])`, [ids]);
+}
+
+export async function countByStatus(): Promise<Record<string, number>> {
+  const rows = await query<{ status: string; count: number | string }>(
+    `SELECT COALESCE(status, 'new') AS status, COUNT(*)::int AS count
+     FROM feedback WHERE rating = 'issue' GROUP BY COALESCE(status, 'new')`
+  );
+  const out: Record<string, number> = { new: 0, resolved: 0, deferred: 0 };
+  for (const r of rows ?? []) out[r.status] = Number(r.count);
+  return out;
 }

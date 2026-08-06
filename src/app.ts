@@ -8,6 +8,8 @@ import webhookRoutes from "./routes/webhook";
 import translateRoutes from "./routes/translate";
 import webRoutes from "./routes/web";
 import adminRoutes from "./routes/admin";
+import { requireAdmin } from "./middleware/requireAdmin";
+import { login, logout, session } from "./services/adminAuthService";
 import betaTestRoutes from "./routes/betaTest";
 import { getProvidersHealth } from "./controllers/providersController";
 import { isDbHealthy } from "./db";
@@ -50,6 +52,13 @@ app.use(express.static(path.join(process.cwd(), "public")));
 app.use("/webhook", webhookRoutes);
 app.use("/api/translate", translateRoutes);
 app.use("/api/web", webRoutes);
+// Login endpoints sit in front of the gate, or nobody could ever log in.
+app.post("/api/admin/login", login);
+app.post("/api/admin/logout", logout);
+app.get("/api/admin/session", session);
+
+// Everything else under /api/admin requires a session or a machine token.
+app.use("/api/admin", requireAdmin);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin/beta", betaTestRoutes);
 
@@ -60,6 +69,16 @@ app.use((_req: Request, res: Response) => {
 
 // Global error handler
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  // An oversized body is the caller's problem, not ours. Reported as 500 it
+  // reads as "the service is broken" and invites a retry that cannot succeed.
+  const status = (err as { status?: number; statusCode?: number }).status
+    ?? (err as { statusCode?: number }).statusCode;
+  if (err.name === "PayloadTooLargeError" || status === 413) {
+    logger.warn("Request body too large", { error: err.message });
+    res.status(413).json({ error: "payload_too_large" });
+    return;
+  }
+
   logger.error("Unhandled error", { error: err.message, stack: err.stack });
   res.status(500).json({ error: "Internal server error" });
 });

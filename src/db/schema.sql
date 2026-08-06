@@ -305,3 +305,70 @@ CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_feedback_rating ON feedback(rating, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_feedback_request_number ON feedback(request_number);
 CREATE INDEX IF NOT EXISTS idx_feedback_chat_id ON feedback(telegram_chat_id);
+
+-- Bilingual glossary injected into the translation prompt.
+--
+-- Exists because the models invent word forms on Kyrgyz, Tajik and Uzbek, and
+-- do so confidently: asking the model which words it is unsure about does not
+-- surface those errors, since it is not unsure. Matching the source text
+-- against this table instead makes coverage independent of the model's own
+-- confidence.
+--
+-- direction is stored explicitly rather than derived, because a term's
+-- translation is not always reversible.
+CREATE TABLE IF NOT EXISTS translation_glossary (
+  id SERIAL PRIMARY KEY,
+  source_lang VARCHAR(10) NOT NULL,
+  target_lang VARCHAR(10) NOT NULL,
+  term VARCHAR(200) NOT NULL,
+  translation VARCHAR(400) NOT NULL,
+  -- Optional guidance passed to the model with the term, e.g. "имя человека,
+  -- не переводить" or "только в контексте погоды".
+  note VARCHAR(400),
+  enabled BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Lookup is always "all terms for this direction", then matched in memory:
+-- the tables are small (hundreds of entries) and matching needs the source
+-- language's own morphology, which SQL cannot do.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_glossary_unique
+  ON translation_glossary(source_lang, target_lang, LOWER(term));
+CREATE INDEX IF NOT EXISTS idx_glossary_direction
+  ON translation_glossary(source_lang, target_lang) WHERE enabled;
+
+-- Admin handling of a feedback item. Added separately from the feedback table
+-- so existing rows keep working: everything defaults to 'new'.
+--
+-- 'deferred' exists because some reports cannot be answered immediately, and a
+-- report that is neither answered nor closed is exactly the one that gets
+-- forgotten. Deferred items are re-sent to the admin daily until they move.
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS status VARCHAR(12) DEFAULT 'new';
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS admin_reply TEXT;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS admin_reply_at TIMESTAMP WITH TIME ZONE;
+-- Whether the reply reached the user. Web reports have no push channel, so a
+-- reply to them is stored and shown when they come back, not delivered.
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS reply_delivered BOOLEAN DEFAULT FALSE;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS reply_seen_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE feedback ADD COLUMN IF NOT EXISTS last_reminded_at TIMESTAMP WITH TIME ZONE;
+
+CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status, created_at DESC);
+
+-- Admin sessions issued after a successful password login.
+--
+-- Kept in the database rather than in memory so a backend restart does not log
+-- the admin out, and so a stolen session can be revoked by deleting a row.
+-- Only the hash of the session token is stored: a database dump then does not
+-- hand over working sessions.
+CREATE TABLE IF NOT EXISTS admin_sessions (
+  token_hash VARCHAR(64) PRIMARY KEY,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  last_seen_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  ip VARCHAR(64),
+  user_agent VARCHAR(300)
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_expiry ON admin_sessions(expires_at);

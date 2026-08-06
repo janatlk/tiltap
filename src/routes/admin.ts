@@ -16,6 +16,12 @@ import {
   saveCobaltConfig,
   testCobaltConfig,
   listFeedbackEntries,
+  listGlossary,
+  saveGlossaryEntry,
+  deleteGlossaryEntry,
+  previewGlossaryMatches,
+  replyToFeedbackEntry,
+  setFeedbackStatus,
 } from "../controllers/adminController";
 
 const router = Router();
@@ -42,5 +48,15 @@ router.delete("/translations/:hash/:lang", deleteTranslationEntry);
 router.get("/cobalt", getCobaltConfig);
 router.post("/cobalt", saveCobaltConfig);
 router.post("/cobalt/test", testCobaltConfig);
+
+// Bilingual glossary injected into the translation prompt.
+router.get("/glossary", listGlossary);
+router.post("/glossary", saveGlossaryEntry);
+router.delete("/glossary/:id", deleteGlossaryEntry);
+router.post("/glossary/preview", previewGlossaryMatches);
+
+// Problem reports: answer the user, mark resolved or defer.
+router.post("/feedback/:id/reply", replyToFeedbackEntry);
+router.post("/feedback/:id/status", setFeedbackStatus);
 
 export default router;

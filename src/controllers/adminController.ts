@@ -4,9 +4,11 @@ import { config } from "../config";
 import * as translationRepo from "../db/repos/translationRepo";
 import * as webJobRepo from "../db/repos/webJobRepo";
 import * as feedbackRepo from "../db/repos/feedbackRepo";
-import { confirmTranslation } from "../services/translationService";
+import * as glossaryRepo from "../db/repos/glossaryRepo";
+import { confirmTranslation, findGlossaryMatches } from "../services/translationService";
 import { getActiveProcesses } from "../services/telegramService";
 import { getRemoteSttQueueStatus } from "../services/remoteSttService";
+import { replyToFeedback } from "../services/feedbackReplyService";
 import { getJobs } from "./webController";
 
 function isAuthorized(req: Request): boolean {
@@ -419,6 +421,12 @@ function mapFeedback(r: feedbackRepo.FeedbackEntry) {
     model: r.model,
     interfaceLang: r.interface_lang,
     createdAt: r.created_at,
+    status: r.status || "new",
+    adminReply: r.admin_reply,
+    adminReplyAt: r.admin_reply_at,
+    // Telegram reports can be answered directly; web reports have no push
+    // channel, so the panel must show whether the answer actually went out.
+    replyDelivered: r.reply_delivered,
   };
 }
 
@@ -464,5 +472,157 @@ export async function testCobaltConfig(req: Request, res: Response): Promise<voi
   } catch (err) {
     logger.error("Admin test cobalt config error", { error: err instanceof Error ? err.message : String(err) });
     res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Translation glossary
+// ---------------------------------------------------------------------------
+
+export async function listGlossary(req: Request, res: Response): Promise<void> {
+  if (!isAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const { sourceLang, targetLang } = req.query as { sourceLang?: string; targetLang?: string };
+  try {
+    const [entries, directions] = await Promise.all([
+      glossaryRepo.listAll(sourceLang, targetLang),
+      glossaryRepo.listDirections(),
+    ]);
+    res.json({ entries, directions });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("Failed to list glossary", { error: message });
+    res.status(500).json({ error: message });
+  }
+}
+
+export async function saveGlossaryEntry(req: Request, res: Response): Promise<void> {
+  if (!isAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const { sourceLang, targetLang, term, translation, note, enabled } = req.body as {
+    sourceLang?: string;
+    targetLang?: string;
+    term?: string;
+    translation?: string;
+    note?: string;
+    enabled?: boolean;
+  };
+
+  if (!sourceLang || !targetLang || !term?.trim() || !translation?.trim()) {
+    res.status(400).json({ error: "sourceLang, targetLang, term and translation are required" });
+    return;
+  }
+  if (sourceLang === targetLang) {
+    res.status(400).json({ error: "sourceLang and targetLang must differ" });
+    return;
+  }
+
+  try {
+    const entry = await glossaryRepo.upsertEntry({ sourceLang, targetLang, term, translation, note, enabled });
+    logger.info("Glossary entry saved", { sourceLang, targetLang, term });
+    res.json({ entry });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("Failed to save glossary entry", { error: message });
+    res.status(500).json({ error: message });
+  }
+}
+
+export async function deleteGlossaryEntry(req: Request, res: Response): Promise<void> {
+  if (!isAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ error: "invalid id" });
+    return;
+  }
+  try {
+    const deleted = await glossaryRepo.deleteEntry(id);
+    res.json({ deleted });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("Failed to delete glossary entry", { error: message });
+    res.status(500).json({ error: message });
+  }
+}
+
+/**
+ * Show which glossary terms a given text would trigger, without translating.
+ * Matching is prefix-based to survive Kyrgyz and Uzbek suffixes, which makes
+ * false positives possible — this is how an admin checks for them.
+ */
+export async function previewGlossaryMatches(req: Request, res: Response): Promise<void> {
+  if (!isAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const { text, sourceLang, targetLang } = req.body as {
+    text?: string;
+    sourceLang?: string;
+    targetLang?: string;
+  };
+  if (!text?.trim() || !sourceLang || !targetLang) {
+    res.status(400).json({ error: "text, sourceLang and targetLang are required" });
+    return;
+  }
+  try {
+    const entries = await glossaryRepo.listForDirection(sourceLang, targetLang);
+    res.json({ available: entries.length, matches: findGlossaryMatches(text, entries) });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: message });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Problem reports: reply and triage
+// ---------------------------------------------------------------------------
+
+export async function replyToFeedbackEntry(req: Request, res: Response): Promise<void> {
+  if (!isAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const id = Number(req.params.id);
+  const { reply } = req.body as { reply?: string };
+  if (!Number.isInteger(id) || !reply?.trim()) {
+    res.status(400).json({ error: "id and reply are required" });
+    return;
+  }
+  try {
+    const result = await replyToFeedback(id, reply.trim());
+    res.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("Failed to reply to feedback", { id, error: message });
+    res.status(500).json({ error: message });
+  }
+}
+
+export async function setFeedbackStatus(req: Request, res: Response): Promise<void> {
+  if (!isAuthorized(req)) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const id = Number(req.params.id);
+  const { status } = req.body as { status?: string };
+  if (!Number.isInteger(id) || !status || !["new", "resolved", "deferred"].includes(status)) {
+    res.status(400).json({ error: "status must be one of: new, resolved, deferred" });
+    return;
+  }
+  try {
+    const entry = await feedbackRepo.setStatus(id, status as feedbackRepo.FeedbackStatus);
+    logger.info("Feedback status changed", { id, status });
+    res.json({ entry, counts: await feedbackRepo.countByStatus() });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("Failed to set feedback status", { id, error: message });
+    res.status(500).json({ error: message });
   }
 }

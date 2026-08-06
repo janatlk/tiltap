@@ -30,12 +30,27 @@
 
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body">
-        <div class="flex flex-wrap gap-4 items-end">
+        <div class="flex flex-wrap gap-4 items-end" id="loginRow" style="display:none">
+          <div class="form-control flex-1 min-w-[200px]">
+            <label class="label" for="adminPassword"><span class="label-text">Пароль администратора</span></label>
+            <input type="password" id="adminPassword" class="input input-bordered w-full" placeholder="пароль" autocomplete="current-password">
+          </div>
+          <button id="pwLoginBtn" class="btn btn-primary">Войти</button>
+          <span class="text-sm" id="pwLoginNote"></span>
+        </div>
+
+        <div class="flex flex-wrap gap-4 items-end" id="tokenRow" style="display:none">
           <div class="form-control flex-1 min-w-[200px]">
             <label class="label" for="adminToken"><span class="label-text">Admin token <span class="text-error">*</span></span></label>
             <input type="text" id="adminToken" class="input input-bordered w-full" placeholder="TILTAB_ADMIN_TOKEN value">
           </div>
           <button id="refreshBtn" class="btn btn-primary">Refresh</button>
+        </div>
+
+        <div class="flex flex-wrap gap-4 items-center" id="sessionRow" style="display:none">
+          <span class="badge badge-success">Вы вошли</span>
+          <button id="refreshBtn2" class="btn btn-primary btn-sm">Обновить</button>
+          <button id="logoutBtn" class="btn btn-ghost btn-sm">Выйти</button>
         </div>
         <p class="text-sm text-base-content/70 mt-3">
           Translations are saved as <strong>Pending</strong> until confirmed. Confirmed entries are served from cache; rejected and error rows are preserved for audit.
@@ -165,11 +180,11 @@
 
     async function apiFetch(path, opts = {}) {
       const headers = opts.headers || {};
-      if (!adminToken.value) {
-        throw new Error("Admin token is required. Enter it above.");
+      // Send the token when there is one; the session cookie covers the rest.
+      if (adminToken && adminToken.value) {
+        headers["X-Admin-Token"] = adminToken.value;
       }
-      headers["X-Admin-Token"] = adminToken.value;
-      return fetch(API + path, { ...opts, headers });
+      return fetch(API + path, { ...opts, headers, credentials: "same-origin" });
     }
 
     let liveInterval = null;
@@ -604,6 +619,7 @@
               <span class="badge badge-sm ${item.rating === "up" ? "badge-success" : item.rating === "issue" ? "badge-warning" : "badge-error"}">${item.rating === "up" ? "👍 GOOD" : item.rating === "issue" ? "🛠 PROBLEM" : "👎 POOR"}</span>
               ${item.requestNumber ? `<span class="badge badge-sm badge-ghost" title="Public request number">#${item.requestNumber}</span>` : ""}
               <span class="badge badge-sm badge-ghost">${escapeHtml(item.source)}</span>
+              ${item.rating === "issue" && item.status && item.status !== "new" ? `<span class="badge badge-sm ${item.status === "resolved" ? "badge-success" : "badge-warning"}">${item.status === "resolved" ? "✓ решено" : "⏳ отложено"}</span>` : ""}
               ${item.category ? `<span class="badge badge-sm badge-warning">${escapeHtml(FEEDBACK_CATEGORY_LABELS[item.category] || item.category)}</span>` : ""}
               ${langPair ? `<span class="badge badge-sm badge-ghost" title="Source → Target">${escapeHtml(langPair)}</span>` : ""}
               ${item.provider ? `<span class="badge badge-sm badge-ghost">${escapeHtml(item.provider)}</span>` : ""}
@@ -613,12 +629,161 @@
             </div>
             ${who ? `<div class="text-xs text-base-content/60 mb-2">From: ${escapeHtml(who)}</div>` : ""}
             ${item.comment ? `<div class="bg-base-300 rounded-box p-3 text-box mb-3"><label class="label-text text-xs uppercase opacity-70 block mb-1">Comment</label>${escapeHtml(item.comment)}</div>` : ""}
-            ${sourceLink ? `<div class="text-xs text-base-content/60">Source link: ${sourceLink}</div>` : ""}
+            ${sourceLink ? `<div class="text-xs text-base-content/60 mb-3">Source link: ${sourceLink}</div>` : ""}
+            ${item.adminReply ? `
+              <div class="bg-success/10 border border-success/30 rounded-box p-3 mb-3">
+                <label class="label-text text-xs uppercase opacity-70 block mb-1">Ваш ответ${item.replyDelivered ? " · доставлен" : " · сохранён, пользователь увидит при заходе"}</label>
+                <div class="text-box">${escapeHtml(item.adminReply)}</div>
+              </div>` : ""}
+            ${item.rating === "issue" ? `
+              <div class="border-t border-base-300 pt-3 mt-1 space-y-2" data-actions="${item.id}">
+                <textarea class="textarea textarea-bordered w-full textarea-sm" rows="2"
+                  placeholder="Ответ пользователю${item.source === "web" ? " (web: покажется при следующем заходе)" : " (уйдёт в Telegram)"}"
+                  data-reply-input="${item.id}">${item.adminReply ? escapeHtml(item.adminReply) : ""}</textarea>
+                <div class="flex flex-wrap gap-2 items-center">
+                  <button class="btn btn-sm btn-primary" data-reply-btn="${item.id}">Отправить ответ</button>
+                  <button class="btn btn-sm btn-success btn-outline" data-status-btn="${item.id}" data-status="resolved">Решено</button>
+                  <button class="btn btn-sm btn-warning btn-outline" data-status-btn="${item.id}" data-status="deferred">Отложить</button>
+                  ${item.status === "new" ? "" : `<button class="btn btn-sm btn-ghost" data-status-btn="${item.id}" data-status="new">Вернуть в новые</button>`}
+                  <span class="text-xs opacity-60" data-action-note="${item.id}"></span>
+                </div>
+              </div>` : ""}
           </div>
         `;
         listContainer.appendChild(div);
+        if (item.rating === "issue") wireFeedbackActions(div, item);
       });
     }
+
+
+    // Reply to a problem report, or move it between new / resolved / deferred.
+    // Deferred items are re-sent to the admin's Telegram daily until they move,
+    // which is the whole point of having the state.
+    function wireFeedbackActions(card, item) {
+      const note = card.querySelector(`[data-action-note="${item.id}"]`);
+      const input = card.querySelector(`[data-reply-input="${item.id}"]`);
+
+      function setNote(text, cls) {
+        note.textContent = text;
+        note.className = "text-xs " + (cls || "opacity-60");
+      }
+
+      card.querySelector(`[data-reply-btn="${item.id}"]`).addEventListener("click", async (ev) => {
+        const reply = input.value.trim();
+        if (!reply) { setNote("Введите текст ответа", "text-xs text-error"); return; }
+        const btn = ev.currentTarget;
+        btn.disabled = true;
+        setNote("Отправляю…");
+        try {
+          const res = await apiFetch(`/api/admin/feedback/${item.id}/reply`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reply: reply }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+          setNote(data.delivered ? "Доставлено в Telegram" : (data.reason || "Сохранено"),
+                  data.delivered ? "text-xs text-success" : "text-xs opacity-70");
+        } catch (err) {
+          setNote("Ошибка: " + err.message, "text-xs text-error");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      card.querySelectorAll(`[data-status-btn="${item.id}"]`).forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const status = btn.dataset.status;
+          btn.disabled = true;
+          setNote("Сохраняю…");
+          try {
+            const res = await apiFetch(`/api/admin/feedback/${item.id}/status`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: status }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+            loadTab("feedback");
+          } catch (err) {
+            setNote("Ошибка: " + err.message, "text-xs text-error");
+            btn.disabled = false;
+          }
+        });
+      });
+    }
+
+
+    // --- Authentication ----------------------------------------------------
+    // The server decides which control the panel shows: a password form once
+    // ADMIN_PASSWORD_HASH is set, the legacy token box until then. Deciding it
+    // here would let the page offer a login that cannot work.
+    const loginRow = document.getElementById("loginRow");
+    const tokenRow = document.getElementById("tokenRow");
+    const sessionRow = document.getElementById("sessionRow");
+    const adminPassword = document.getElementById("adminPassword");
+    const pwLoginBtn = document.getElementById("pwLoginBtn");
+    const pwLoginNote = document.getElementById("pwLoginNote");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const refreshBtn2 = document.getElementById("refreshBtn2");
+
+    async function refreshAuthState() {
+      try {
+        const res = await fetch("/api/admin/session", { credentials: "same-origin" });
+        const data = await res.json();
+        if (data.authenticated) {
+          loginRow.style.display = "none";
+          tokenRow.style.display = "none";
+          sessionRow.style.display = "flex";
+          loadTab(currentTab);
+        } else if (data.passwordConfigured) {
+          loginRow.style.display = "flex";
+          tokenRow.style.display = "none";
+          sessionRow.style.display = "none";
+        } else {
+          loginRow.style.display = "none";
+          tokenRow.style.display = "flex";
+          sessionRow.style.display = "none";
+        }
+      } catch (err) {
+        tokenRow.style.display = "flex";
+      }
+    }
+
+    async function doLogin() {
+      const password = adminPassword.value;
+      if (!password) { pwLoginNote.textContent = "Введите пароль"; pwLoginNote.className = "text-sm text-error"; return; }
+      pwLoginBtn.disabled = true;
+      pwLoginNote.textContent = "Проверяю…";
+      pwLoginNote.className = "text-sm opacity-70";
+      try {
+        const res = await fetch("/api/admin/login", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+        adminPassword.value = "";
+        pwLoginNote.textContent = "";
+        await refreshAuthState();
+      } catch (err) {
+        pwLoginNote.textContent = err.message;
+        pwLoginNote.className = "text-sm text-error";
+      } finally {
+        pwLoginBtn.disabled = false;
+      }
+    }
+
+    pwLoginBtn.addEventListener("click", doLogin);
+    adminPassword.addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+    logoutBtn.addEventListener("click", async () => {
+      await fetch("/api/admin/logout", { method: "POST", credentials: "same-origin" });
+      location.reload();
+    });
+    refreshBtn2.addEventListener("click", () => loadTab(currentTab));
+    refreshAuthState();
 
     async function searchRequestNumber() {
       const number = requestSearch.value.trim();
