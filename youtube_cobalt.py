@@ -13,7 +13,9 @@ import sys
 import threading
 import time
 
+import socket
 import requests
+from urllib.parse import urlparse
 
 # Community instances that currently allow unauthenticated downloads (Turnstile
 # disabled).  Override with COBALT_API_URL or COBALT_API_URLS (comma-separated).
@@ -44,6 +46,22 @@ DOWNLOAD_TIMEOUT = 300
 MIN_MEDIA_BYTES = 1024
 
 
+# Prefer IPv4 for outgoing requests. This host has both families, and the
+# difference is not cosmetic: YouTube challenges the Cloudflare WARP IPv6
+# ranges far more aggressively, and operator API keys are allowlisted against
+# our IPv4 address. Set TILTAB_FORCE_IPV4=0 to opt out.
+if os.environ.get("TILTAB_FORCE_IPV4", "1").lower() not in ("0", "false", "no", "off"):
+    _orig_getaddrinfo = socket.getaddrinfo
+
+    def _ipv4_first(host, port, family=0, type=0, proto=0, flags=0):
+        results = _orig_getaddrinfo(host, port, family, type, proto, flags)
+        ipv4 = [r for r in results if r[0] == socket.AF_INET]
+        # Fall back to whatever was returned when a host is IPv6-only, rather
+        # than turning a working name into a resolution failure.
+        return ipv4 or results
+
+    socket.getaddrinfo = _ipv4_first
+
 def _api_urls() -> list[str]:
     """Return the list of Cobalt API URLs to try."""
     env_urls = os.environ.get("COBALT_API_URLS", "").strip()
@@ -54,6 +72,42 @@ def _api_urls() -> list[str]:
         return [single.rstrip("/") + "/"]
     return [u.rstrip("/") + "/" for u in DEFAULT_COBALT_APIS]
 
+
+def _api_keys() -> dict:
+    """Map of host suffix -> API key, from COBALT_API_KEYS.
+
+    Format: "clxxped.lol=<key>,other.host=<key2>". Matching is by host suffix so
+    one entry covers every instance of an operator (grapefruit/lime/melon all
+    live under clxxped.lol) instead of needing a line per hostname.
+    """
+    raw = os.environ.get("COBALT_API_KEYS", "").strip()
+    keys = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if not pair or "=" not in pair:
+            continue
+        host, key = pair.split("=", 1)
+        host, key = host.strip().lower(), key.strip()
+        if host and key:
+            keys[host] = key
+    return keys
+
+
+def _headers(api: str) -> dict:
+    """Request headers for one instance, with its API key when we have one."""
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    keys = _api_keys()
+    if keys:
+        try:
+            host = urlparse(api).hostname or ""
+        except Exception:
+            host = ""
+        host = host.lower()
+        for suffix, key in keys.items():
+            if host == suffix or host.endswith("." + suffix):
+                headers["Authorization"] = f"Api-Key {key}"
+                break
+    return headers
 
 def _emit(progress_cb, percent: int, label: str):
     if progress_cb:
@@ -73,7 +127,7 @@ def _request_stream(url: str, payload: dict, timeout: int | None = None) -> dict
     resp = requests.post(
         url,
         json=payload,
-        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        headers=_headers(url),
         timeout=timeout if timeout is not None else COBALT_TIMEOUT,
     )
     resp.raise_for_status()
@@ -85,7 +139,7 @@ def _resolve_one(api: str, payload: dict, timeout: int):
     resp = requests.post(
         api,
         json=payload,
-        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        headers=_headers(api),
         timeout=timeout,
     )
     data = {}
@@ -169,14 +223,33 @@ def _iter_resolved(payload: dict, timeout: int, progress_cb=None, resolve_errors
             raise RuntimeError("; ".join(errors) or "all Cobalt instances failed")
 
 
-def _download_media(media_url: str, output_path: str):
-    """Download a media file from a Cobalt tunnel/redirect URL."""
+def _download_media(media_url: str, output_path: str, max_bytes: int = 0):
+    """Download a media file from a Cobalt tunnel/redirect URL.
+
+    ``max_bytes`` aborts the transfer mid-stream once the cap is exceeded. We
+    only ever need the audio track, so a run-away download is always a video
+    fallback gone wrong — and on a metered proxy it is billed traffic. Checking
+    Content-Length is not enough: it is often absent on tunnelled responses.
+    """
     with requests.get(media_url, stream=True, timeout=DOWNLOAD_TIMEOUT) as dl:
         dl.raise_for_status()
+        written = 0
         with open(output_path, "wb") as f:
             for chunk in dl.iter_content(chunk_size=64 * 1024):
-                if chunk:
-                    f.write(chunk)
+                if not chunk:
+                    continue
+                written += len(chunk)
+                if max_bytes and written > max_bytes:
+                    f.close()
+                    try:
+                        os.remove(output_path)
+                    except OSError:
+                        pass
+                    raise RuntimeError(
+                        f"download exceeded {max_bytes // (1024 * 1024)} MB cap "
+                        f"(aborted after {written // (1024 * 1024)} MB)"
+                    )
+                f.write(chunk)
 
 
 def download_media_via_cobalt(
@@ -185,6 +258,7 @@ def download_media_via_cobalt(
     progress_cb=None,
     download_mode: str = "audio",
     audio_format: str = "mp3",
+    max_bytes: int = 0,
 ):
     """Download media via a Cobalt API instance.
 
@@ -212,7 +286,7 @@ def download_media_via_cobalt(
 
         _emit(progress_cb, 15, "Скачиваю аудио через Cobalt...")
         try:
-            _download_media(media_url, output_path)
+            _download_media(media_url, output_path, max_bytes=max_bytes)
             size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
             if size < MIN_MEDIA_BYTES:
                 raise RuntimeError(f"empty audio file ({size} bytes)")

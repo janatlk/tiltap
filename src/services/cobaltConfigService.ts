@@ -1,11 +1,17 @@
 import fs from "fs";
 import path from "path";
 import { logger } from "../utils/logger";
+import { config } from "../config";
 
 const CONFIG_DIR = path.join(process.cwd(), "data");
 const CONFIG_FILE = path.join(CONFIG_DIR, "cobalt-config.json");
 
-const DEFAULT_TEST_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+// "Me at the zoo": the oldest public video on YouTube, 19 seconds, no rights
+// holder and no restrictions. The previous canary (dQw4w9WgXcQ) is a licensed
+// music video, and some instances answer it with an empty tunnel while serving
+// ordinary videos perfectly — which read as "instance is broken" in the panel.
+// A health check must fail only for reasons that affect real requests.
+const DEFAULT_TEST_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw";
 
 // Mirror of DEFAULT_COBALT_APIS in youtube_cobalt.py. Kept in sync so the Node
 // health monitor probes exactly the instances the Python downloader would use.
@@ -106,6 +112,44 @@ export function getEffectiveCobaltUrls(): string[] {
   return DEFAULT_COBALT_URLS;
 }
 
+/**
+ * Headers for a Cobalt request, carrying the operator's API key when one is
+ * configured for that host. Without this the health monitor would report a
+ * key-protected instance as broken: it answers auth.jwt.missing, which looks
+ * identical to a dead instance from the outside.
+ *
+ * Keys are matched by host suffix so one entry covers every instance an
+ * operator runs.
+ */
+export function cobaltHeaders(apiUrl: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  const raw = config.COBALT_API_KEYS;
+  if (!raw) return headers;
+
+  let host = "";
+  try {
+    host = new URL(apiUrl).hostname.toLowerCase();
+  } catch {
+    return headers;
+  }
+
+  for (const pair of raw.split(",")) {
+    const idx = pair.indexOf("=");
+    if (idx < 0) continue;
+    const suffix = pair.slice(0, idx).trim().toLowerCase();
+    const key = pair.slice(idx + 1).trim();
+    if (!suffix || !key) continue;
+    if (host === suffix || host.endsWith("." + suffix)) {
+      headers.Authorization = `Api-Key ${key}`;
+      break;
+    }
+  }
+  return headers;
+}
+
 export interface CobaltTestResult {
   ok: boolean;
   status?: string;
@@ -153,7 +197,7 @@ export async function testCobaltApiUrl(apiUrl: string, testUrl?: string): Promis
   try {
     const resp = await fetch(normalized, {
       method: "POST",
-      headers: { "Accept": "application/json", "Content-Type": "application/json" },
+      headers: cobaltHeaders(normalized),
       body: JSON.stringify({ url: target, downloadMode: "audio" }),
       signal: AbortSignal.timeout(15000),
     });
