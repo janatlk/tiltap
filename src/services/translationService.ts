@@ -643,7 +643,15 @@ async function translateWithOpenAI(
     throw new Error("OPENAI_API_KEY is not configured for translation");
   }
   const targetName = languageNames[req.targetLang] ?? req.targetLang;
-  const sourceLang = normalizeLanguageCodeOrKeep(req.sourceLang) ?? "auto";
+  const declared = normalizeLanguageCodeOrKeep(req.sourceLang) ?? "auto";
+  // Pasted text arrives without a language. Naming one when the script makes it
+  // obvious is what stops the model from mistaking garbled Kyrgyz for Russian
+  // and returning it untranslated.
+  const guessed = declared === "auto" ? guessSourceLanguage(req.text) : undefined;
+  const sourceLang = guessed ?? declared;
+  if (guessed) {
+    logger.info("Guessed source language from script", { guessed, targetLang: req.targetLang });
+  }
   const sourceName = sourceLang === "auto" ? undefined : (languageNames[sourceLang] ?? sourceLang);
   const hash = createHash("sha256").update(req.text).digest("hex");
 
@@ -740,6 +748,39 @@ const COMMON_UNTRANSLATED_TERMS = new Set([
 
 function isCommonUntranslatedTerm(word: string): boolean {
   return COMMON_UNTRANSLATED_TERMS.has(word.toLowerCase().replace(/[^a-zа-яёўқғҳңөүӯӣҷ0-9]/gi, ""));
+}
+
+/**
+ * Guess the source language from script-specific letters when the caller does
+ * not know it.
+ *
+ * Saying "auto" is honest but costly with same-script pairs: asked to render
+ * garbled Kyrgyz into Russian, the model looks at Cyrillic it cannot parse,
+ * concludes the text is already Russian, and hands it straight back. Measured
+ * on a real report — the same text with "ky" stated translated correctly, and
+ * the same text into English worked either way, because there the scripts
+ * differ and no such confusion is possible.
+ *
+ * A guess only, so it stays silent unless the evidence is unambiguous: the
+ * markers must appear, and one language must clearly lead. Russian carries no
+ * markers of its own and so is never guessed — it simply falls through to auto,
+ * which is where the model is already reliable.
+ */
+export function guessSourceLanguage(text: string): string | undefined {
+  const scores = Object.entries(sourceSpecificLetters).map(([lang, markers]) => {
+    let hits = 0;
+    for (const ch of text.toLowerCase()) {
+      if (markers.includes(ch)) hits += 1;
+    }
+    return { lang, hits };
+  });
+
+  scores.sort((a, b) => b.hits - a.hits);
+  const [best, runnerUp] = scores;
+  if (!best || best.hits < 2) return undefined;
+  // Tajik and Uzbek Cyrillic share қ, ғ and ҳ, so a narrow win proves nothing.
+  if (runnerUp && best.hits < runnerUp.hits * 2) return undefined;
+  return best.lang;
 }
 
 function detectUntranslatedFragments(
