@@ -108,10 +108,6 @@ export function getBetaJobs(): Map<string, BetaJob> {
 }
 
 export async function getBetaJob(req: Request, res: Response): Promise<void> {
-  if (!isAuthorized(req)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const job = betaJobs.get(String(req.params.jobId));
   if (!job) {
     res.status(404).json({ error: "Job not found" });
@@ -121,10 +117,6 @@ export async function getBetaJob(req: Request, res: Response): Promise<void> {
 }
 
 export async function abortBetaJob(req: Request, res: Response): Promise<void> {
-  if (!isAuthorized(req)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   const job = betaJobs.get(String(req.params.jobId));
   if (!job) {
     res.status(404).json({ error: "Job not found" });
@@ -142,17 +134,7 @@ export async function abortBetaJob(req: Request, res: Response): Promise<void> {
   }
 }
 
-function isAuthorized(req: Request): boolean {
-  const token = config.TILTAB_ADMIN_TOKEN;
-  if (!token) return false;
-  return req.headers["x-admin-token"] === token;
-}
-
 export async function listBetaModels(req: Request, res: Response): Promise<void> {
-  if (!isAuthorized(req)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   try {
     const models: LocalModelInfo[] = [...GIGAAM_BETA_MODELS, ...gigaamOnnxModels()];
     const entries = await readdir(MODELS_DIR).catch(() => [] as string[]);
@@ -201,10 +183,6 @@ export async function listBetaModels(req: Request, res: Response): Promise<void>
 }
 
 export async function handleBetaTranscribe(req: Request, res: Response): Promise<void> {
-  if (!isAuthorized(req)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   try {
     const file = req.file;
     if (!file) {
@@ -229,10 +207,6 @@ export async function handleBetaTranscribe(req: Request, res: Response): Promise
 }
 
 export async function handleBetaLink(req: Request, res: Response): Promise<void> {
-  if (!isAuthorized(req)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   try {
     const { url, model, language } = req.body as { url?: string; model?: string; language?: string };
 
@@ -538,10 +512,6 @@ async function runBetaSttStream(
 }
 
 export async function handleBetaCompare(req: Request, res: Response): Promise<void> {
-  if (!isAuthorized(req)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
 
   const body = req.body as {
     modelA?: string;
@@ -653,10 +623,6 @@ async function getModelNames(): Promise<Map<string, string>> {
 
 /** Engines available for comparison, with the reason for any that cannot run. */
 export async function listTranslationEnginesHandler(req: Request, res: Response): Promise<void> {
-  if (!isAuthorized(req)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
   res.json({ engines: listTranslationEngines() });
 }
 
@@ -668,10 +634,6 @@ export async function listTranslationEnginesHandler(req: Request, res: Response)
  * answer production serves.
  */
 export async function handleTranslationCompare(req: Request, res: Response): Promise<void> {
-  if (!isAuthorized(req)) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
 
   const { text, sourceLang, targetLang, engines } = req.body as {
     text?: string;

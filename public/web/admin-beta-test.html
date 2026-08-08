@@ -85,8 +85,8 @@
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body">
         <div class="form-control max-w-xl">
-          <label class="label" for="adminToken"><span class="label-text">Admin token <span class="text-error">*</span></span></label>
-          <input type="text" id="adminToken" class="input input-bordered w-full" placeholder="TILTAB_ADMIN_TOKEN value">
+          <label class="label" for="adminToken"><span class="label-text">Admin token <span class="text-xs opacity-60">(не нужен, если вошли по паролю)</span></span></label>
+          <input type="text" id="adminToken" class="input input-bordered w-full" placeholder="оставьте пустым — используется сессия">
         </div>
       </div>
     </div>
@@ -325,6 +325,25 @@
   <script>
     const API = "/api/admin/beta";
     const adminToken = document.getElementById("adminToken");
+
+    // This page sits under /api/admin, so the session cookie set by the login on
+    // the admin panel authenticates it. The token header is sent only when one
+    // was typed, for scripted use with a long machine token; a short legacy
+    // token is refused by the server once a password exists, which is why
+    // requiring it here locked the page out entirely.
+    function authHeaders(extra) {
+      const headers = Object.assign({}, extra || {});
+      const token = adminToken.value.trim();
+      if (token) headers["X-Admin-Token"] = token;
+      return headers;
+    }
+
+    // A 401 here means "log in", not "something broke".
+    function authMessage(status) {
+      return status === 401
+        ? "Нужен вход: откройте админку и войдите по паролю, затем обновите страницу"
+        : "HTTP " + status;
+    }
     const modelSelect = document.getElementById("modelSelect");
     const modelSelectA = document.getElementById("modelSelectA");
     const modelSelectB = document.getElementById("modelSelectB");
@@ -382,7 +401,7 @@
         ...options,
         headers: {
           "Content-Type": "application/json",
-          "X-Admin-Token": adminToken.value,
+          ...authHeaders(),
           ...options.headers,
         },
       });
@@ -501,7 +520,7 @@
 
     async function loadModels() {
       try {
-        const res = await fetch(API + "/models", { headers: { "X-Admin-Token": adminToken.value } });
+        const res = await fetch(API + "/models", { headers: authHeaders() });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to load models");
         models = data.models || [];
@@ -605,7 +624,6 @@
     }
 
     async function runTest() {
-      if (!adminToken.value.trim()) { alert("Admin token is required"); return; }
       const model = modelSelect.value;
       if (!model) { alert("Select a model"); return; }
 
@@ -621,12 +639,12 @@
           form.append("file", currentFile);
           form.append("model", model);
           form.append("language", languageSelect.value);
-          res = await fetch(API + "/transcribe", { method: "POST", headers: { "X-Admin-Token": adminToken.value }, body: form });
+          res = await fetch(API + "/transcribe", { method: "POST", headers: authHeaders(), body: form });
         } else {
           if (!linkUrl.value.trim()) { alert("Enter a URL"); return; }
           res = await fetch(API + "/link", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "X-Admin-Token": adminToken.value },
+            headers: authHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify({ url: linkUrl.value.trim(), model, language: languageSelect.value }),
           });
         }
@@ -689,7 +707,6 @@
     }
 
     async function runCompare() {
-      if (!adminToken.value.trim()) { alert("Admin token is required"); return; }
       const modelA = modelSelectA.value;
       const modelB = modelSelectB.value;
       if (!modelA || !modelB) { alert("Select both models"); return; }
@@ -718,7 +735,7 @@
 
         const res = await fetch(API + "/compare", {
           method: "POST",
-          headers: { "X-Admin-Token": adminToken.value },
+          headers: authHeaders(),
           body: form,
         });
         if (!res.ok) {
@@ -847,13 +864,9 @@
     });
 
     async function loadBenchEngines() {
-      if (!adminToken.value.trim()) {
-        benchEngines.innerHTML = "<span class='text-sm opacity-60'>Введите admin token</span>";
-        return;
-      }
       try {
-        const res = await fetch(API + "/translation-engines", { headers: { "X-Admin-Token": adminToken.value } });
-        if (!res.ok) throw new Error("HTTP " + res.status);
+        const res = await fetch(API + "/translation-engines", { headers: authHeaders() });
+        if (!res.ok) throw new Error(authMessage(res.status));
         const data = await res.json();
         benchEngines.innerHTML = "";
         (data.engines || []).forEach((e) => {
@@ -873,7 +886,6 @@
     }
 
     async function runBench() {
-      if (!adminToken.value.trim()) { alert("Admin token is required"); return; }
       const text = benchText.value.trim();
       if (!text) { alert("Введите текст"); return; }
 
@@ -887,7 +899,7 @@
       try {
         const res = await fetch(API + "/translation-compare", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-Admin-Token": adminToken.value },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ text, sourceLang: benchSource.value, targetLang: benchTarget.value, engines }),
         });
         const data = await res.json();
@@ -954,13 +966,9 @@
     }
 
     async function loadGlossary() {
-      if (!adminToken.value.trim()) {
-        glTableBody.innerHTML = glRow("Введите admin token");
-        return;
-      }
       try {
-        const res = await fetch(GLOSSARY_API, { headers: { "X-Admin-Token": adminToken.value } });
-        if (!res.ok) throw new Error("HTTP " + res.status);
+        const res = await fetch(GLOSSARY_API, { headers: authHeaders() });
+        if (!res.ok) throw new Error(authMessage(res.status));
         const data = await res.json();
         const entries = data.entries || [];
         glossaryCount.textContent = entries.length ? entries.length + " терминов" : "пусто";
@@ -987,7 +995,6 @@
     }
 
     async function addGlossary() {
-      if (!adminToken.value.trim()) { alert("Admin token is required"); return; }
       const term = glTerm.value.trim();
       const translation = glTranslation.value.trim();
       if (!term || !translation) { alert("Заполните термин и перевод"); return; }
@@ -996,7 +1003,7 @@
       try {
         const res = await fetch(GLOSSARY_API, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-Admin-Token": adminToken.value },
+          headers: authHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({
             sourceLang: glSource.value,
             targetLang: glTarget.value,
@@ -1023,9 +1030,9 @@
       try {
         const res = await fetch(GLOSSARY_API + "/" + id, {
           method: "DELETE",
-          headers: { "X-Admin-Token": adminToken.value },
+          headers: authHeaders(),
         });
-        if (!res.ok) throw new Error("HTTP " + res.status);
+        if (!res.ok) throw new Error(authMessage(res.status));
         await loadGlossary();
       } catch (err) {
         alert("Не удалось удалить: " + err.message);
