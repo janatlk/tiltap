@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="business">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TilTap — разметка аудио</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style>
+    .clip-row { border-left: 3px solid transparent; }
+    .clip-row.is-approved { border-left-color: var(--color-success); }
+    .clip-row.is-skipped { border-left-color: var(--color-warning); opacity: 0.65; }
+    .clip-row.is-active { background: color-mix(in oklab, var(--color-primary) 7%, transparent); }
+    .clip-text { font-size: 1.05rem; line-height: 1.6; }
+    .mono { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body class="min-h-screen bg-base-200 py-6 px-4">
+<div class="max-w-6xl mx-auto space-y-6">
+
+  <!-- ===================== ВХОД ===================== -->
+  <section id="loginView" class="hidden">
+    <div class="card bg-base-100 shadow-sm max-w-md mx-auto mt-16">
+      <div class="card-body space-y-4">
+        <h1 class="card-title">Разметка аудио</h1>
+        <p class="text-sm opacity-70">Войдите под своим логином. Если логина нет — попросите администратора завести.</p>
+        <input id="loginUser" class="input input-bordered" placeholder="Логин" autocomplete="username">
+        <input id="loginPass" type="password" class="input input-bordered" placeholder="Пароль" autocomplete="current-password">
+        <div id="loginError" class="alert alert-error text-sm hidden"></div>
+        <button id="loginBtn" class="btn btn-primary">Войти</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== РАБОЧАЯ ОБЛАСТЬ ===================== -->
+  <section id="workView" class="hidden space-y-6">
+
+    <header class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Разметка аудио для дообучения</h1>
+        <p class="text-sm opacity-70" id="statsLine">…</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="badge badge-ghost" id="whoami"></span>
+        <button id="logoutBtn" class="btn btn-sm btn-ghost">Выйти</button>
+      </div>
+    </header>
+
+    <!-- ---------- Список записей ---------- -->
+    <div id="listPane" class="space-y-6">
+
+      <div class="card bg-base-100 shadow-sm">
+        <div class="card-body space-y-4">
+          <h2 class="card-title text-lg">Добавить запись</h2>
+
+          <div class="flex flex-wrap gap-3">
+            <label class="form-control">
+              <span class="label-text text-xs">Язык записи</span>
+              <select id="newLang" class="select select-bordered select-sm">
+                <option value="ky" selected>Кыргызский</option>
+                <option value="ru">Русский</option>
+                <option value="uz">Узбекский</option>
+                <option value="tg">Таджикский</option>
+                <option value="en">Английский</option>
+              </select>
+            </label>
+            <label class="form-control flex-1 min-w-[16rem]">
+              <span class="label-text text-xs">Название (необязательно)</span>
+              <input id="newTitle" class="input input-bordered input-sm w-full" placeholder="Например: интервью, выпуск новостей">
+            </label>
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-2">
+            <input id="newUrl" class="input input-bordered flex-1" placeholder="Ссылка на видео или аудио">
+            <button id="addLinkBtn" class="btn btn-primary">Добавить по ссылке</button>
+          </div>
+
+          <div class="divider text-xs opacity-60">или</div>
+
+          <div class="flex flex-col sm:flex-row gap-2 items-center">
+            <input id="newFile" type="file" accept="audio/*,video/*" class="file-input file-input-bordered flex-1">
+            <button id="addFileBtn" class="btn btn-primary">Загрузить файл</button>
+          </div>
+
+          <div id="createError" class="alert alert-error text-sm hidden"></div>
+          <p class="text-xs opacity-60">
+            Запись автоматически режется на фрагменты по 5–15 секунд по паузам в речи, каждый распознаётся отдельно.
+            Это занимает несколько минут — можно закрыть страницу и вернуться.
+          </p>
+        </div>
+      </div>
+
+      <div class="card bg-base-100 shadow-sm">
+        <div class="card-body">
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="card-title text-lg">Записи</h2>
+            <button id="refreshBtn" class="btn btn-xs btn-ghost">Обновить</button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Название</th>
+                  <th>Язык</th>
+                  <th>Состояние</th>
+                  <th>Готово</th>
+                  <th>Кто взял</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="taskRows"><tr><td colspan="6" class="opacity-60">Загрузка…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card bg-base-100 shadow-sm" id="exportCard">
+        <div class="card-body space-y-3">
+          <h2 class="card-title text-lg">Выгрузка датасета</h2>
+          <p class="text-sm opacity-70">
+            В выгрузку попадают только подтверждённые фрагменты. Собираются оба формата сразу:
+            <code>manifest.jsonl</code> для NeMo (на нём обучается GigaAM) и <code>metadata.csv</code> для HuggingFace.
+          </p>
+          <div class="flex flex-wrap gap-2 items-center">
+            <button id="buildExportBtn" class="btn btn-sm btn-primary">Собрать архив</button>
+            <a id="downloadExportBtn" class="btn btn-sm btn-outline" href="/api/dataset/export/archive">Скачать архив</a>
+            <span id="exportInfo" class="text-xs opacity-70"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------- Редактор одной записи ---------- -->
+    <div id="editorPane" class="hidden space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <button id="backBtn" class="btn btn-sm btn-ghost">← К списку</button>
+          <h2 class="text-xl font-semibold mt-2" id="editorTitle"></h2>
+          <p class="text-sm opacity-70" id="editorMeta"></p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="completeBtn" class="btn btn-sm btn-success">Запись готова</button>
+        </div>
+      </div>
+
+      <div class="card bg-base-100 shadow-sm">
+        <div class="card-body py-3">
+          <div class="flex items-center gap-3">
+            <progress id="editorProgress" class="progress progress-success flex-1" value="0" max="100"></progress>
+            <span class="text-sm mono" id="editorCounter"></span>
+          </div>
+          <p class="text-xs opacity-60">
+            Правьте текст там, где модель ошиблась. Сохраняется само.
+            <kbd class="kbd kbd-xs">Ctrl</kbd>+<kbd class="kbd kbd-xs">Enter</kbd> — подтвердить и перейти к следующему,
+            <kbd class="kbd kbd-xs">Ctrl</kbd>+<kbd class="kbd kbd-xs">Space</kbd> — переслушать.
+          </p>
+        </div>
+      </div>
+
+      <div id="editorNotice" class="alert alert-warning text-sm hidden"></div>
+      <div id="clipList" class="space-y-3"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const state = {
+  me: null,
+  tasks: [],
+  task: null,
+  segments: [],
+  canEdit: false,
+  pollTimer: null,
+  saveTimers: new Map(),
+};
+
+const $ = (id) => document.getElementById(id);
+
+function show(el, visible) { el.classList.toggle("hidden", !visible); }
+
+function showError(el, message) {
+  if (!message) { show(el, false); return; }
+  el.textContent = message;
+  show(el, true);
+}
+
+async function api(path, options) {
+  const res = await fetch(path, Object.assign({ headers: { "Content-Type": "application/json" } }, options || {}));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 401) { renderLogin(); }
+    throw new Error(data.error || ("Ошибка " + res.status));
+  }
+  return data;
+}
+
+// ---------------------------------------------------------------- вход
+async function checkSession() {
+  const data = await fetch("/api/dataset/session").then((r) => r.json()).catch(() => ({ authenticated: false }));
+  if (data.authenticated) {
+    state.me = data.annotator;
+    renderWork();
+  } else {
+    renderLogin();
+  }
+}
+
+function renderLogin() {
+  show($("loginView"), true);
+  show($("workView"), false);
+}
+
+function renderWork() {
+  show($("loginView"), false);
+  show($("workView"), true);
+  $("whoami").textContent = state.me.displayName + (state.me.isAdmin ? " · админ" : "");
+  show($("exportCard"), state.me.isAdmin);
+  loadTasks();
+  loadStats();
+}
+
+$("loginBtn").onclick = async () => {
+  showError($("loginError"), "");
+  try {
+    const data = await api("/api/dataset/login", {
+      method: "POST",
+      body: JSON.stringify({ username: $("loginUser").value.trim(), password: $("loginPass").value }),
+    });
+    state.me = data.annotator;
+    $("loginPass").value = "";
+    renderWork();
+  } catch (err) {
+    showError($("loginError"), err.message);
+  }
+};
+
+$("loginPass").addEventListener("keydown", (e) => { if (e.key === "Enter") $("loginBtn").click(); });
+
+$("logoutBtn").onclick = async () => {
+  await fetch("/api/dataset/logout", { method: "POST" });
+  state.me = null;
+  renderLogin();
+};
+
+// ---------------------------------------------------------------- список
+const STATUS_LABEL = {
+  queued: ["В очереди", "badge-ghost"],
+  processing: ["Готовится", "badge-info"],
+  ready: ["Можно размечать", "badge-primary"],
+  done: ["Завершена", "badge-success"],
+  failed: ["Ошибка", "badge-error"],
+};
+
+const STAGE_LABEL = {
+  downloading: "скачиваю",
+  preparing: "готовлю аудио",
+  segmenting: "ищу границы фраз",
+  transcribing: "распознаю фрагменты",
+};
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function loadTasks() {
+  try {
+    const data = await api("/api/dataset/tasks");
+    state.tasks = data.tasks;
+    renderTasks();
+  } catch (err) {
+    $("taskRows").innerHTML = `<tr><td colspan="6" class="text-error">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderTasks() {
+  if (state.tasks.length === 0) {
+    $("taskRows").innerHTML = `<tr><td colspan="6" class="opacity-60">Пока ничего не добавлено</td></tr>`;
+    return;
+  }
+
+  $("taskRows").innerHTML = state.tasks.map((task) => {
+    const [label, cls] = STATUS_LABEL[task.status] || [task.status, "badge-ghost"];
+    const busy = task.status === "processing" || task.status === "queued";
+    const stage = busy ? `<div class="text-xs opacity-60">${escapeHtml(STAGE_LABEL[task.stage] || "в работе")} · ${task.progress}%</div>` : "";
+    const error = task.status === "failed" && task.error ? `<div class="text-xs text-error">${escapeHtml(task.error)}</div>` : "";
+    const openable = task.status === "ready" || task.status === "done";
+    const mine = task.ownerId === state.me.id;
+
+    return `<tr>
+      <td><div class="font-medium">${escapeHtml(task.title)}</div>${stage}${error}</td>
+      <td class="uppercase text-xs">${escapeHtml(task.language)}</td>
+      <td><span class="badge ${cls} badge-sm">${label}</span></td>
+      <td class="mono text-xs">${task.segmentCount ? task.reviewedCount + " / " + task.segmentCount : "—"}</td>
+      <td class="text-xs">${task.ownerName ? escapeHtml(task.ownerName) + (mine ? " (вы)" : "") : "<span class='opacity-50'>свободна</span>"}</td>
+      <td class="text-right whitespace-nowrap">
+        ${openable ? `<button class="btn btn-xs btn-primary" data-open="${task.id}">Открыть</button>` : ""}
+        ${state.me.isAdmin ? `<button class="btn btn-xs btn-ghost text-error" data-del="${task.id}">Удалить</button>` : ""}
+      </td>
+    </tr>`;
+  }).join("");
+
+  $("taskRows").querySelectorAll("[data-open]").forEach((btn) => {
+    btn.onclick = () => openTask(Number(btn.dataset.open));
+  });
+  $("taskRows").querySelectorAll("[data-del]").forEach((btn) => {
+    btn.onclick = async () => {
+      const task = state.tasks.find((t) => t.id === Number(btn.dataset.del));
+      if (!confirm(`Удалить «${task ? task.title : ""}» вместе со всеми фрагментами и аудио? Отменить будет нельзя.`)) return;
+      await api("/api/dataset/tasks/" + btn.dataset.del, { method: "DELETE" });
+      loadTasks();
+      loadStats();
+    };
+  });
+
+  // Something is still being prepared: keep the page honest without making the
+  // linguist press refresh to find out.
+  const busy = state.tasks.some((t) => t.status === "processing" || t.status === "queued");
+  clearTimeout(state.pollTimer);
+  if (busy && !$("listPane").classList.contains("hidden")) {
+    state.pollTimer = setTimeout(loadTasks, 4000);
+  }
+}
+
+$("refreshBtn").onclick = loadTasks;
+
+async function loadStats() {
+  try {
+    const stats = await api("/api/dataset/stats");
+    $("statsLine").textContent =
+      `Подтверждено ${stats.approved} из ${stats.segments} фрагментов · ${stats.approvedHuman} чистого аудио`;
+    if (stats.archive) {
+      $("exportInfo").textContent =
+        `Архив от ${new Date(stats.archive.builtAt).toLocaleString("ru")} · ${(stats.archive.bytes / 1048576).toFixed(1)} МБ`;
+    }
+  } catch { /* статистика не критична */ }
+}
+
+// ---------------------------------------------------------------- создание
+async function createTask(kind) {
+  showError($("createError"), "");
+  const language = $("newLang").value;
+  const title = $("newTitle").value.trim();
+
+  try {
+    if (kind === "link") {
+      const url = $("newUrl").value.trim();
+      if (!url) throw new Error("Вставьте ссылку");
+      await api("/api/dataset/tasks/link", { method: "POST", body: JSON.stringify({ url, title, language }) });
+      $("newUrl").value = "";
+    } else {
+      const file = $("newFile").files[0];
+      if (!file) throw new Error("Выберите файл");
+      const form = new FormData();
+      form.append("file", file);
+      form.append("title", title);
+      form.append("language", language);
+      const res = await fetch("/api/dataset/tasks/upload", { method: "POST", body: form });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || ("Ошибка " + res.status));
+      $("newFile").value = "";
+    }
+    $("newTitle").value = "";
+    loadTasks();
+  } catch (err) {
+    showError($("createError"), err.message);
+  }
+}
+
+$("addLinkBtn").onclick = () => createTask("link");
+$("addFileBtn").onclick = () => createTask("upload");
+
+// ---------------------------------------------------------------- редактор
+async function openTask(id) {
+  clearTimeout(state.pollTimer);
+  const data = await api("/api/dataset/tasks/" + id);
+  state.task = data.task;
+  state.segments = data.segments;
+  state.canEdit = data.canEdit;
+
+  // Taking the recording is what stops two people editing the same transcript.
+  if (state.task.ownerId === null) {
+    try {
+      await api("/api/dataset/tasks/" + id + "/claim", { method: "POST", body: JSON.stringify({}) });
+      state.task.ownerId = state.me.id;
+      state.canEdit = true;
+    } catch { /* кто-то успел раньше — покажем как есть */ }
+  }
+
+  show($("listPane"), false);
+  show($("editorPane"), true);
+  renderEditor();
+}
+
+$("backBtn").onclick = () => {
+  show($("editorPane"), false);
+  show($("listPane"), true);
+  state.task = null;
+  loadTasks();
+  loadStats();
+};
+
+function renderEditor() {
+  const task = state.task;
+  $("editorTitle").textContent = task.title;
+  const method = task.segmentationMethod === "fixed"
+    ? " · границы поставлены без анализа речи, проверьте начало и конец фрагментов"
+    : "";
+  $("editorMeta").textContent =
+    `${task.language.toUpperCase()} · ${task.segmentCount} фрагментов · ${Math.round((task.durationSec || 0) / 60)} мин${method}`;
+
+  showError($("editorNotice"), state.canEdit ? "" : "Запись закреплена за другим лингвистом — можно смотреть, но не править.");
+  show($("completeBtn"), state.canEdit);
+  $("completeBtn").textContent = task.status === "done" ? "Вернуть в работу" : "Запись готова";
+
+  $("clipList").innerHTML = state.segments.map(renderClip).join("");
+  state.segments.forEach(bindClip);
+  updateProgress();
+}
+
+function timecode(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function renderClip(segment) {
+  const cls = segment.status === "approved" ? "is-approved" : segment.status === "skipped" ? "is-skipped" : "";
+  const forced = segment.forcedCut
+    ? `<span class="badge badge-warning badge-xs" title="Здесь не нашлось паузы, фрагмент разрезан принудительно — проверьте края">срез</span>`
+    : "";
+
+  return `<div class="card bg-base-100 shadow-sm clip-row ${cls}" data-clip="${segment.id}">
+    <div class="card-body p-4 gap-3">
+      <div class="flex flex-wrap items-center gap-3 text-xs opacity-70">
+        <span class="mono font-medium">#${segment.clipNumber}</span>
+        <span class="mono">${timecode(segment.startSec)} – ${timecode(segment.endSec)}</span>
+        <span class="mono">${segment.durationSec.toFixed(1)} с</span>
+        ${forced}
+        <span class="clip-saved ml-auto"></span>
+      </div>
+
+      <audio controls preload="none" class="w-full h-9" src="/api/dataset/segments/${segment.id}/audio"></audio>
+
+      <textarea class="textarea textarea-bordered w-full clip-text" rows="2"
+        ${state.canEdit ? "" : "disabled"}>${escapeHtml(segment.text)}</textarea>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <button class="btn btn-sm btn-success clip-approve" ${state.canEdit ? "" : "disabled"}>Готово</button>
+        <button class="btn btn-sm btn-ghost clip-skip" ${state.canEdit ? "" : "disabled"}>Брак</button>
+        <button class="btn btn-sm btn-ghost clip-restore" title="Вернуть текст, который выдала модель">Как было</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function clipNode(segmentId) {
+  return $("clipList").querySelector(`[data-clip="${segmentId}"]`);
+}
+
+function bindClip(segment) {
+  const node = clipNode(segment.id);
+  const textarea = node.querySelector("textarea");
+  const audio = node.querySelector("audio");
+
+  const autoGrow = () => {
+    textarea.style.height = "auto";
+    textarea.style.height = textarea.scrollHeight + "px";
+  };
+  autoGrow();
+
+  textarea.addEventListener("input", () => {
+    autoGrow();
+    scheduleSave(segment);
+  });
+
+  textarea.addEventListener("focus", () => {
+    $("clipList").querySelectorAll(".is-active").forEach((n) => n.classList.remove("is-active"));
+    node.classList.add("is-active");
+  });
+
+  textarea.addEventListener("keydown", (event) => {
+    if (event.ctrlKey && event.key === "Enter") {
+      event.preventDefault();
+      approve(segment);
+    }
+    if (event.ctrlKey && event.code === "Space") {
+      event.preventDefault();
+      audio.currentTime = 0;
+      audio.play();
+    }
+  });
+
+  node.querySelector(".clip-approve").onclick = () => approve(segment);
+  node.querySelector(".clip-skip").onclick = () => saveClip(segment, "skipped");
+  node.querySelector(".clip-restore").onclick = () => {
+    textarea.value = segment.asrText;
+    autoGrow();
+    if (state.canEdit) scheduleSave(segment);
+  };
+}
+
+function approve(segment) {
+  saveClip(segment, "approved").then(() => focusNext(segment));
+}
+
+function focusNext(segment) {
+  const idx = state.segments.findIndex((s) => s.id === segment.id);
+  const next = state.segments[idx + 1];
+  if (!next) return;
+  const node = clipNode(next.id);
+  node.scrollIntoView({ behavior: "smooth", block: "center" });
+  node.querySelector("textarea").focus();
+}
+
+/**
+ * Save as you type, not on a "save everything" button. A linguist who loses an
+ * hour of corrections to a closed tab does not come back for a second hour.
+ */
+function scheduleSave(segment) {
+  clearTimeout(state.saveTimers.get(segment.id));
+  state.saveTimers.set(segment.id, setTimeout(() => saveClip(segment, segment.status), 700));
+}
+
+async function saveClip(segment, status) {
+  if (!state.canEdit) return;
+  clearTimeout(state.saveTimers.get(segment.id));
+
+  const node = clipNode(segment.id);
+  const mark = node.querySelector(".clip-saved");
+  const text = node.querySelector("textarea").value;
+  mark.textContent = "сохраняю…";
+
+  try {
+    const data = await api("/api/dataset/segments/" + segment.id, {
+      method: "PUT",
+      body: JSON.stringify({ text, status }),
+    });
+    Object.assign(segment, data.segment);
+    state.task.reviewedCount = data.reviewedCount;
+
+    node.classList.toggle("is-approved", segment.status === "approved");
+    node.classList.toggle("is-skipped", segment.status === "skipped");
+    mark.textContent = "сохранено";
+    setTimeout(() => { if (mark.textContent === "сохранено") mark.textContent = ""; }, 1500);
+    updateProgress();
+  } catch (err) {
+    mark.innerHTML = `<span class="text-error">не сохранено: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+function updateProgress() {
+  const total = state.segments.length;
+  const done = state.segments.filter((s) => s.status !== "pending").length;
+  $("editorProgress").value = total ? Math.round((100 * done) / total) : 0;
+  $("editorCounter").textContent = `${done} / ${total}`;
+}
+
+$("completeBtn").onclick = async () => {
+  const done = state.task.status !== "done";
+  const pending = state.segments.filter((s) => s.status === "pending").length;
+  if (done && pending > 0 && !confirm(`${pending} фрагментов ещё не размечены. Всё равно отметить запись готовой?`)) return;
+
+  const data = await api("/api/dataset/tasks/" + state.task.id + "/complete", {
+    method: "POST",
+    body: JSON.stringify({ done }),
+  });
+  state.task = data.task;
+  $("completeBtn").textContent = state.task.status === "done" ? "Вернуть в работу" : "Запись готова";
+};
+
+// ---------------------------------------------------------------- выгрузка
+$("buildExportBtn").onclick = async () => {
+  const btn = $("buildExportBtn");
+  btn.disabled = true;
+  btn.textContent = "Собираю…";
+  try {
+    const data = await api("/api/dataset/export", { method: "POST" });
+    $("exportInfo").textContent =
+      `${data.clips} фрагментов · ${data.totalHuman} · ${(data.bytes / 1048576).toFixed(1)} МБ`;
+  } catch (err) {
+    $("exportInfo").innerHTML = `<span class="text-error">${escapeHtml(err.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Собрать архив";
+  }
+};
+
+checkSession();
+</script>
+</body>
+</html>

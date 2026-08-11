@@ -372,3 +372,95 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_expiry ON admin_sessions(expires_at);
+
+-- ---------------------------------------------------------------------------
+-- Dataset annotation: audio collected and corrected by linguists so GigaAM can
+-- be fine-tuned on Kyrgyz. Kept apart from the production tables above because
+-- this data has a different owner, a different lifetime, and is the one part of
+-- the system whose value is the corpus itself rather than the request log.
+-- ---------------------------------------------------------------------------
+
+-- One linguist. Separate accounts rather than a shared password so an edit can
+-- be traced to a person: when a systematic mistake turns up in the corpus, the
+-- only way to fix it at the source is to know whose habit it was.
+CREATE TABLE IF NOT EXISTS dataset_annotators (
+  id SERIAL PRIMARY KEY,
+  username VARCHAR(64) UNIQUE NOT NULL,
+  display_name VARCHAR(128) NOT NULL,
+  password_hash TEXT NOT NULL,
+  is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  last_login_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE TABLE IF NOT EXISTS dataset_sessions (
+  token_hash VARCHAR(64) PRIMARY KEY,
+  annotator_id INTEGER NOT NULL REFERENCES dataset_annotators(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  last_seen_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  ip VARCHAR(64)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dataset_sessions_expiry ON dataset_sessions(expires_at);
+
+-- One source recording: a link or an uploaded file, plus how far its
+-- preparation got.
+CREATE TABLE IF NOT EXISTS dataset_tasks (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(300) NOT NULL,
+  language VARCHAR(10) NOT NULL DEFAULT 'ky',
+  source_kind VARCHAR(16) NOT NULL,
+  source_url TEXT,
+  status VARCHAR(20) NOT NULL DEFAULT 'queued',
+  stage VARCHAR(40),
+  progress INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT,
+  duration_sec REAL,
+  audio_path TEXT,
+  segmentation_method VARCHAR(16),
+  segment_count INTEGER NOT NULL DEFAULT 0,
+  reviewed_count INTEGER NOT NULL DEFAULT 0,
+  -- A task belongs to one linguist at a time. Two people editing the same
+  -- transcript would silently overwrite each other, and the loser would never
+  -- know their hour of work was gone.
+  owner_id INTEGER REFERENCES dataset_annotators(id) ON DELETE SET NULL,
+  created_by INTEGER REFERENCES dataset_annotators(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  completed_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX IF NOT EXISTS idx_dataset_tasks_status ON dataset_tasks(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dataset_tasks_owner ON dataset_tasks(owner_id, status);
+
+-- One clip. clip_number is global and assigned once at creation, so a file name
+-- never changes meaning: renumbering on export would break every reference a
+-- linguist or a training run already made to it.
+CREATE TABLE IF NOT EXISTS dataset_segments (
+  id SERIAL PRIMARY KEY,
+  task_id INTEGER NOT NULL REFERENCES dataset_tasks(id) ON DELETE CASCADE,
+  idx INTEGER NOT NULL,
+  clip_number BIGINT UNIQUE NOT NULL,
+  start_sec REAL NOT NULL,
+  end_sec REAL NOT NULL,
+  duration_sec REAL NOT NULL,
+  audio_path TEXT NOT NULL,
+  -- Kept beside the edited text so the corpus records what the model got wrong,
+  -- not only what the right answer was. That difference is the training signal.
+  asr_text TEXT NOT NULL DEFAULT '',
+  text TEXT NOT NULL DEFAULT '',
+  status VARCHAR(16) NOT NULL DEFAULT 'pending',
+  forced_cut BOOLEAN NOT NULL DEFAULT FALSE,
+  edited_by INTEGER REFERENCES dataset_annotators(id) ON DELETE SET NULL,
+  edited_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dataset_segments_task_idx ON dataset_segments(task_id, idx);
+CREATE INDEX IF NOT EXISTS idx_dataset_segments_status ON dataset_segments(task_id, status);
+
+-- Global clip numbering, independent of table ids so a deleted task does not
+-- leave a hole that a later clip could reuse.
+CREATE SEQUENCE IF NOT EXISTS dataset_clip_number_seq START 1;

@@ -11,6 +11,13 @@ import adminRoutes from "./routes/admin";
 import { requireAdmin } from "./middleware/requireAdmin";
 import { login, logout, session } from "./services/adminAuthService";
 import betaTestRoutes from "./routes/betaTest";
+import datasetRoutes from "./routes/dataset";
+import {
+  adminListAnnotators,
+  adminCreateAnnotator,
+  adminSetAnnotatorPassword,
+  adminSetAnnotatorActive,
+} from "./controllers/datasetController";
 import { getProvidersHealth } from "./controllers/providersController";
 import { isDbHealthy } from "./db";
 import { config } from "./config";
@@ -52,6 +59,9 @@ app.use(express.static(path.join(process.cwd(), "public")));
 app.use("/webhook", webhookRoutes);
 app.use("/api/translate", translateRoutes);
 app.use("/api/web", webRoutes);
+// Annotation workspace. Its own logins, deliberately not the admin password:
+// a linguist needs to fix transcripts, not to read the request log.
+app.use("/api/dataset", datasetRoutes);
 // Login endpoints sit in front of the gate, or nobody could ever log in.
 app.post("/api/admin/login", login);
 app.post("/api/admin/logout", logout);
@@ -61,6 +71,13 @@ app.get("/api/admin/session", session);
 app.use("/api/admin", requireAdmin);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin/beta", betaTestRoutes);
+
+// Creating and disabling linguist accounts belongs to the site admin, not to
+// the linguists themselves — so it lives behind requireAdmin, above.
+app.get("/api/admin/dataset/annotators", adminListAnnotators);
+app.post("/api/admin/dataset/annotators", adminCreateAnnotator);
+app.post("/api/admin/dataset/annotators/:id/password", adminSetAnnotatorPassword);
+app.post("/api/admin/dataset/annotators/:id/active", adminSetAnnotatorActive);
 
 // 404
 app.use((_req: Request, res: Response) => {

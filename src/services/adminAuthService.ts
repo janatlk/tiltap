@@ -35,7 +35,8 @@ export async function hashPassword(password: string): Promise<string> {
   return `scrypt$${salt.toString("hex")}$${key.toString("hex")}`;
 }
 
-async function verifyPassword(password: string, stored: string): Promise<boolean> {
+/** Exported so the annotator accounts hash and check passwords the same way. */
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const parts = stored.split("$");
   if (parts.length !== 3 || parts[0] !== "scrypt") {
     logger.error("ADMIN_PASSWORD_HASH is malformed; expected scrypt$salt$key");

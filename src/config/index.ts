@@ -194,6 +194,13 @@ const envSchema = z.object({
     .default("true")
     .transform((v) => !v || ["1", "true", "yes", "on"].includes(v.toLowerCase())),
   TILTAB_FEEDBACK_REMINDER_HOURS: z.string().default("24").transform(Number),
+  // Where the annotation corpus lives. Audio stays on this server: 20 hours of
+  // 16 kHz mono is about 2 GB, which the disk absorbs without noticing, and a
+  // local path keeps the linguists' work out of anyone else's infrastructure.
+  TILTAB_DATASET_DIR: z.string().optional().or(z.literal("")).default(""),
+  // A single source recording longer than this is almost always a mistake
+  // (a whole playlist, a stream). Cutting it would bury the linguist.
+  TILTAB_DATASET_MAX_DURATION_MINUTES: z.string().default("90").transform(Number),
   LOG_LEVEL: z.enum(["error", "warn", "info", "debug"]).default("info"),
   DATABASE_URL: isTest
     ? z.string().default("")
