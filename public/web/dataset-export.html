@@ -110,10 +110,10 @@ $("buildBtn").onclick = async () => {
   if (!me) return;
   mountChrome({ key: "export" });
 
-  if (!me.isAdmin) {
+  if (!iCan("export")) {
     document.querySelector("main").insertAdjacentHTML(
       "beforeend",
-      `<div class="alert alert-warning text-sm mt-4">Выгрузку собирает администратор. Здесь вы видите только статистику.</div>`
+      `<div class="alert alert-warning text-sm mt-4">Выгрузку собирает и скачивает супер-админ. Здесь вы видите только статистику.</div>`
     );
     $("buildBtn").disabled = true;
     $("downloadBtn").classList.add("btn-disabled");

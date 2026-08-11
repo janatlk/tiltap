@@ -20,7 +20,7 @@
     <button class="btn btn-sm btn-ghost" id="refreshBtn">Обновить</button>
   </div>
 
-  <div class="card bg-base-100 shadow-sm mb-6">
+  <div class="card bg-base-100 shadow-sm mb-6 hidden" id="addCard">
     <div class="card-body space-y-4">
       <div class="flex items-center justify-between gap-2 flex-wrap">
         <h2 class="card-title text-lg">Добавить запись</h2>
@@ -140,7 +140,7 @@ function renderTasks(tasks) {
       <td class="text-xs">${task.ownerName ? escapeHtml(task.ownerName) + (mine ? " (вы)" : "") : "<span class='opacity-50'>свободна</span>"}</td>
       <td class="text-right whitespace-nowrap">
         ${openable ? `<a class="btn btn-xs btn-primary" href="/web/dataset-task.html?id=${task.id}">Открыть</a>` : ""}
-        ${state.me.isAdmin ? `<button class="btn btn-xs btn-ghost text-error" data-del="${task.id}" data-title="${escapeHtml(task.title)}">Удалить</button>` : ""}
+        ${iCan("deleteTask") ? `<button class="btn btn-xs btn-ghost text-error" data-del="${task.id}" data-title="${escapeHtml(task.title)}">Удалить</button>` : ""}
       </td>
     </tr>`;
   }).join("");
@@ -206,6 +206,8 @@ $("refreshBtn").onclick = loadTasks;
 (async () => {
   if (!(await requireSession())) return;
   mountChrome({ key: "tasks" });
+  // Смотритель записи не добавляет — форма ему только мешала бы.
+  show($("addCard"), iCan("createTask"));
   loadTasks();
   loadStats();
 })();

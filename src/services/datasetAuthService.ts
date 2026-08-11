@@ -12,6 +12,7 @@ import {
   touchAnnotatorLogin,
   purgeExpiredAnnotatorSessions,
 } from "../db/repos/datasetRepo";
+import { ROLE_NAMES, capabilitiesOf, roleOf } from "./datasetPermissions";
 
 /**
  * Logins for the linguists working on the annotation corpus.
@@ -170,12 +171,18 @@ export async function annotatorSession(req: Request, res: Response): Promise<voi
 
 /** Never let password_hash out of the service layer. */
 export function publicAnnotator(annotator: Annotator) {
+  const role = roleOf(annotator);
   return {
     id: annotator.id,
     username: annotator.username,
     displayName: annotator.display_name,
-    isAdmin: annotator.is_admin,
+    role,
+    roleName: ROLE_NAMES[role],
+    // Страница рисует кнопки по правам, а не по названию роли: иначе список
+    // ролей придётся держать в двух местах и однажды они разойдутся.
+    can: capabilitiesOf(annotator),
     active: annotator.active,
+    createdAt: annotator.created_at,
     lastLoginAt: annotator.last_login_at,
   };
 }

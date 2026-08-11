@@ -12,12 +12,7 @@ import { requireAdmin } from "./middleware/requireAdmin";
 import { login, logout, session } from "./services/adminAuthService";
 import betaTestRoutes from "./routes/betaTest";
 import datasetRoutes from "./routes/dataset";
-import {
-  adminListAnnotators,
-  adminCreateAnnotator,
-  adminSetAnnotatorPassword,
-  adminSetAnnotatorActive,
-} from "./controllers/datasetController";
+import { adminListAnnotators, adminCreateAnnotator } from "./controllers/datasetController";
 import { getProvidersHealth } from "./controllers/providersController";
 import { isDbHealthy } from "./db";
 import { config } from "./config";
@@ -72,12 +67,11 @@ app.use("/api/admin", requireAdmin);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin/beta", betaTestRoutes);
 
-// Creating and disabling linguist accounts belongs to the site admin, not to
-// the linguists themselves — so it lives behind requireAdmin, above.
+// Учётки разметки заводит супер-админ на своей странице. Эти два маршрута —
+// аварийный путь: если единственного супер-админа потеряли, восстановить
+// доступ изнутри самой страницы уже нечем.
 app.get("/api/admin/dataset/annotators", adminListAnnotators);
 app.post("/api/admin/dataset/annotators", adminCreateAnnotator);
-app.post("/api/admin/dataset/annotators/:id/password", adminSetAnnotatorPassword);
-app.post("/api/admin/dataset/annotators/:id/active", adminSetAnnotatorActive);
 
 // 404
 app.use((_req: Request, res: Response) => {

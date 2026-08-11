@@ -9,8 +9,14 @@ const TELEGRAM_CONTACT = "jj07n";
 
 const DATASET_PAGES = [
   { href: "/web/dataset-tasks.html", label: "Записи", key: "tasks" },
-  { href: "/web/dataset-export.html", label: "Выгрузка", key: "export", adminOnly: true },
+  { href: "/web/dataset-export.html", label: "Выгрузка", key: "export", needs: "export" },
+  { href: "/web/dataset-users.html", label: "Пользователи", key: "users", needs: "manageUsers" },
 ];
+
+/** Умеет ли текущий пользователь то-то. Права приходят с сервера вместе с сессией. */
+function iCan(capability) {
+  return Boolean(state.me && state.me.can && state.me.can[capability]);
+}
 
 const state = { me: null };
 
@@ -86,7 +92,7 @@ function mountChrome(options) {
 
   // На странице входа навигация вела бы обратно на неё же.
   const nav = (opts.minimal ? [] : DATASET_PAGES)
-    .filter((page) => !page.adminOnly || (me && me.isAdmin))
+    .filter((page) => !page.needs || iCan(page.needs))
     .map((page) => {
       const cls = page.key === active ? "btn btn-sm btn-primary" : "btn btn-sm btn-ghost";
       return `<a class="${cls}" href="${page.href}">${page.label}</a>`;
@@ -102,8 +108,16 @@ function mountChrome(options) {
     </div>
     <div class="flex items-center gap-2 flex-wrap">
       <button class="btn btn-sm btn-outline" id="helpBtn">Инструкция</button>
-      ${me ? `<span class="badge badge-ghost">${escapeHtml(me.displayName)}${me.isAdmin ? " · админ" : ""}</span>` : ""}
-      ${me ? `<button class="btn btn-sm btn-ghost" id="logoutBtn">Выйти</button>` : ""}
+      ${me ? `<div class="dropdown dropdown-end">
+        <button tabindex="0" class="btn btn-sm btn-ghost">
+          ${escapeHtml(me.displayName)}
+          <span class="badge badge-ghost badge-sm">${escapeHtml(me.roleName || "")}</span>
+        </button>
+        <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box shadow-sm z-30 w-52 p-2">
+          <li><button id="ownPasswordBtn">Сменить свой пароль</button></li>
+          <li><button id="logoutBtn">Выйти</button></li>
+        </ul>
+      </div>` : ""}
     </div>`;
 
   const root = document.querySelector("main") || document.body;
@@ -128,6 +142,65 @@ function mountChrome(options) {
       location.href = "/web/dataset.html";
     };
   }
+
+  if (me) mountOwnPasswordDialog();
+}
+
+// ---------------------------------------------------------------------------
+// Свой пароль
+// ---------------------------------------------------------------------------
+
+function mountOwnPasswordDialog() {
+  if ($("ownPasswordDialog")) return;
+
+  const dialog = document.createElement("dialog");
+  dialog.id = "ownPasswordDialog";
+  dialog.className = "modal";
+  dialog.innerHTML = `
+    <div class="modal-box max-w-sm">
+      <h3 class="font-bold text-lg mb-3">Сменить свой пароль</h3>
+      <div class="space-y-3">
+        <input id="ownCurrentPass" type="password" class="input input-bordered w-full" placeholder="Текущий пароль" autocomplete="current-password">
+        <input id="ownNewPass" type="password" class="input input-bordered w-full" placeholder="Новый пароль, от 8 символов" autocomplete="new-password">
+        <div id="ownPassMsg" class="alert text-sm hidden"></div>
+      </div>
+      <div class="modal-action">
+        <form method="dialog"><button class="btn btn-ghost">Отмена</button></form>
+        <button class="btn btn-primary" id="ownPassSave">Сохранить</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>закрыть</button></form>`;
+  document.body.append(dialog);
+
+  const message = (text, ok) => {
+    const box = $("ownPassMsg");
+    box.className = "alert text-sm " + (ok ? "alert-success" : "alert-error");
+    box.textContent = text;
+    show(box, true);
+  };
+
+  $("ownPasswordBtn").onclick = () => {
+    $("ownCurrentPass").value = "";
+    $("ownNewPass").value = "";
+    show($("ownPassMsg"), false);
+    dialog.showModal();
+  };
+
+  $("ownPassSave").onclick = async () => {
+    try {
+      await api("/api/dataset/password", {
+        method: "POST",
+        body: JSON.stringify({
+          currentPassword: $("ownCurrentPass").value,
+          password: $("ownNewPass").value,
+        }),
+      });
+      message("Пароль изменён", true);
+      setTimeout(() => dialog.close(), 1200);
+    } catch (err) {
+      message(err.message, false);
+    }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +400,24 @@ const HELP_SECTIONS = [
         <li><kbd class="kbd kbd-sm">Ctrl</kbd> + <kbd class="kbd kbd-sm">Space</kbd> — переслушать фрагмент с начала</li>
       </ul>
       <p class="opacity-80">Обе работают, когда курсор стоит в поле текста.</p>`,
+  },
+  {
+    id: "roles",
+    title: "Роли и права",
+    body: `
+      <p>У каждого своя учётная запись и одна из трёх ролей. Роль видна рядом с вашим именем вверху справа.</p>
+      <ul class="space-y-2">
+        <li><b>Смотритель</b> — видит записи и статистику, слушает фрагменты, читает расшифровки.
+        Ничего не меняет и не выгружает. Роль для тех, кто следит за ходом работы.</li>
+        <li><b>Разметчик</b> — всё то же плюс главное: добавляет записи, берёт их в работу
+        и правит расшифровки. Не удаляет записи и не выгружает корпус.</li>
+        <li><b>Супер-админ</b> — всё вышеперечисленное, а сверх того: заводит и удаляет
+        пользователей, меняет им роли и пароли, удаляет записи, собирает и скачивает выгрузку.</li>
+      </ul>
+      <p><b>Свой пароль</b> может сменить кто угодно: нажмите на своё имя вверху справа →
+      «Сменить свой пароль». Понадобится текущий пароль.</p>
+      <p class="opacity-80">Если пароль забыт — его поставит заново супер-админ на странице
+      «Пользователи», старый для этого не нужен.</p>`,
   },
   {
     id: "export",

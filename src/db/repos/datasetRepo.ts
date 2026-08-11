@@ -5,12 +5,14 @@ import { query, queryOne } from "../connection";
  * and the individual clips they correct.
  */
 
+export type Role = "super_admin" | "annotator" | "viewer";
+
 export interface Annotator {
   id: number;
   username: string;
   display_name: string;
   password_hash: string;
-  is_admin: boolean;
+  role: Role;
   active: boolean;
   created_at: Date;
   last_login_at: Date | null;
@@ -81,19 +83,64 @@ export async function createAnnotator(payload: {
   username: string;
   displayName: string;
   passwordHash: string;
-  isAdmin?: boolean;
+  role?: Role;
 }): Promise<Annotator | null> {
   return queryOne<Annotator>(
-    `INSERT INTO dataset_annotators (username, display_name, password_hash, is_admin)
+    `INSERT INTO dataset_annotators (username, display_name, password_hash, role)
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (username) DO NOTHING
      RETURNING *`,
-    [payload.username.trim().toLowerCase(), payload.displayName.trim(), payload.passwordHash, payload.isAdmin ?? false]
+    [payload.username.trim().toLowerCase(), payload.displayName.trim(), payload.passwordHash, payload.role ?? "annotator"]
   );
 }
 
-export async function setAnnotatorPassword(id: number, passwordHash: string): Promise<void> {
+export async function updateAnnotator(
+  id: number,
+  patch: { displayName?: string; role?: Role }
+): Promise<Annotator | null> {
+  const updated = await queryOne<Annotator>(
+    `UPDATE dataset_annotators SET
+       display_name = COALESCE($2, display_name),
+       role = COALESCE($3, role)
+     WHERE id = $1
+     RETURNING *`,
+    [id, patch.displayName?.trim() ?? null, patch.role ?? null]
+  );
+
+  // Роль сменилась — старые сессии несут прежние права до истечения куки.
+  if (updated && patch.role) {
+    await query(`DELETE FROM dataset_sessions WHERE annotator_id = $1`, [id]);
+  }
+  return updated;
+}
+
+export async function deleteAnnotator(id: number): Promise<Annotator | null> {
+  return queryOne<Annotator>(`DELETE FROM dataset_annotators WHERE id = $1 RETURNING *`, [id]);
+}
+
+/**
+ * Сколько активных супер-админов осталось. Нужно, чтобы нельзя было удалить
+ * или разжаловать последнего и запереть всех снаружи.
+ */
+export async function countActiveSuperAdmins(): Promise<number> {
+  const row = await queryOne<{ n: string | number }>(
+    `SELECT COUNT(*) AS n FROM dataset_annotators WHERE role = 'super_admin' AND active`
+  );
+  return Number(row?.n ?? 0);
+}
+
+export async function setAnnotatorPassword(
+  id: number,
+  passwordHash: string,
+  revokeSessions: boolean
+): Promise<void> {
   await query(`UPDATE dataset_annotators SET password_hash = $2 WHERE id = $1`, [id, passwordHash]);
+  // Смена чужого пароля должна отрезать и открытые сессии — иначе она не
+  // закрывает доступ, а лишь усложняет повторный вход. Свой пароль меняют,
+  // сидя на странице, и выкидывать себя оттуда незачем.
+  if (revokeSessions) {
+    await query(`DELETE FROM dataset_sessions WHERE annotator_id = $1`, [id]);
+  }
 }
 
 export async function setAnnotatorActive(id: number, active: boolean): Promise<void> {

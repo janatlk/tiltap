@@ -4,10 +4,12 @@ import * as path from "path";
 import type { Request, Response } from "express";
 import { logger } from "../utils/logger";
 import { currentAnnotator, hashPassword, passwordProblem, publicAnnotator } from "../services/datasetAuthService";
+import { verifyPassword } from "../services/adminAuthService";
 import { prepareTask, isTaskRunning, removeTaskFiles, resolveInsideDataset } from "../services/datasetPipeline";
 import { buildArchive, existingArchive, formatDuration } from "../services/datasetExportService";
 import * as repo from "../db/repos/datasetRepo";
 import { detectMediaSource } from "../services/youtubeService";
+import { ROLES, ROLE_NAMES, can, isRole, isSuperAdmin, roleOf } from "../services/datasetPermissions";
 
 /**
  * The annotation workspace: linguists claim a recording, correct each clip's
@@ -20,6 +22,25 @@ async function requireAnnotatorOr401(req: Request, res: Response) {
   const annotator = await currentAnnotator(req);
   if (!annotator) {
     res.status(401).json({ error: "Unauthorized", loginRequired: true });
+    return null;
+  }
+  return annotator;
+}
+
+/**
+ * Тот же вход, но ещё и с проверкой права. Скрыть кнопку на странице — не
+ * защита: запрос можно послать и без неё.
+ */
+async function requireCapability(
+  req: Request,
+  res: Response,
+  capability: Parameters<typeof can>[1],
+  message: string
+) {
+  const annotator = await requireAnnotatorOr401(req, res);
+  if (!annotator) return null;
+  if (!can(annotator, capability)) {
+    res.status(403).json({ error: message });
     return null;
   }
   return annotator;
@@ -90,7 +111,7 @@ function validateNewTask(body: { title?: string; language?: string }): { title: 
 }
 
 export async function createLinkTask(req: Request, res: Response): Promise<void> {
-  const annotator = await requireAnnotatorOr401(req, res);
+  const annotator = await requireCapability(req, res, "createTask", "Смотритель не может добавлять записи");
   if (!annotator) return;
 
   const { url } = req.body as { url?: string };
@@ -121,7 +142,7 @@ export async function createLinkTask(req: Request, res: Response): Promise<void>
 }
 
 export async function createUploadTask(req: Request, res: Response): Promise<void> {
-  const annotator = await requireAnnotatorOr401(req, res);
+  const annotator = await requireCapability(req, res, "createTask", "Смотритель не может добавлять записи");
   if (!annotator) return;
 
   const file = (req as Request & { file?: { buffer: Buffer; originalname: string } }).file;
@@ -172,11 +193,22 @@ export async function getTask(req: Request, res: Response): Promise<void> {
  * the considered one.
  */
 function canEdit(task: repo.DatasetTask, annotator: repo.Annotator): boolean {
-  return task.owner_id === null || task.owner_id === annotator.id || annotator.is_admin;
+  if (!can(annotator, "annotate")) return false;
+  return task.owner_id === null || task.owner_id === annotator.id || isSuperAdmin(annotator);
+}
+
+/**
+ * Отказ должен называть настоящую причину. Смотрителю, которому пишут
+ * «закреплена за другим», остаётся искать владельца, которого нет.
+ */
+function whyCannotEdit(annotator: repo.Annotator): string {
+  return can(annotator, "annotate")
+    ? "Запись закреплена за другим лингвистом"
+    : "Смотритель не может править расшифровки";
 }
 
 export async function claimTask(req: Request, res: Response): Promise<void> {
-  const annotator = await requireAnnotatorOr401(req, res);
+  const annotator = await requireCapability(req, res, "annotate", "Смотритель не может брать записи в работу");
   if (!annotator) return;
 
   const task = await repo.getTask(Number(req.params.id));
@@ -187,7 +219,7 @@ export async function claimTask(req: Request, res: Response): Promise<void> {
 
   const release = (req.body as { release?: boolean })?.release === true;
   if (release) {
-    if (task.owner_id !== annotator.id && !annotator.is_admin) {
+    if (task.owner_id !== annotator.id && !isSuperAdmin(annotator)) {
       res.status(403).json({ error: "Задача закреплена за другим лингвистом" });
       return;
     }
@@ -196,7 +228,7 @@ export async function claimTask(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  if (task.owner_id !== null && task.owner_id !== annotator.id && !annotator.is_admin) {
+  if (task.owner_id !== null && task.owner_id !== annotator.id && !isSuperAdmin(annotator)) {
     const owner = await repo.findAnnotatorById(task.owner_id);
     res.status(409).json({ error: `Задачу уже взял: ${owner?.display_name ?? "другой лингвист"}` });
     return;
@@ -216,7 +248,7 @@ export async function completeTask(req: Request, res: Response): Promise<void> {
     return;
   }
   if (!canEdit(task, annotator)) {
-    res.status(403).json({ error: "Задача закреплена за другим лингвистом" });
+    res.status(403).json({ error: whyCannotEdit(annotator) });
     return;
   }
 
@@ -227,12 +259,8 @@ export async function completeTask(req: Request, res: Response): Promise<void> {
 }
 
 export async function deleteTask(req: Request, res: Response): Promise<void> {
-  const annotator = await requireAnnotatorOr401(req, res);
+  const annotator = await requireCapability(req, res, "deleteTask", "Удалять записи может только супер-админ");
   if (!annotator) return;
-  if (!annotator.is_admin) {
-    res.status(403).json({ error: "Удалять задачи может только администратор" });
-    return;
-  }
 
   const id = Number(req.params.id);
   const deleted = await repo.deleteTask(id);
@@ -261,7 +289,7 @@ export async function updateSegment(req: Request, res: Response): Promise<void> 
 
   const task = await repo.getTask(segment.task_id);
   if (!task || !canEdit(task, annotator)) {
-    res.status(403).json({ error: "Задача закреплена за другим лингвистом" });
+    res.status(403).json({ error: whyCannotEdit(annotator) });
     return;
   }
 
@@ -350,12 +378,8 @@ export async function getStats(req: Request, res: Response): Promise<void> {
 }
 
 export async function exportArchive(req: Request, res: Response): Promise<void> {
-  const annotator = await requireAnnotatorOr401(req, res);
+  const annotator = await requireCapability(req, res, "export", "Выгрузку собирает супер-админ");
   if (!annotator) return;
-  if (!annotator.is_admin) {
-    res.status(403).json({ error: "Выгрузку собирает администратор" });
-    return;
-  }
 
   try {
     const summary = await buildArchive();
@@ -374,7 +398,9 @@ export async function exportArchive(req: Request, res: Response): Promise<void> 
 }
 
 export async function downloadArchive(req: Request, res: Response): Promise<void> {
-  const annotator = await requireAnnotatorOr401(req, res);
+  // Скачивание закрыто тем же правом, что и сборка: иначе корпус уносил бы
+  // любой, кому дали посмотреть на ход работы.
+  const annotator = await requireCapability(req, res, "export", "Скачивать корпус может супер-админ");
   if (!annotator) return;
 
   const archive = await existingArchive();
@@ -390,83 +416,225 @@ export async function downloadArchive(req: Request, res: Response): Promise<void
 }
 
 // ---------------------------------------------------------------------------
-// Annotator management (site admin only, mounted under /api/admin)
+// Пользователи
 // ---------------------------------------------------------------------------
 
-export async function adminListAnnotators(_req: Request, res: Response): Promise<void> {
-  const annotators = await repo.listAnnotators();
-  res.json({ annotators: annotators.map(publicAnnotator) });
+function usernameProblem(username: string | undefined): string | null {
+  if (!username || !/^[a-z0-9_.-]{3,64}$/i.test(username)) {
+    return "Логин: 3–64 символа, латиница, цифры, дефис, точка, подчёркивание";
+  }
+  return null;
 }
 
-export async function adminCreateAnnotator(req: Request, res: Response): Promise<void> {
-  const { username, displayName, password, isAdmin } = req.body as {
+export async function listUsers(req: Request, res: Response): Promise<void> {
+  const annotator = await requireCapability(req, res, "manageUsers", "Управлять пользователями может супер-админ");
+  if (!annotator) return;
+
+  const users = await repo.listAnnotators();
+  res.json({
+    users: users.map(publicAnnotator),
+    roles: ROLES.map((role) => ({ value: role, label: ROLE_NAMES[role] })),
+    meId: annotator.id,
+  });
+}
+
+export async function createUser(req: Request, res: Response): Promise<void> {
+  const annotator = await requireCapability(req, res, "manageUsers", "Управлять пользователями может супер-админ");
+  if (!annotator) return;
+
+  const { username, displayName, password, role } = req.body as {
     username?: string;
     displayName?: string;
     password?: string;
-    isAdmin?: boolean;
+    role?: string;
   };
 
-  if (!username || !/^[a-z0-9_.-]{3,64}$/i.test(username)) {
-    res.status(400).json({ error: "Логин: 3–64 символа, латиница, цифры, дефис, точка, подчёркивание" });
+  const badName = usernameProblem(username);
+  if (badName) {
+    res.status(400).json({ error: badName });
     return;
   }
-  if (!password) {
-    res.status(400).json({ error: "Нужен пароль" });
+  const badPassword = password ? passwordProblem(password) : "Нужен пароль";
+  if (badPassword) {
+    res.status(400).json({ error: badPassword });
     return;
   }
-  const problem = passwordProblem(password);
-  if (problem) {
-    res.status(400).json({ error: problem });
+  if (role !== undefined && !isRole(role)) {
+    res.status(400).json({ error: "Неизвестная роль" });
     return;
   }
 
   const created = await repo.createAnnotator({
-    username,
-    displayName: displayName?.trim() || username,
-    passwordHash: await hashPassword(password),
-    isAdmin: isAdmin === true,
+    username: username as string,
+    displayName: displayName?.trim() || (username as string),
+    passwordHash: await hashPassword(password as string),
+    role: isRole(role) ? role : "annotator",
   });
   if (!created) {
     res.status(409).json({ error: "Такой логин уже занят" });
     return;
   }
 
-  logger.info("Annotator created", { username: created.username });
-  res.status(201).json({ annotator: publicAnnotator(created) });
+  logger.info("Dataset user created", { username: created.username, role: roleOf(created), by: annotator.username });
+  res.status(201).json({ user: publicAnnotator(created) });
 }
 
-export async function adminSetAnnotatorPassword(req: Request, res: Response): Promise<void> {
-  const { password } = req.body as { password?: string };
-  if (!password) {
-    res.status(400).json({ error: "Нужен пароль" });
+export async function updateUser(req: Request, res: Response): Promise<void> {
+  const annotator = await requireCapability(req, res, "manageUsers", "Управлять пользователями может супер-админ");
+  if (!annotator) return;
+
+  const target = await repo.findAnnotatorById(Number(req.params.id));
+  if (!target) {
+    res.status(404).json({ error: "Пользователь не найден" });
     return;
   }
-  const problem = passwordProblem(password);
+
+  const { role, displayName, active } = req.body as { role?: string; displayName?: string; active?: boolean };
+  if (role !== undefined && !isRole(role)) {
+    res.status(400).json({ error: "Неизвестная роль" });
+    return;
+  }
+
+  // Снять последнего супер-админа — значит запереть дверь снаружи: управлять
+  // людьми станет некому, и чинить это придётся руками в базе.
+  const losesAdmin =
+    roleOf(target) === "super_admin" && ((isRole(role) && role !== "super_admin") || active === false);
+  if (losesAdmin && (await repo.countActiveSuperAdmins()) <= 1) {
+    res.status(409).json({ error: "Это последний супер-админ. Сначала назначьте другого." });
+    return;
+  }
+
+  await repo.updateAnnotator(target.id, {
+    displayName,
+    role: isRole(role) ? role : undefined,
+  });
+  if (active !== undefined) {
+    await repo.setAnnotatorActive(target.id, active);
+  }
+
+  const fresh = await repo.findAnnotatorById(target.id);
+  logger.info("Dataset user updated", { username: target.username, by: annotator.username });
+  res.json({ user: fresh ? publicAnnotator(fresh) : null });
+}
+
+export async function deleteUser(req: Request, res: Response): Promise<void> {
+  const annotator = await requireCapability(req, res, "manageUsers", "Управлять пользователями может супер-админ");
+  if (!annotator) return;
+
+  const target = await repo.findAnnotatorById(Number(req.params.id));
+  if (!target) {
+    res.status(404).json({ error: "Пользователь не найден" });
+    return;
+  }
+  if (target.id === annotator.id) {
+    res.status(409).json({ error: "Нельзя удалить самого себя" });
+    return;
+  }
+  if (roleOf(target) === "super_admin" && (await repo.countActiveSuperAdmins()) <= 1) {
+    res.status(409).json({ error: "Это последний супер-админ. Сначала назначьте другого." });
+    return;
+  }
+
+  await repo.deleteAnnotator(target.id);
+  logger.info("Dataset user deleted", { username: target.username, by: annotator.username });
+  res.json({ ok: true });
+}
+
+export async function setUserPassword(req: Request, res: Response): Promise<void> {
+  const annotator = await requireCapability(req, res, "manageUsers", "Менять чужие пароли может супер-админ");
+  if (!annotator) return;
+
+  const target = await repo.findAnnotatorById(Number(req.params.id));
+  if (!target) {
+    res.status(404).json({ error: "Пользователь не найден" });
+    return;
+  }
+
+  const { password } = req.body as { password?: string };
+  const problem = password ? passwordProblem(password) : "Нужен пароль";
   if (problem) {
     res.status(400).json({ error: problem });
     return;
   }
 
-  const id = Number(req.params.id);
-  const annotator = await repo.findAnnotatorById(id);
-  if (!annotator) {
-    res.status(404).json({ error: "Лингвист не найден" });
-    return;
-  }
-
-  await repo.setAnnotatorPassword(id, await hashPassword(password));
-  res.json({ ok: true });
+  // Свой пароль меняют, сидя на этой же странице — выкидывать себя незачем.
+  const self = target.id === annotator.id;
+  await repo.setAnnotatorPassword(target.id, await hashPassword(password as string), !self);
+  logger.info("Dataset password changed", { username: target.username, by: annotator.username, self });
+  res.json({ ok: true, self });
 }
 
-export async function adminSetAnnotatorActive(req: Request, res: Response): Promise<void> {
-  const id = Number(req.params.id);
-  const annotator = await repo.findAnnotatorById(id);
-  if (!annotator) {
-    res.status(404).json({ error: "Лингвист не найден" });
+// ---------------------------------------------------------------------------
+// Аварийный вход для админа сайта (за requireAdmin, монтируется в /api/admin)
+// ---------------------------------------------------------------------------
+
+/**
+ * Если единственный супер-админ потерян, изнутри этой страницы починить нечего.
+ * Админ сайта, у которого и так есть доступ ко всему, может завести нового.
+ */
+export async function adminListAnnotators(_req: Request, res: Response): Promise<void> {
+  const users = await repo.listAnnotators();
+  res.json({ users: users.map(publicAnnotator) });
+}
+
+export async function adminCreateAnnotator(req: Request, res: Response): Promise<void> {
+  const { username, displayName, password, role } = req.body as {
+    username?: string;
+    displayName?: string;
+    password?: string;
+    role?: string;
+  };
+
+  const badName = usernameProblem(username);
+  if (badName) {
+    res.status(400).json({ error: badName });
+    return;
+  }
+  const badPassword = password ? passwordProblem(password) : "Нужен пароль";
+  if (badPassword) {
+    res.status(400).json({ error: badPassword });
     return;
   }
 
-  const active = (req.body as { active?: boolean })?.active === true;
-  await repo.setAnnotatorActive(id, active);
-  res.json({ ok: true, active });
+  const created = await repo.createAnnotator({
+    username: username as string,
+    displayName: displayName?.trim() || (username as string),
+    passwordHash: await hashPassword(password as string),
+    role: isRole(role) ? role : "super_admin",
+  });
+  if (!created) {
+    res.status(409).json({ error: "Такой логин уже занят" });
+    return;
+  }
+
+  logger.info("Dataset user created by site admin", { username: created.username, role: roleOf(created) });
+  res.status(201).json({ user: publicAnnotator(created) });
+}
+
+/** Смена собственного пароля — доступна всем, включая смотрителя. */
+export async function changeOwnPassword(req: Request, res: Response): Promise<void> {
+  const annotator = await requireAnnotatorOr401(req, res);
+  if (!annotator) return;
+
+  const { currentPassword, password } = req.body as { currentPassword?: string; password?: string };
+  const problem = password ? passwordProblem(password) : "Нужен новый пароль";
+  if (problem) {
+    res.status(400).json({ error: problem });
+    return;
+  }
+  if (!currentPassword) {
+    res.status(400).json({ error: "Введите текущий пароль" });
+    return;
+  }
+
+  // Текущий пароль спрашивается и у своей учётки: без этого любой, кто подошёл
+  // к незапертому компьютеру, меняет пароль и забирает доступ себе.
+  if (!(await verifyPassword(currentPassword, annotator.password_hash))) {
+    res.status(403).json({ error: "Текущий пароль неверен" });
+    return;
+  }
+
+  await repo.setAnnotatorPassword(annotator.id, await hashPassword(password as string), false);
+  logger.info("Dataset user changed own password", { username: annotator.username });
+  res.json({ ok: true });
 }

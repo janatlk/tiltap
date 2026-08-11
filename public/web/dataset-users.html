@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="business">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Разметка аудио — пользователи</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="min-h-screen bg-base-200 py-6 px-4">
+<main class="max-w-5xl mx-auto">
+
+  <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Пользователи</h1>
+      <p class="text-sm opacity-70">Кто заходит на страницу разметки и что ему разрешено.</p>
+    </div>
+    <button class="btn btn-sm btn-outline" id="rolesHelpBtn">Что означают роли</button>
+  </div>
+
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body space-y-4">
+      <h2 class="card-title text-lg">Добавить пользователя</h2>
+
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="form-control">
+          <span class="label-text text-xs">Логин (латиницей)</span>
+          <input id="newUsername" class="input input-bordered input-sm w-full" placeholder="aida" autocomplete="off">
+        </label>
+        <label class="form-control">
+          <span class="label-text text-xs">Имя, как показывать</span>
+          <input id="newDisplayName" class="input input-bordered input-sm w-full" placeholder="Айда Осмонова" autocomplete="off">
+        </label>
+        <label class="form-control">
+          <span class="label-text text-xs">Пароль, от 8 символов</span>
+          <div class="join w-full">
+            <input id="newPassword" class="input input-bordered input-sm join-item flex-1" autocomplete="new-password">
+            <button class="btn btn-sm btn-ghost join-item" id="genPasswordBtn" type="button" title="Придумать пароль">↻</button>
+          </div>
+        </label>
+        <label class="form-control">
+          <span class="label-text text-xs">Роль</span>
+          <select id="newRole" class="select select-bordered select-sm w-full"></select>
+        </label>
+      </div>
+
+      <div id="createError" class="alert alert-error text-sm hidden"></div>
+      <div id="createOk" class="alert alert-success text-sm hidden"></div>
+
+      <div>
+        <button id="createBtn" class="btn btn-primary btn-sm">Добавить</button>
+      </div>
+      <p class="text-xs opacity-60">
+        Пароль придётся передать человеку самому — здесь он показывается один раз и потом не хранится в открытом виде.
+      </p>
+    </div>
+  </div>
+
+  <div class="card bg-base-100 shadow-sm">
+    <div class="card-body">
+      <div class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Имя</th>
+              <th>Логин</th>
+              <th>Роль</th>
+              <th>Доступ</th>
+              <th>Последний вход</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="userRows"><tr><td colspan="6" class="opacity-60">Загрузка…</td></tr></tbody>
+        </table>
+      </div>
+      <div id="listError" class="alert alert-error text-sm hidden mt-3"></div>
+    </div>
+  </div>
+</main>
+
+<dialog id="passwordDialog" class="modal">
+  <div class="modal-box max-w-sm">
+    <h3 class="font-bold text-lg mb-1">Новый пароль</h3>
+    <p class="text-sm opacity-70 mb-3" id="passwordFor"></p>
+    <div class="join w-full">
+      <input id="resetPassword" class="input input-bordered join-item flex-1" autocomplete="new-password">
+      <button class="btn btn-ghost join-item" id="genResetBtn" type="button" title="Придумать пароль">↻</button>
+    </div>
+    <p class="text-xs opacity-60 mt-2" id="resetHint"></p>
+    <div id="resetError" class="alert alert-error text-sm hidden mt-3"></div>
+    <div class="modal-action">
+      <form method="dialog"><button class="btn btn-ghost">Отмена</button></form>
+      <button class="btn btn-primary" id="resetSave">Сохранить</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>закрыть</button></form>
+</dialog>
+
+<script src="/web/dataset-common.js"></script>
+<script>
+let roles = [];
+let meId = null;
+
+$("rolesHelpBtn").onclick = () => openHelp("roles");
+
+/** Пароль из слов: его можно продиктовать по телефону, не путая l и 1. */
+function suggestPassword() {
+  const words = ["talaa", "tamga", "beles", "maral", "altyn", "jazuu", "kerben", "aylana"];
+  const pick = () => words[Math.floor(Math.random() * words.length)];
+  return pick() + "-" + Math.floor(1000 + Math.random() * 9000) + "-" + pick();
+}
+
+$("genPasswordBtn").onclick = () => { $("newPassword").value = suggestPassword(); };
+$("genResetBtn").onclick = () => { $("resetPassword").value = suggestPassword(); };
+
+function roleOptions(selected) {
+  return roles
+    .map((r) => `<option value="${r.value}" ${r.value === selected ? "selected" : ""}>${escapeHtml(r.label)}</option>`)
+    .join("");
+}
+
+async function loadUsers() {
+  showError($("listError"), "");
+  try {
+    const data = await api("/api/dataset/users");
+    roles = data.roles;
+    meId = data.meId;
+    $("newRole").innerHTML = roleOptions("annotator");
+    renderUsers(data.users);
+  } catch (err) {
+    showError($("listError"), err.message);
+    $("userRows").innerHTML = "";
+  }
+}
+
+function renderUsers(users) {
+  $("userRows").innerHTML = users.map((user) => {
+    const self = user.id === meId;
+    const lastLogin = user.lastLoginAt
+      ? new Date(user.lastLoginAt).toLocaleString("ru")
+      : "<span class='opacity-50'>ни разу</span>";
+
+    return `<tr class="${user.active ? "" : "opacity-50"}">
+      <td class="font-medium">${escapeHtml(user.displayName)}${self ? " <span class='badge badge-ghost badge-xs'>это вы</span>" : ""}</td>
+      <td class="text-xs opacity-70">${escapeHtml(user.username)}</td>
+      <td>
+        <select class="select select-bordered select-xs" data-role="${user.id}">${roleOptions(user.role)}</select>
+      </td>
+      <td>
+        <label class="label cursor-pointer gap-2 justify-start">
+          <input type="checkbox" class="toggle toggle-xs toggle-success" data-active="${user.id}" ${user.active ? "checked" : ""}>
+          <span class="text-xs">${user.active ? "включён" : "отключён"}</span>
+        </label>
+      </td>
+      <td class="text-xs">${lastLogin}</td>
+      <td class="text-right whitespace-nowrap">
+        <button class="btn btn-xs btn-ghost" data-pass="${user.id}" data-name="${escapeHtml(user.displayName)}">Пароль</button>
+        ${self ? "" : `<button class="btn btn-xs btn-ghost text-error" data-del="${user.id}" data-name="${escapeHtml(user.displayName)}">Удалить</button>`}
+      </td>
+    </tr>`;
+  }).join("");
+
+  bindRows();
+}
+
+function bindRows() {
+  document.querySelectorAll("[data-role]").forEach((select) => {
+    select.onchange = async () => {
+      const previous = select.dataset.previous || "";
+      try {
+        await api("/api/dataset/users/" + select.dataset.role, {
+          method: "PATCH",
+          body: JSON.stringify({ role: select.value }),
+        });
+        loadUsers();
+      } catch (err) {
+        showError($("listError"), err.message);
+        // Сервер отказал — вернуть выпадающий список в прежнее состояние,
+        // иначе на экране будет роль, которой на самом деле нет.
+        if (previous) select.value = previous;
+        loadUsers();
+      }
+    };
+    select.dataset.previous = select.value;
+  });
+
+  document.querySelectorAll("[data-active]").forEach((toggle) => {
+    toggle.onchange = async () => {
+      try {
+        await api("/api/dataset/users/" + toggle.dataset.active, {
+          method: "PATCH",
+          body: JSON.stringify({ active: toggle.checked }),
+        });
+      } catch (err) {
+        showError($("listError"), err.message);
+      }
+      loadUsers();
+    };
+  });
+
+  document.querySelectorAll("[data-del]").forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm(
+        `Удалить «${btn.dataset.name}»?\n\nЗаписи и фрагменты останутся, но исчезнет отметка, кто их правил.` +
+        `\nЕсли нужно просто закрыть доступ — лучше выключите переключатель «Доступ».`
+      )) return;
+      try {
+        await api("/api/dataset/users/" + btn.dataset.del, { method: "DELETE" });
+      } catch (err) {
+        showError($("listError"), err.message);
+      }
+      loadUsers();
+    };
+  });
+
+  document.querySelectorAll("[data-pass]").forEach((btn) => {
+    btn.onclick = () => openPasswordDialog(btn.dataset.pass, btn.dataset.name);
+  });
+}
+
+// --------------------------------------------------------------- новый пароль
+let resetTargetId = null;
+
+function openPasswordDialog(id, name) {
+  resetTargetId = id;
+  $("passwordFor").textContent = "Для: " + name;
+  $("resetPassword").value = suggestPassword();
+  $("resetHint").textContent = Number(id) === meId
+    ? "Это ваша учётная запись — вы останетесь в системе."
+    : "Открытые сессии этого пользователя будут закрыты, ему придётся войти заново.";
+  showError($("resetError"), "");
+  $("passwordDialog").showModal();
+}
+
+$("resetSave").onclick = async () => {
+  try {
+    await api("/api/dataset/users/" + resetTargetId + "/password", {
+      method: "POST",
+      body: JSON.stringify({ password: $("resetPassword").value }),
+    });
+    $("passwordDialog").close();
+    alert("Пароль изменён. Передайте его человеку:\n\n" + $("resetPassword").value);
+    loadUsers();
+  } catch (err) {
+    showError($("resetError"), err.message);
+  }
+};
+
+// ------------------------------------------------------------------ добавление
+$("createBtn").onclick = async () => {
+  showError($("createError"), "");
+  show($("createOk"), false);
+
+  const password = $("newPassword").value;
+  try {
+    const data = await api("/api/dataset/users", {
+      method: "POST",
+      body: JSON.stringify({
+        username: $("newUsername").value.trim(),
+        displayName: $("newDisplayName").value.trim(),
+        password,
+        role: $("newRole").value,
+      }),
+    });
+    $("createOk").textContent =
+      `Добавлен ${data.user.displayName} (${data.user.roleName}). Логин: ${data.user.username}, пароль: ${password}`;
+    show($("createOk"), true);
+    $("newUsername").value = "";
+    $("newDisplayName").value = "";
+    $("newPassword").value = "";
+    loadUsers();
+  } catch (err) {
+    showError($("createError"), err.message);
+  }
+};
+
+(async () => {
+  const me = await requireSession();
+  if (!me) return;
+
+  // Проверяем право до отрисовки: иначе страница успеет моргнуть формой,
+  // которой у этого человека всё равно нет.
+  if (!iCan("manageUsers")) {
+    document.querySelector("main").innerHTML =
+      `<div class="alert alert-warning">Эта страница доступна только супер-админу.</div>`;
+    mountChrome({ key: "users" });
+    return;
+  }
+
+  mountChrome({ key: "users" });
+  $("newPassword").value = suggestPassword();
+  loadUsers();
+})();
+</script>
+</body>
+</html>

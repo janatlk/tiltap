@@ -388,11 +388,29 @@ CREATE TABLE IF NOT EXISTS dataset_annotators (
   username VARCHAR(64) UNIQUE NOT NULL,
   display_name VARCHAR(128) NOT NULL,
   password_hash TEXT NOT NULL,
-  is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+  role VARCHAR(20) NOT NULL DEFAULT 'annotator',
   active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   last_login_at TIMESTAMP WITH TIME ZONE
 );
+
+-- Три роли вместо булева "админ или нет": super_admin, annotator, viewer.
+ALTER TABLE dataset_annotators ADD COLUMN IF NOT EXISTS role VARCHAR(20);
+ALTER TABLE dataset_annotators ALTER COLUMN role SET DEFAULT 'annotator';
+
+-- Этот файл выполняется целиком при каждом запуске, поэтому здесь нельзя
+-- ссылаться на колонку, которую сам же файл удаляет ниже: Postgres планирует
+-- UPDATE целиком, и он падает на отсутствующей колонке, даже когда WHERE не
+-- выбирает ни строки. Именно так эта миграция один раз уронила бэкенд —
+-- первый запуск прошёл, второй уже не нашёл is_admin.
+UPDATE dataset_annotators SET role = 'annotator' WHERE role IS NULL;
+
+-- Старый флаг удаляется, а не остаётся рядом: два источника правды о правах
+-- расходятся, и расходятся именно в ту сторону, где кто-то получает лишнее.
+-- Перенос is_admin -> role выполнен разово на проде; база, где этот флаг ещё
+-- заполнен, потеряет супер-админа, и его надо будет завести заново через
+-- /api/admin/dataset/annotators.
+ALTER TABLE dataset_annotators DROP COLUMN IF EXISTS is_admin;
 
 CREATE TABLE IF NOT EXISTS dataset_sessions (
   token_hash VARCHAR(64) PRIMARY KEY,

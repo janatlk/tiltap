@@ -14,6 +14,12 @@ import {
   getStats,
   exportArchive,
   downloadArchive,
+  listUsers,
+  createUser,
+  updateUser,
+  deleteUser,
+  setUserPassword,
+  changeOwnPassword,
 } from "../controllers/datasetController";
 
 const upload = multer({
@@ -42,6 +48,15 @@ router.delete("/tasks/:id", deleteTask);
 
 router.put("/segments/:id", updateSegment);
 router.get("/segments/:id/audio", getSegmentAudio);
+
+// Пользователи. Каждый обработчик проверяет право manageUsers сам.
+router.get("/users", listUsers);
+router.post("/users", createUser);
+router.patch("/users/:id", updateUser);
+router.delete("/users/:id", deleteUser);
+router.post("/users/:id/password", setUserPassword);
+// Свой пароль меняет кто угодно, поэтому маршрут отдельный.
+router.post("/password", changeOwnPassword);
 
 router.get("/stats", getStats);
 router.post("/export", exportArchive);
