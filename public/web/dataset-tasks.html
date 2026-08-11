@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="business">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Разметка аудио — записи</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style>.mono { font-variant-numeric: tabular-nums; }</style>
+</head>
+<body class="min-h-screen bg-base-200 py-6 px-4">
+<main class="max-w-5xl mx-auto">
+
+  <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Записи</h1>
+      <p class="text-sm opacity-70" id="statsLine">…</p>
+    </div>
+    <button class="btn btn-sm btn-ghost" id="refreshBtn">Обновить</button>
+  </div>
+
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body space-y-4">
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <h2 class="card-title text-lg">Добавить запись</h2>
+        <span class="badge badge-ghost badge-sm">кыргызская речь</span>
+      </div>
+
+      <label class="form-control">
+        <span class="label-text text-xs">Название (необязательно)</span>
+        <input id="newTitle" class="input input-bordered input-sm w-full" placeholder="Например: интервью, выпуск новостей">
+      </label>
+
+      <div role="tablist" class="tabs tabs-boxed w-fit">
+        <button role="tab" class="tab tab-active" data-tab="link">По ссылке</button>
+        <button role="tab" class="tab" data-tab="file">Файлом</button>
+      </div>
+
+      <div id="tabLink" class="flex flex-col sm:flex-row gap-2">
+        <input id="newUrl" class="input input-bordered flex-1" placeholder="Ссылка на видео или аудио">
+        <button id="addLinkBtn" class="btn btn-primary">Добавить</button>
+      </div>
+
+      <div id="tabFile" class="hidden flex-col sm:flex-row gap-2 items-center">
+        <input id="newFile" type="file" accept="audio/*,video/*" class="file-input file-input-bordered flex-1">
+        <button id="addFileBtn" class="btn btn-primary">Загрузить</button>
+      </div>
+
+      <div id="createError" class="alert alert-error text-sm hidden"></div>
+
+      <p class="text-xs opacity-60">
+        Запись сама режется на фрагменты по 5–15 секунд по паузам в речи, каждый распознаётся отдельно.
+        Это занимает несколько минут — можно закрыть страницу и вернуться.
+        <button class="link" id="helpAddLink">Подробнее</button>
+      </p>
+    </div>
+  </div>
+
+  <div class="card bg-base-100 shadow-sm">
+    <div class="card-body">
+      <div class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Название</th>
+              <th>Состояние</th>
+              <th>Готово</th>
+              <th>Кто взял</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="taskRows"><tr><td colspan="5" class="opacity-60">Загрузка…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="/web/dataset-common.js"></script>
+<script>
+let pollTimer = null;
+
+const STATUS_LABEL = {
+  queued: ["В очереди", "badge-ghost"],
+  processing: ["Готовится", "badge-info"],
+  ready: ["Можно размечать", "badge-primary"],
+  done: ["Завершена", "badge-success"],
+  failed: ["Ошибка", "badge-error"],
+};
+
+const STAGE_LABEL = {
+  downloading: "скачиваю",
+  preparing: "готовлю аудио",
+  segmenting: "ищу границы фраз",
+  transcribing: "распознаю фрагменты",
+};
+
+document.querySelectorAll("[data-tab]").forEach((tab) => {
+  tab.onclick = () => {
+    document.querySelectorAll("[data-tab]").forEach((t) => t.classList.toggle("tab-active", t === tab));
+    show($("tabLink"), tab.dataset.tab === "link");
+    $("tabFile").classList.toggle("hidden", tab.dataset.tab !== "file");
+    $("tabFile").classList.toggle("flex", tab.dataset.tab === "file");
+  };
+});
+
+$("helpAddLink").onclick = () => openHelp("add");
+
+async function loadTasks() {
+  try {
+    const data = await api("/api/dataset/tasks");
+    renderTasks(data.tasks);
+  } catch (err) {
+    $("taskRows").innerHTML = `<tr><td colspan="5" class="text-error">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderTasks(tasks) {
+  if (tasks.length === 0) {
+    $("taskRows").innerHTML = `<tr><td colspan="5" class="opacity-60">Пока ничего не добавлено</td></tr>`;
+    return;
+  }
+
+  $("taskRows").innerHTML = tasks.map((task) => {
+    const [label, cls] = STATUS_LABEL[task.status] || [task.status, "badge-ghost"];
+    const busy = task.status === "processing" || task.status === "queued";
+    const stage = busy
+      ? `<div class="text-xs opacity-60">${escapeHtml(STAGE_LABEL[task.stage] || "в работе")} · ${task.progress}%</div>`
+      : "";
+    const error = task.status === "failed" && task.error
+      ? `<div class="text-xs text-error">${escapeHtml(task.error)}</div>` : "";
+    const openable = task.status === "ready" || task.status === "done";
+    const mine = task.ownerId === state.me.id;
+
+    return `<tr>
+      <td><div class="font-medium">${escapeHtml(task.title)}</div>${stage}${error}</td>
+      <td><span class="badge ${cls} badge-sm">${label}</span></td>
+      <td class="mono text-xs">${task.segmentCount ? task.reviewedCount + " / " + task.segmentCount : "—"}</td>
+      <td class="text-xs">${task.ownerName ? escapeHtml(task.ownerName) + (mine ? " (вы)" : "") : "<span class='opacity-50'>свободна</span>"}</td>
+      <td class="text-right whitespace-nowrap">
+        ${openable ? `<a class="btn btn-xs btn-primary" href="/web/dataset-task.html?id=${task.id}">Открыть</a>` : ""}
+        ${state.me.isAdmin ? `<button class="btn btn-xs btn-ghost text-error" data-del="${task.id}" data-title="${escapeHtml(task.title)}">Удалить</button>` : ""}
+      </td>
+    </tr>`;
+  }).join("");
+
+  $("taskRows").querySelectorAll("[data-del]").forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm(`Удалить «${btn.dataset.title}» вместе со всеми фрагментами и аудио? Отменить будет нельзя.`)) return;
+      await api("/api/dataset/tasks/" + btn.dataset.del, { method: "DELETE" });
+      loadTasks();
+      loadStats();
+    };
+  });
+
+  // Что-то ещё готовится — обновляем сами, чтобы не заставлять жать «Обновить».
+  clearTimeout(pollTimer);
+  if (tasks.some((t) => t.status === "processing" || t.status === "queued")) {
+    pollTimer = setTimeout(loadTasks, 4000);
+  }
+}
+
+async function loadStats() {
+  try {
+    const stats = await api("/api/dataset/stats");
+    $("statsLine").textContent =
+      `Подтверждено ${stats.approved} из ${stats.segments} фрагментов · ${stats.approvedHuman} чистого аудио`;
+  } catch { /* статистика не критична */ }
+}
+
+async function createTask(kind) {
+  showError($("createError"), "");
+  const title = $("newTitle").value.trim();
+
+  try {
+    if (kind === "link") {
+      const url = $("newUrl").value.trim();
+      if (!url) throw new Error("Вставьте ссылку");
+      await api("/api/dataset/tasks/link", {
+        method: "POST",
+        body: JSON.stringify({ url, title, language: "ky" }),
+      });
+      $("newUrl").value = "";
+    } else {
+      const file = $("newFile").files[0];
+      if (!file) throw new Error("Выберите файл");
+      const form = new FormData();
+      form.append("file", file);
+      form.append("title", title);
+      form.append("language", "ky");
+      await api("/api/dataset/tasks/upload", { method: "POST", body: form });
+      $("newFile").value = "";
+    }
+    $("newTitle").value = "";
+    loadTasks();
+  } catch (err) {
+    showError($("createError"), err.message);
+  }
+}
+
+$("addLinkBtn").onclick = () => createTask("link");
+$("addFileBtn").onclick = () => createTask("upload");
+$("refreshBtn").onclick = loadTasks;
+
+(async () => {
+  if (!(await requireSession())) return;
+  mountChrome({ key: "tasks" });
+  loadTasks();
+  loadStats();
+})();
+</script>
+</body>
+</html>

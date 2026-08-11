@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="business">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Разметка аудио — фрагменты</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style>
+    .clip-row { border-left: 3px solid transparent; }
+    .clip-row.is-approved { border-left-color: var(--color-success); }
+    .clip-row.is-skipped { border-left-color: var(--color-warning); opacity: 0.6; }
+    .clip-row.is-active { background: color-mix(in oklab, var(--color-primary) 7%, transparent); }
+    .clip-text { font-size: 1.05rem; line-height: 1.6; }
+    .mono { font-variant-numeric: tabular-nums; }
+    .sticky-bar { position: sticky; top: 0.5rem; z-index: 20; }
+  </style>
+</head>
+<body class="min-h-screen bg-base-200 py-6 px-4">
+<main class="max-w-4xl mx-auto">
+
+  <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+    <div>
+      <a href="/web/dataset-tasks.html" class="btn btn-sm btn-ghost mb-2">← Все записи</a>
+      <h1 class="text-xl font-semibold" id="taskTitle">…</h1>
+      <p class="text-sm opacity-70" id="taskMeta"></p>
+    </div>
+    <button id="completeBtn" class="btn btn-sm btn-success hidden">Запись готова</button>
+  </div>
+
+  <div class="card bg-base-100 shadow-sm sticky-bar mb-4">
+    <div class="card-body py-3 gap-2">
+      <div class="flex items-center gap-3">
+        <progress id="taskProgress" class="progress progress-success flex-1" value="0" max="100"></progress>
+        <span class="text-sm mono" id="taskCounter"></span>
+      </div>
+      <p class="text-xs opacity-60">
+        Текст сохраняется сам.
+        <kbd class="kbd kbd-xs">Ctrl</kbd>+<kbd class="kbd kbd-xs">Enter</kbd> — подтвердить и дальше,
+        <kbd class="kbd kbd-xs">Ctrl</kbd>+<kbd class="kbd kbd-xs">Space</kbd> — переслушать,
+        <kbd class="kbd kbd-xs">Alt</kbd>+<kbd class="kbd kbd-xs">O</kbd>/<kbd class="kbd kbd-xs">U</kbd>/<kbd class="kbd kbd-xs">N</kbd> — ө, ү, ң.
+        <button class="link" id="helpEditLink">Инструкция</button>
+      </p>
+    </div>
+  </div>
+
+  <div id="taskNotice" class="alert alert-warning text-sm hidden mb-4"></div>
+  <div id="clipList" class="space-y-3"></div>
+</main>
+
+<script src="/web/dataset-common.js"></script>
+<script>
+const taskId = Number(new URLSearchParams(location.search).get("id"));
+const view = { task: null, segments: [], canEdit: false, saveTimers: new Map() };
+
+$("helpEditLink").onclick = () => openHelp("editing");
+
+function timecode(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+async function load() {
+  const data = await api("/api/dataset/tasks/" + taskId);
+  view.task = data.task;
+  view.segments = data.segments;
+  view.canEdit = data.canEdit;
+
+  // Взять запись за собой — это и есть защита от двух правок одного текста.
+  if (view.task.ownerId === null) {
+    try {
+      await api("/api/dataset/tasks/" + taskId + "/claim", { method: "POST", body: JSON.stringify({}) });
+      view.task.ownerId = state.me.id;
+      view.canEdit = true;
+    } catch { /* кто-то успел раньше — покажем как есть */ }
+  }
+
+  render();
+}
+
+function render() {
+  const task = view.task;
+  document.title = task.title + " — разметка";
+  $("taskTitle").textContent = task.title;
+
+  const cut = task.segmentationMethod === "fixed"
+    ? " · границы поставлены без анализа речи, проверяйте края фрагментов"
+    : "";
+  $("taskMeta").textContent =
+    `${task.segmentCount} фрагментов · ${Math.round((task.durationSec || 0) / 60)} мин${cut}`;
+
+  showError($("taskNotice"), view.canEdit
+    ? ""
+    : "Запись закреплена за другим лингвистом — её можно смотреть, но не править.");
+
+  show($("completeBtn"), view.canEdit);
+  $("completeBtn").textContent = task.status === "done" ? "Вернуть в работу" : "Запись готова";
+
+  $("clipList").innerHTML = view.segments.map(clipHtml).join("");
+  view.segments.forEach(bindClip);
+  updateProgress();
+}
+
+function clipHtml(segment) {
+  const cls = segment.status === "approved" ? "is-approved" : segment.status === "skipped" ? "is-skipped" : "";
+  const forced = segment.forcedCut
+    ? `<span class="badge badge-warning badge-xs" title="Здесь не нашлось паузы — фрагмент разрезан принудительно, проверьте края">срез</span>`
+    : "";
+
+  return `<div class="card bg-base-100 shadow-sm clip-row ${cls}" data-clip="${segment.id}">
+    <div class="card-body p-4 gap-3">
+      <div class="flex flex-wrap items-center gap-3 text-xs opacity-70">
+        <span class="mono font-medium">#${segment.clipNumber}</span>
+        <span class="mono">${timecode(segment.startSec)} – ${timecode(segment.endSec)}</span>
+        <span class="mono">${segment.durationSec.toFixed(1)} с</span>
+        ${forced}
+        <span class="clip-saved ml-auto"></span>
+      </div>
+
+      <audio controls preload="none" class="w-full h-9" src="/api/dataset/segments/${segment.id}/audio"></audio>
+
+      <textarea class="textarea textarea-bordered w-full clip-text" rows="2"
+        ${view.canEdit ? "" : "disabled"}>${escapeHtml(segment.text)}</textarea>
+
+      ${view.canEdit ? kyrgyzButtonsHtml() : ""}
+
+      <div class="flex flex-wrap items-center gap-2">
+        <button class="btn btn-sm btn-success clip-approve" ${view.canEdit ? "" : "disabled"}>Готово</button>
+        <button class="btn btn-sm btn-ghost clip-skip" ${view.canEdit ? "" : "disabled"}>Брак</button>
+        <button class="btn btn-sm btn-ghost clip-restore" title="Вернуть текст, который выдала модель">Как было</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function clipNode(segmentId) {
+  return $("clipList").querySelector(`[data-clip="${segmentId}"]`);
+}
+
+function bindClip(segment) {
+  const node = clipNode(segment.id);
+  const textarea = node.querySelector("textarea");
+  const audio = node.querySelector("audio");
+
+  const autoGrow = () => {
+    textarea.style.height = "auto";
+    textarea.style.height = textarea.scrollHeight + "px";
+  };
+  autoGrow();
+
+  attachKyrgyzHelper(textarea, node);
+
+  textarea.addEventListener("input", () => {
+    autoGrow();
+    scheduleSave(segment);
+  });
+
+  textarea.addEventListener("focus", () => {
+    $("clipList").querySelectorAll(".is-active").forEach((n) => n.classList.remove("is-active"));
+    node.classList.add("is-active");
+  });
+
+  textarea.addEventListener("keydown", (event) => {
+    if (event.ctrlKey && event.key === "Enter") {
+      event.preventDefault();
+      approve(segment);
+    }
+    if (event.ctrlKey && event.code === "Space") {
+      event.preventDefault();
+      audio.currentTime = 0;
+      audio.play();
+    }
+  });
+
+  node.querySelector(".clip-approve").onclick = () => approve(segment);
+  node.querySelector(".clip-skip").onclick = () => saveClip(segment, "skipped");
+  node.querySelector(".clip-restore").onclick = () => {
+    textarea.value = segment.asrText;
+    autoGrow();
+    if (view.canEdit) scheduleSave(segment);
+  };
+}
+
+function approve(segment) {
+  saveClip(segment, "approved").then(() => focusNext(segment));
+}
+
+function focusNext(segment) {
+  const idx = view.segments.findIndex((s) => s.id === segment.id);
+  const next = view.segments[idx + 1];
+  if (!next) return;
+  const node = clipNode(next.id);
+  node.scrollIntoView({ behavior: "smooth", block: "center" });
+  node.querySelector("textarea").focus();
+}
+
+/**
+ * Сохраняем по ходу набора. Час правок, потерянный на закрытой вкладке,
+ * дороже лишних запросов.
+ */
+function scheduleSave(segment) {
+  clearTimeout(view.saveTimers.get(segment.id));
+  view.saveTimers.set(segment.id, setTimeout(() => saveClip(segment, segment.status), 700));
+}
+
+async function saveClip(segment, status) {
+  if (!view.canEdit) return;
+  clearTimeout(view.saveTimers.get(segment.id));
+
+  const node = clipNode(segment.id);
+  const mark = node.querySelector(".clip-saved");
+  const text = node.querySelector("textarea").value;
+  mark.textContent = "сохраняю…";
+
+  try {
+    const data = await api("/api/dataset/segments/" + segment.id, {
+      method: "PUT",
+      body: JSON.stringify({ text, status }),
+    });
+    Object.assign(segment, data.segment);
+    view.task.reviewedCount = data.reviewedCount;
+
+    node.classList.toggle("is-approved", segment.status === "approved");
+    node.classList.toggle("is-skipped", segment.status === "skipped");
+    mark.textContent = "сохранено";
+    setTimeout(() => { if (mark.textContent === "сохранено") mark.textContent = ""; }, 1500);
+    updateProgress();
+  } catch (err) {
+    mark.innerHTML = `<span class="text-error">не сохранено: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+function updateProgress() {
+  const total = view.segments.length;
+  const done = view.segments.filter((s) => s.status !== "pending").length;
+  $("taskProgress").value = total ? Math.round((100 * done) / total) : 0;
+  $("taskCounter").textContent = `${done} / ${total}`;
+}
+
+$("completeBtn").onclick = async () => {
+  const done = view.task.status !== "done";
+  const pending = view.segments.filter((s) => s.status === "pending").length;
+  if (done && pending > 0 && !confirm(`${pending} фрагментов ещё не размечены. Всё равно отметить запись готовой?`)) return;
+
+  const data = await api("/api/dataset/tasks/" + taskId + "/complete", {
+    method: "POST",
+    body: JSON.stringify({ done }),
+  });
+  view.task = data.task;
+  $("completeBtn").textContent = view.task.status === "done" ? "Вернуть в работу" : "Запись готова";
+};
+
+(async () => {
+  if (!(await requireSession())) return;
+  mountChrome({ key: "tasks" });
+  if (!Number.isFinite(taskId) || taskId <= 0) {
+    $("taskTitle").textContent = "Запись не указана";
+    return;
+  }
+  try {
+    await load();
+  } catch (err) {
+    $("taskTitle").textContent = "Не удалось открыть запись";
+    $("taskMeta").textContent = err.message;
+  }
+})();
+</script>
+</body>
+</html>

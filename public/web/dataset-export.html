@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="business">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Разметка аудио — выгрузка</title>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <style>.mono { font-variant-numeric: tabular-nums; }</style>
+</head>
+<body class="min-h-screen bg-base-200 py-6 px-4">
+<main class="max-w-3xl mx-auto">
+
+  <h1 class="text-2xl font-bold tracking-tight mb-1">Выгрузка датасета</h1>
+  <p class="text-sm opacity-70 mb-6">Собранный корпус — в двух форматах сразу.</p>
+
+  <div class="stats stats-vertical sm:stats-horizontal shadow-sm bg-base-100 w-full mb-6">
+    <div class="stat">
+      <div class="stat-title">Подтверждено</div>
+      <div class="stat-value text-2xl mono" id="statApproved">—</div>
+      <div class="stat-desc" id="statApprovedOf"></div>
+    </div>
+    <div class="stat">
+      <div class="stat-title">Чистого аудио</div>
+      <div class="stat-value text-2xl" id="statDuration">—</div>
+      <div class="stat-desc">только фрагменты «Готово»</div>
+    </div>
+    <div class="stat">
+      <div class="stat-title">Записей</div>
+      <div class="stat-value text-2xl mono" id="statTasks">—</div>
+    </div>
+  </div>
+
+  <div class="card bg-base-100 shadow-sm mb-6">
+    <div class="card-body space-y-3">
+      <h2 class="card-title text-lg">Собрать архив</h2>
+      <p class="text-sm opacity-80">
+        В архив попадают только фрагменты, отмеченные <b>Готово</b>. Отмеченные <b>Брак</b> и непройденные
+        не включаются. Сборку можно повторять сколько угодно — каждый раз собирается заново по текущему состоянию.
+      </p>
+
+      <div class="flex flex-wrap gap-2 items-center">
+        <button id="buildBtn" class="btn btn-primary">Собрать</button>
+        <a id="downloadBtn" class="btn btn-outline" href="/api/dataset/export/archive">Скачать</a>
+      </div>
+
+      <div id="exportInfo" class="text-sm opacity-70"></div>
+      <div id="exportError" class="alert alert-error text-sm hidden"></div>
+    </div>
+  </div>
+
+  <div class="card bg-base-100 shadow-sm">
+    <div class="card-body space-y-2">
+      <h2 class="card-title text-lg">Что внутри архива</h2>
+      <ul class="text-sm space-y-2 opacity-90">
+        <li><code>clips/</code> — аудиофрагменты, 16 кГц моно. Имя файла содержит сквозной номер и не меняется.</li>
+        <li><code>manifest.jsonl</code> — формат NeMo: <code>audio_filepath</code>, <code>duration</code>,
+          <code>text</code>, <code>lang</code>. На NeMo обучается GigaAM, этот файл скармливается обучению как есть.</li>
+        <li><code>metadata.csv</code> — формат HuggingFace datasets: <code>file_name</code>, <code>transcription</code>.</li>
+        <li><code>README.txt</code> — сколько клипов и часов внутри.</li>
+      </ul>
+      <p class="text-sm opacity-70">
+        Оба описания указывают на одни и те же файлы — выбирать формат заранее не нужно.
+      </p>
+    </div>
+  </div>
+</main>
+
+<script src="/web/dataset-common.js"></script>
+<script>
+function megabytes(bytes) {
+  return (bytes / 1048576).toFixed(1) + " МБ";
+}
+
+async function loadStats() {
+  const stats = await api("/api/dataset/stats");
+  $("statApproved").textContent = stats.approved;
+  $("statApprovedOf").textContent = "из " + stats.segments + " фрагментов";
+  $("statDuration").textContent = stats.approvedHuman;
+  $("statTasks").textContent = stats.tasks;
+
+  if (stats.archive) {
+    $("exportInfo").textContent =
+      `Последний архив: ${new Date(stats.archive.builtAt).toLocaleString("ru")} · ${megabytes(stats.archive.bytes)}`;
+  } else {
+    $("exportInfo").textContent = "Архив ещё не собирали.";
+  }
+}
+
+$("buildBtn").onclick = async () => {
+  const btn = $("buildBtn");
+  showError($("exportError"), "");
+  btn.disabled = true;
+  btn.textContent = "Собираю…";
+  try {
+    const data = await api("/api/dataset/export", { method: "POST" });
+    $("exportInfo").textContent =
+      `Собрано: ${data.clips} фрагментов · ${data.totalHuman} · ${megabytes(data.bytes)}`;
+  } catch (err) {
+    showError($("exportError"), err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Собрать";
+  }
+};
+
+(async () => {
+  const me = await requireSession();
+  if (!me) return;
+  mountChrome({ key: "export" });
+
+  if (!me.isAdmin) {
+    document.querySelector("main").insertAdjacentHTML(
+      "beforeend",
+      `<div class="alert alert-warning text-sm mt-4">Выгрузку собирает администратор. Здесь вы видите только статистику.</div>`
+    );
+    $("buildBtn").disabled = true;
+    $("downloadBtn").classList.add("btn-disabled");
+  }
+
+  loadStats().catch((err) => showError($("exportError"), err.message));
+})();
+</script>
+</body>
+</html>
