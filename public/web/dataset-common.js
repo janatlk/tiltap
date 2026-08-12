@@ -85,7 +85,33 @@ async function requireSession() {
 // Шапка и подвал
 // ---------------------------------------------------------------------------
 
+/**
+ * Правила, общие для всех страниц на телефоне.
+ *
+ * Живут в JS, а не в каждой странице: разъехавшиеся копии одного медиазапроса
+ * ловить потом дороже, чем держать их в одном месте.
+ */
+function injectSharedStyles() {
+  if ($("datasetSharedStyles")) return;
+
+  const style = document.createElement("style");
+  style.id = "datasetSharedStyles";
+  style.textContent = `
+    @media (max-width: 640px) {
+      /* Safari на iOS увеличивает страницу при фокусе в поле мельче 16px.
+         Пользователь получает съехавшую вёрстку и ручной откат зума. */
+      input, select, textarea { font-size: 16px !important; }
+
+      /* Палец накрывает примерно 45px. Кнопка в 23px — это промах через раз. */
+      .btn-xs, .btn-sm { min-height: 2.5rem; height: auto; padding-top: 0.4rem; padding-bottom: 0.4rem; }
+      .ky-letter { min-width: 2.75rem; min-height: 2.75rem; font-size: 1.15rem; }
+      .modal-box { max-height: 88vh; }
+    }`;
+  document.head.append(style);
+}
+
 function mountChrome(options) {
+  injectSharedStyles();
   const opts = options || {};
   const active = opts.key;
   const me = state.me;
@@ -338,12 +364,13 @@ const HELP_SECTIONS = [
     body: `
       <p>Пишите ровно то, что слышно, обычными словами и буквами:</p>
       <ul class="space-y-1">
-        <li>числа — словами («он ойго» вместо «10»), модель учится звучанию, а не цифрам;</li>
+        <li>числа — словами («Бир миң тогуз жүз токсон жети» вместо «1997»), модель учится звучанию, а не цифрам;</li>
         <li>сокращения — полностью, как они произносятся;</li>
         <li>оговорки и повторы оставляйте, если они реально произнесены;</li>
         <li>не дописывайте то, чего не слышно, и не приглаживайте речь до литературной.</li>
       </ul>
-      <p>Знаки препинания ставьте по смыслу, но не изобретайте — на обучение сильнее всего влияют сами слова.</p>`,
+      <p>Знаки препинания не ставьте вообще</p>
+      <p>Большие буквы не пишите - никогда, даже если это название места</p>`,
   },
   {
     id: "letters",
@@ -416,8 +443,7 @@ const HELP_SECTIONS = [
       </ul>
       <p><b>Свой пароль</b> может сменить кто угодно: нажмите на своё имя вверху справа →
       «Сменить свой пароль». Понадобится текущий пароль.</p>
-      <p class="opacity-80">Если пароль забыт — его поставит заново супер-админ на странице
-      «Пользователи», старый для этого не нужен.</p>`,
+      <p class="opacity-80">Если пароль забыт — его поставит заново супер-админ: напишите ему  <a class="link link-primary" href="https://t.me/${TELEGRAM_CONTACT}" target="_blank" rel="noopener">@${TELEGRAM_CONTACT}</a>.</p>`,
   },
   {
     id: "export",

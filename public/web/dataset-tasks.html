@@ -39,12 +39,12 @@
 
       <div id="tabLink" class="flex flex-col sm:flex-row gap-2">
         <input id="newUrl" class="input input-bordered flex-1" placeholder="Ссылка на видео или аудио">
-        <button id="addLinkBtn" class="btn btn-primary">Добавить</button>
+        <button id="addLinkBtn" class="btn btn-primary w-full sm:w-auto">Добавить</button>
       </div>
 
       <div id="tabFile" class="hidden flex-col sm:flex-row gap-2 items-center">
-        <input id="newFile" type="file" accept="audio/*,video/*" class="file-input file-input-bordered flex-1">
-        <button id="addFileBtn" class="btn btn-primary">Загрузить</button>
+        <input id="newFile" type="file" accept="audio/*,video/*" class="file-input file-input-bordered w-full sm:flex-1">
+        <button id="addFileBtn" class="btn btn-primary w-full sm:w-auto">Загрузить</button>
       </div>
 
       <div id="createError" class="alert alert-error text-sm hidden"></div>
@@ -57,7 +57,11 @@
     </div>
   </div>
 
-  <div class="card bg-base-100 shadow-sm">
+  <!-- На телефоне карточки, на широком экране таблица. Таблица в 570px внутри
+       343px превращает кнопку «Открыть» в поиск скроллом вправо. -->
+  <div id="taskCards" class="space-y-3 md:hidden"></div>
+
+  <div class="card bg-base-100 shadow-sm hidden md:block">
     <div class="card-body">
       <div class="overflow-x-auto">
         <table class="table table-sm">
@@ -119,8 +123,12 @@ async function loadTasks() {
 function renderTasks(tasks) {
   if (tasks.length === 0) {
     $("taskRows").innerHTML = `<tr><td colspan="5" class="opacity-60">Пока ничего не добавлено</td></tr>`;
+    $("taskCards").innerHTML =
+      `<div class="card bg-base-100 shadow-sm"><div class="card-body p-4 text-sm opacity-60">Пока ничего не добавлено</div></div>`;
     return;
   }
+
+  $("taskCards").innerHTML = tasks.map(taskCardHtml).join("");
 
   $("taskRows").innerHTML = tasks.map((task) => {
     const [label, cls] = STATUS_LABEL[task.status] || [task.status, "badge-ghost"];
@@ -145,7 +153,7 @@ function renderTasks(tasks) {
     </tr>`;
   }).join("");
 
-  $("taskRows").querySelectorAll("[data-del]").forEach((btn) => {
+  document.querySelectorAll("[data-del]").forEach((btn) => {
     btn.onclick = async () => {
       if (!confirm(`Удалить «${btn.dataset.title}» вместе со всеми фрагментами и аудио? Отменить будет нельзя.`)) return;
       await api("/api/dataset/tasks/" + btn.dataset.del, { method: "DELETE" });
@@ -159,6 +167,55 @@ function renderTasks(tasks) {
   if (tasks.some((t) => t.status === "processing" || t.status === "queued")) {
     pollTimer = setTimeout(loadTasks, 4000);
   }
+}
+
+/** Карточка для телефона: состояние, готовность и крупная кнопка «Открыть». */
+function taskCardHtml(task) {
+  const [label, cls] = STATUS_LABEL[task.status] || [task.status, "badge-ghost"];
+  const busy = task.status === "processing" || task.status === "queued";
+  const openable = task.status === "ready" || task.status === "done";
+  const mine = task.ownerId === state.me.id;
+
+  const stage = busy
+    ? `<div class="flex items-center gap-2 text-xs opacity-70">
+         <span class="loading loading-spinner loading-xs"></span>
+         ${escapeHtml(STAGE_LABEL[task.stage] || "в работе")} · ${task.progress}%
+       </div>`
+    : "";
+
+  const error = task.status === "failed" && task.error
+    ? `<div class="text-xs text-error">${escapeHtml(task.error)}</div>` : "";
+
+  const progress = task.segmentCount
+    ? `<div class="flex items-center gap-2">
+         <progress class="progress progress-success flex-1 h-2"
+           value="${task.reviewedCount}" max="${task.segmentCount}"></progress>
+         <span class="text-xs mono opacity-70">${task.reviewedCount} / ${task.segmentCount}</span>
+       </div>`
+    : "";
+
+  const owner = task.ownerName
+    ? `<div class="text-xs opacity-60">Взял: ${escapeHtml(task.ownerName)}${mine ? " (вы)" : ""}</div>`
+    : "";
+
+  return `<div class="card bg-base-100 shadow-sm">
+    <div class="card-body p-4 gap-3">
+      <div class="flex items-start justify-between gap-2">
+        <div class="font-medium leading-snug break-words min-w-0">${escapeHtml(task.title)}</div>
+        <span class="badge ${cls} badge-sm shrink-0">${label}</span>
+      </div>
+      ${stage}${error}${progress}${owner}
+      <div class="flex gap-2">
+        ${openable
+          ? `<a class="btn btn-primary btn-sm flex-1" href="/web/dataset-task.html?id=${task.id}">Открыть</a>`
+          : ""}
+        ${iCan("deleteTask")
+          ? `<button class="btn btn-sm btn-ghost text-error ${openable ? "" : "flex-1"}"
+               data-del="${task.id}" data-title="${escapeHtml(task.title)}">Удалить</button>`
+          : ""}
+      </div>
+    </div>
+  </div>`;
 }
 
 async function loadStats() {

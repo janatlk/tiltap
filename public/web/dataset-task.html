@@ -35,12 +35,17 @@
         <progress id="taskProgress" class="progress progress-success flex-1" value="0" max="100"></progress>
         <span class="text-sm mono" id="taskCounter"></span>
       </div>
-      <p class="text-xs opacity-60">
+      <!-- Подсказки о сочетаниях клавиш на телефоне только занимают место:
+           нажать их там нечем. -->
+      <p class="text-xs opacity-60 hidden sm:block">
         Текст сохраняется сам.
         <kbd class="kbd kbd-xs">Ctrl</kbd>+<kbd class="kbd kbd-xs">Enter</kbd> — подтвердить и дальше,
         <kbd class="kbd kbd-xs">Ctrl</kbd>+<kbd class="kbd kbd-xs">Space</kbd> — переслушать,
         <kbd class="kbd kbd-xs">Alt</kbd>+<kbd class="kbd kbd-xs">O</kbd>/<kbd class="kbd kbd-xs">U</kbd>/<kbd class="kbd kbd-xs">N</kbd> — ө, ү, ң.
         <button class="link" id="helpEditLink">Инструкция</button>
+      </p>
+      <p class="text-xs opacity-60 sm:hidden">
+        Текст сохраняется сам. <button class="link" id="helpEditLinkMobile">Как размечать</button>
       </p>
     </div>
   </div>
@@ -55,6 +60,7 @@ const taskId = Number(new URLSearchParams(location.search).get("id"));
 const view = { task: null, segments: [], canEdit: false, saveTimers: new Map() };
 
 $("helpEditLink").onclick = () => openHelp("editing");
+$("helpEditLinkMobile").onclick = () => openHelp("editing");
 
 function timecode(seconds) {
   const m = Math.floor(seconds / 60);
@@ -119,15 +125,17 @@ function clipHtml(segment) {
         <span class="clip-saved ml-auto"></span>
       </div>
 
-      <audio controls preload="none" class="w-full h-9" src="/api/dataset/segments/${segment.id}/audio"></audio>
+      <audio controls preload="none" class="w-full h-11 sm:h-9" src="/api/dataset/segments/${segment.id}/audio"></audio>
 
       <textarea class="textarea textarea-bordered w-full clip-text" rows="2"
         ${view.canEdit ? "" : "disabled"}>${escapeHtml(segment.text)}</textarea>
 
       ${view.canEdit ? kyrgyzButtonsHtml() : ""}
 
-      <div class="flex flex-wrap items-center gap-2">
-        <button class="btn btn-sm btn-success clip-approve" ${view.canEdit ? "" : "disabled"}>Готово</button>
+      <!-- «Готово» тянется на всю ширину: это действие делают сотни раз подряд,
+           и промахиваться по нему пальцем нельзя. -->
+      <div class="flex items-center gap-2">
+        <button class="btn btn-sm btn-success clip-approve flex-1" ${view.canEdit ? "" : "disabled"}>Готово</button>
         <button class="btn btn-sm btn-ghost clip-skip" ${view.canEdit ? "" : "disabled"}>Брак</button>
         <button class="btn btn-sm btn-ghost clip-restore" title="Вернуть текст, который выдала модель">Как было</button>
       </div>

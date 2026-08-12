@@ -40,9 +40,9 @@
         не включаются. Сборку можно повторять сколько угодно — каждый раз собирается заново по текущему состоянию.
       </p>
 
-      <div class="flex flex-wrap gap-2 items-center">
-        <button id="buildBtn" class="btn btn-primary">Собрать</button>
-        <a id="downloadBtn" class="btn btn-outline" href="/api/dataset/export/archive">Скачать</a>
+      <div class="flex flex-col sm:flex-row gap-2 sm:items-center">
+        <button id="buildBtn" class="btn btn-primary w-full sm:w-auto">Собрать</button>
+        <a id="downloadBtn" class="btn btn-outline w-full sm:w-auto" href="/api/dataset/export/archive">Скачать</a>
       </div>
 
       <div id="exportInfo" class="text-sm opacity-70"></div>
