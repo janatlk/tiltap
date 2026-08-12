@@ -444,7 +444,10 @@ async function finalizeTranscription(
   }
 
   const transcriptionWarning = (result as TranscriptionResult & { warning?: string }).warning;
-  const combinedWarning = [cleanupWarning, transcriptionWarning].filter(Boolean).join("; ") || undefined;
+  // Предупреждение о шуме идёт первым: оно объясняет, почему всё остальное
+  // ниже может быть неточным.
+  const combinedWarning =
+    [quality.userWarning, cleanupWarning, transcriptionWarning].filter(Boolean).join("; ") || undefined;
 
   updateJob(job, {
     status: "completed",

@@ -5,6 +5,13 @@
  * first translates into Uzbek Latin, then converts the output to Cyrillic.
  */
 
+// "ye" даёт кириллическую "е" в любой позиции, включая начало слова ("yer" →
+// "ер"). Обычная же "e" в начале слова становится "э". Чтобы правило начала
+// слова не превратило "ер" в "эр", буквы из этого диграфа помечаются и
+// раскрываются последними.
+const YE_UPPER = "";
+const YE_LOWER = "";
+
 const DIGRAPHS: Array<[string, string]> = [
   ["Oʻ", "Ў"],
   ["oʻ", "ў"],
@@ -20,8 +27,8 @@ const DIGRAPHS: Array<[string, string]> = [
   ["ch", "ч"],
   ["Ng", "нг"],
   ["ng", "нг"],
-  ["Ye", "Е"],
-  ["ye", "е"],
+  ["Ye", YE_UPPER],
+  ["ye", YE_LOWER],
   ["Yo", "Ё"],
   ["yo", "ё"],
   ["Yu", "Ю"],
@@ -37,8 +44,10 @@ const LETTERS: Record<string, string> = {
   b: "б",
   D: "Д",
   d: "д",
-  E: "Э",
-  e: "э",
+  // Внутри слова латинская "e" — это кириллическая "е": keladi → келади.
+  // В начале слова она становится "э", это делается ниже одним правилом.
+  E: "Е",
+  e: "е",
   F: "Ф",
   f: "ф",
   G: "Г",
@@ -79,9 +88,13 @@ const LETTERS: Record<string, string> = {
   y: "й",
   Z: "З",
   z: "з",
-  "ʼ": "'",
-  "'": "'",
-  "`": "'",
+  // Туткич белгиси. В латинице он пишется апострофом, в кириллице ему
+  // соответствует "ъ": taʼsir → таъсир, isteʼmol → истеъмол. Апостроф,
+  // оставленный как есть, — это латинская орфография внутри кириллицы.
+  "ʼ": "ъ",
+  "'": "ъ",
+  "’": "ъ",
+  "`": "ъ",
 };
 
 /**
@@ -105,8 +118,14 @@ export function latinToCyrillic(input: string): string {
     output += LETTERS[char] ?? char;
   }
 
-  // Fix initial E → Э (Uzbek Latin E at word start sounds like Э).
-  output = output.replace(/(^|\s)Е/g, "$1Э");
+  // В начале слова "е" читается как "э": eshik → эшик, eʼtibor → эътибор.
+  // Граница слова — это не только пробел: кавычки, скобки и тире тоже.
+  output = output.replace(/(^|[^\p{L}\p{M}])([Ее])/gu, (_match, before: string, letter: string) =>
+    before + (letter === "Е" ? "Э" : "э")
+  );
+
+  // Диграф "ye" раскрывается последним, уже после правила начала слова.
+  output = output.split(YE_UPPER).join("Е").split(YE_LOWER).join("е");
 
   return output;
 }

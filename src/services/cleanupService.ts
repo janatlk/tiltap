@@ -2,6 +2,7 @@ import { logger } from "../utils/logger";
 import { config } from "../config";
 import { createHash } from "crypto";
 import * as cleanupRepo from "../db/repos/cleanupRepo";
+import { assessTranscript, noisyTranscriptWarning } from "./transcriptQualityService";
 
 export interface CleanupResult {
   cleanedText: string;
@@ -410,6 +411,10 @@ export interface QualityReport {
   isSuspicious: boolean;
   flags: string[];
   meanConfidence?: number;
+  /** Готовый текст для пользователя, когда предупредить его стоит. */
+  userWarning?: string;
+  /** Доля слов вне словаря, если её удалось посчитать. */
+  oovRate?: number;
 }
 
 export function detectTranscriptionIssues(
@@ -436,8 +441,20 @@ export function detectTranscriptionIssues(
     }
   }
 
+  // Шумная запись: слишком много слов, которых нет в словаре языка. Раньше
+  // такая расшифровка уходила пользователю без единого признака того, что она
+  // бессвязна, — а перевод затем добросовестно повторял бессмыслицу.
+  const quality = assessTranscript(trimmed, language);
+  let userWarning: string | undefined;
+  if (quality.noisy) {
+    flags.push(`noisy:${quality.oovRate?.toFixed(2)}`);
+    userWarning = noisyTranscriptWarning();
+  }
+
   return {
     isSuspicious: flags.length > 0,
     flags,
+    userWarning,
+    oovRate: quality.oovRate,
   };
 }

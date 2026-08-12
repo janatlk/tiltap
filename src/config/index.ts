@@ -97,6 +97,10 @@ const envSchema = z.object({
   // renderings where they do not belong. Longest terms win: they are the
   // specific, hard-to-guess ones.
   TILTAB_GLOSSARY_MAX_TERMS: z.string().default("120").transform(Number),
+  // Доля слов вне словаря, выше которой расшифровка считается мусорной.
+  // 0.15 выбрано по реальным расшифровкам с прода: испорченная запись дала
+  // 0.22, худшая из нормальных — 0.11.
+  TILTAB_NOISY_TRANSCRIPT_OOV: z.string().default("0.15").transform(Number),
   TILTAB_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("gpt-4o-mini"),
   // Kyrgyz, Tajik and Uzbek are low-resource: the mini model produces malformed
   // word forms and Russian/Turkic hybrids, so route them to a stronger model.

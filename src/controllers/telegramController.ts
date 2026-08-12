@@ -1028,7 +1028,8 @@ async function processAudio(
       spinner.setPhase(t("translating", lang));
     }
 
-    const qualityWarning = quality.isSuspicious ? quality.flags.join(", ") : undefined;
+    // Пользователю — человеческий текст. Флаги вида "noisy:0.22" остаются в логе.
+    const qualityWarning = quality.userWarning;
     await sendResultDocument(
       chatId,
       result.language,
@@ -1388,7 +1389,9 @@ async function sendResultDocument(
   const subtitles = formatSubtitles(segments);
   const fileContent = `${title}\n\n${cleanedText}\n\n---\n\n${subtitles}`;
   const numberSuffix = requestNumber ? ` #${requestNumber}` : "";
-  const caption = `${qualityWarning ? qualityWarning : title}${numberSuffix}`;
+  // Предупреждение добавляется к заголовку, а не заменяет его: раньше человек
+  // вместо названия получал строку флагов и терял единственную подпись к файлу.
+  const caption = `${title}${numberSuffix}${qualityWarning ? `\n\n${qualityWarning}` : ""}`;
   await sendDocument(
     chatId,
     Buffer.from(fileContent, "utf-8"),
