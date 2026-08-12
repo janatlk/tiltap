@@ -97,6 +97,13 @@ function injectSharedStyles() {
   const style = document.createElement("style");
   style.id = "datasetSharedStyles";
   style.textContent = `
+    /* Свой значок вместо системного треугольника, иначе их будет два. */
+    .help-section > summary::-webkit-details-marker { display: none; }
+    .help-section > summary::marker { content: ""; }
+    .help-section > summary { min-height: 2.75rem; }
+    .help-section[open] > summary > span:last-child { transform: rotate(180deg); }
+    .help-section > summary > span:last-child { transition: transform 0.15s; }
+
     @media (max-width: 640px) {
       /* Safari на iOS увеличивает страницу при фокусе в поле мельче 16px.
          Пользователь получает съехавшую вёрстку и ручной откат зума. */
@@ -470,18 +477,25 @@ function mountHelpDialog() {
       <h3 class="font-bold text-xl mb-1">Инструкция</h3>
       <p class="text-sm opacity-70 mb-4">Как размечать аудио и что означает каждая кнопка.</p>
 
-      <div class="flex flex-wrap gap-1 mb-4">
+      <!-- Переходы по разделам только на широком экране: на телефоне их роль
+           играет сам список свёрнутых заголовков. -->
+      <div class="hidden sm:flex flex-wrap gap-1 mb-4">
         ${HELP_SECTIONS.map((s) => `<button class="btn btn-xs btn-ghost" data-jump="${s.id}">${s.title}</button>`).join("")}
       </div>
 
-      <div class="space-y-5 text-sm max-h-[60vh] overflow-y-auto pr-1" id="helpBody">
+      <!-- Без своей прокрутки: внутренняя область скролла внутри окна, которое
+           тоже скроллится, даёт две полосы сразу, и палец попадает не в ту. -->
+      <div class="space-y-2 text-sm" id="helpBody">
         ${HELP_SECTIONS.map((s) => `
-          <section id="help-${s.id}">
-            <h4 class="font-semibold text-base mb-2">${s.title}</h4>
-            <div class="space-y-2 opacity-90">${s.body}</div>
-          </section>`).join("")}
+          <details id="help-${s.id}" class="help-section border-b border-base-300 pb-2">
+            <summary class="font-semibold text-base cursor-pointer py-2 list-none flex items-center justify-between gap-2">
+              <span>${s.title}</span>
+              <span class="opacity-40 text-sm shrink-0">▾</span>
+            </summary>
+            <div class="space-y-2 opacity-90 pt-1 pb-2">${s.body}</div>
+          </details>`).join("")}
 
-        <section class="pt-2 border-t border-base-300">
+        <section class="pt-3">
           <h4 class="font-semibold text-base mb-2">Остались вопросы</h4>
           <p class="opacity-90">
             Если что-то непонятно, не работает или ведёт себя странно — напишите
@@ -508,14 +522,32 @@ function mountHelpDialog() {
   });
 }
 
+/** Широкий экран показывает всё сразу, телефон — список заголовков. */
+function isWideScreen() {
+  return window.matchMedia("(min-width: 640px)").matches;
+}
+
 function openHelp(sectionId) {
   mountHelpDialog();
   const dialog = $("helpDialog");
+  const sections = [...dialog.querySelectorAll(".help-section")];
+
+  // Разворачиваем заново при каждом открытии: экран мог повернуться, да и
+  // оставлять телефону десять развёрнутых разделов — это ровно то листание,
+  // от которого мы уходим.
+  const wide = isWideScreen();
+  sections.forEach((section) => {
+    section.open = wide;
+  });
+
   dialog.showModal();
+  dialog.querySelector(".modal-box").scrollTop = 0;
+
   if (sectionId) {
     const target = $("help-" + sectionId);
-    if (target) target.scrollIntoView({ block: "start" });
-  } else {
-    $("helpBody").scrollTop = 0;
+    if (target) {
+      target.open = true;
+      target.scrollIntoView({ block: "start" });
+    }
   }
 }
