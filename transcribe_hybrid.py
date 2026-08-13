@@ -732,11 +732,7 @@ def transcribe_whisper(
     # beam_size здесь трогать нельзя: с beam=1 батчинг срывается в повтор
     # ("ҳои пуштагиаҳои пуштагиа...") и выдаёт мусор при формально лучшей
     # скорости. Проверено там же.
-    # По умолчанию выключено: с боевым набором аргументов (word_timestamps,
-    # initial_prompt, best_of) пакетный путь выдал одно слово на 120 секундах
-    # речи, хотя в изолированном замере на тех же данных работал. Пока не
-    # выяснено, какой именно параметр он не переносит, включать нельзя.
-    use_batching = os.environ.get("TILTAB_WHISPER_BATCHED", "false").lower() in ("1", "true", "on")
+    use_batching = os.environ.get("TILTAB_WHISPER_BATCHED", "true").lower() not in ("0", "false", "off")
     batch_size = _whisper_int_env("TILTAB_WHISPER_BATCH_SIZE", 8)
 
     segments_iter = None
@@ -745,10 +741,19 @@ def transcribe_whisper(
             from faster_whisper import BatchedInferencePipeline
 
             pipeline = BatchedInferencePipeline(model=model)
-            # У пакетного пути свой VAD, и часть параметров ему не передаётся.
+            # initial_prompt пакетному пути не передаётся, и это не мелочь.
+            # Обычный режим подаёт затравку один раз, пакетный — как контекст
+            # к каждому куску, а затравка у нас английская ("Transcribe the
+            # spoken words accurately..."). Дообученную таджикскую модель это
+            # сбивает насмерть: на 120 с речи 2 слова (". . пуш. пуш.") вместо
+            # 269. Проверено перебором параметров: best_of и word_timestamps
+            # безвредны, ломает ровно затравка.
+            #
+            # condition_on_previous_text и vad_filter опущены потому, что у
+            # пакетного пути свой VAD и своя работа с контекстом.
             batched_kwargs = {
                 k: v for k, v in transcribe_kwargs.items()
-                if k not in ("condition_on_previous_text", "vad_filter")
+                if k not in ("condition_on_previous_text", "vad_filter", "initial_prompt")
             }
             segments_iter, info = pipeline.transcribe(
                 wav_path, batch_size=batch_size, **batched_kwargs
