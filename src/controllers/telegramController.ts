@@ -8,6 +8,7 @@ import { fetchTelegramFile } from "../services/fileDownloadService";
 import { transcribeAudio, formatSubtitles } from "../services/transcriptionService";
 
 import { cleanupTranscription, detectTranscriptionIssues } from "../services/cleanupService";
+import { assessResultConfidence, formatConfidenceLine } from "../services/transcriptQualityService";
 import { translateText } from "../services/translationService";
 import {
   isSupportedMediaUrl,
@@ -1029,7 +1030,25 @@ async function processAudio(
     }
 
     // Пользователю — человеческий текст. Флаги вида "noisy:0.22" остаются в логе.
-    const qualityWarning = quality.userWarning;
+    const confidence = assessResultConfidence({
+      text: cleanedText,
+      language: result.language,
+      segments: result.segments,
+    });
+    const qualityWarning = [
+      formatConfidenceLine(confidence, result.language),
+      quality.userWarning,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    if (confidence.percent < 60) {
+      logger.warn("Low-confidence transcription returned", {
+        chatId,
+        language: result.language,
+        percent: confidence.percent,
+        reasons: confidence.reasons,
+      });
+    }
     await sendResultDocument(
       chatId,
       result.language,

@@ -1,6 +1,10 @@
 import { test, describe } from "node:test";
 import assert from "node:assert";
-import { extractWords } from "../services/transcriptQualityService";
+import {
+  extractWords,
+  assessResultConfidence,
+  formatConfidenceLine,
+} from "../services/transcriptQualityService";
 
 /**
  * Детектор шумных записей считает долю слов вне словаря. Первая версия
@@ -41,5 +45,56 @@ describe("extractWords", () => {
   test("пустой текст не ломает разбор", () => {
     assert.deepStrictEqual(extractWords(""), []);
     assert.deepStrictEqual(extractWords("   ...  "), []);
+  });
+});
+
+describe("assessResultConfidence", () => {
+  const seg = (text: string, end: number) => ({ text, end });
+
+  test("пустой текст — ноль и прямая причина", () => {
+    const c = assessResultConfidence({ text: "", language: "ky", segments: [] });
+    assert.strictEqual(c.percent, 0);
+    assert.deepStrictEqual(c.reasons, ["речь не распознана"]);
+  });
+
+  test("пустые фрагменты роняют оценку", () => {
+    // Настоящий случай: таджикское видео распознали кыргызской моделью, она
+    // вернула шестнадцать пустых кусков, а запрос закрылся как успешный.
+    const segments = Array.from({ length: 16 }, (_, i) => seg("", (i + 1) * 24));
+    const c = assessResultConfidence({ text: "бир", language: "ky", segments });
+    assert.ok(c.percent <= 20, `ожидали низкую оценку, получили ${c.percent}`);
+    assert.ok(c.reasons.some((r) => r.includes("не распознан")), c.reasons.join("; "));
+  });
+
+  test("мало слов на длинной записи — низкая оценка", () => {
+    const c = assessResultConfidence({
+      text: "бир эки үч төрт беш алты жети сегиз",
+      language: "ky",
+      segments: [seg("бир эки", 600)],
+    });
+    assert.ok(c.percent < 60, `ожидали ниже 60, получили ${c.percent}`);
+  });
+
+  test("нормальная расшифровка не получает лишних предупреждений", () => {
+    const words = Array.from({ length: 200 }, () => "сүйлөм").join(" ");
+    const c = assessResultConfidence({
+      text: words,
+      language: "ru",
+      segments: [seg(words, 120)],
+    });
+    assert.strictEqual(c.percent, 100);
+    assert.deepStrictEqual(c.reasons, []);
+  });
+
+  test("высокая уверенность показывается без объяснений", () => {
+    const line = formatConfidenceLine({ percent: 100, reasons: [] }, "ky");
+    assert.strictEqual(line, "Уверенность бота: 100%");
+  });
+
+  test("низкая уверенность советует проверить язык записи", () => {
+    const line = formatConfidenceLine({ percent: 0, reasons: ["речь не распознана"] }, "ky");
+    assert.ok(line.includes("0%"));
+    assert.ok(line.includes("речь не распознана"));
+    assert.ok(line.includes("Кыргызча"), "название языка, а не код");
   });
 });

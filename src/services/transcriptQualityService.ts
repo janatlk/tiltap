@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from "fs";
 import { logger } from "../utils/logger";
 import { config } from "../config";
+import { getLanguageLabel } from "../utils/languageCodes";
 
 /**
  * Определяет, что распознавание выдало мусор, и предупреждает об этом.
@@ -109,6 +110,112 @@ export function assessTranscript(text: string, language: string): TranscriptQual
     tokens: words.length,
     noisy: oovRate >= config.TILTAB_NOISY_TRANSCRIPT_OOV,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Оценка адекватности результата
+// ---------------------------------------------------------------------------
+
+export interface ResultConfidence {
+  /** 0..100, округлено до пяти: точнее мы всё равно не знаем. */
+  percent: number;
+  /** Почему именно столько. Без этого число бесполезно. */
+  reasons: string[];
+}
+
+/** Обычная речь идёт примерно 100–150 слов в минуту. */
+const WORDS_PER_MINUTE_POOR = 20;
+const WORDS_PER_MINUTE_LOW = 50;
+
+/**
+ * Насколько можно доверять расшифровке.
+ *
+ * Повод: таджикское видео распознали кыргызской моделью. Она вернула
+ * шестнадцать пустых кусков, запрос закрылся как успешный, и пользователь
+ * получил шестнадцать строк "[неразборчиво]" — результат, неотличимый по виду
+ * от работы. Единственный вывод, который он мог сделать, — "бот не работает".
+ *
+ * Это оценка на признаках, а не вероятность: калибровать её не на чем.
+ * Поэтому рядом с числом всегда идёт причина, а само число огрублено.
+ */
+export function assessResultConfidence(input: {
+  text: string;
+  language: string;
+  segments?: Array<{ text: string; end: number }>;
+}): ResultConfidence {
+  const reasons: string[] = [];
+  const text = input.text.trim();
+
+  if (!text) {
+    return { percent: 0, reasons: ["речь не распознана"] };
+  }
+
+  let score = 100;
+  const segments = input.segments ?? [];
+
+  // Пустые куски: модель слушала, но ничего не разобрала. Верный признак того,
+  // что язык записи выбран не тот.
+  if (segments.length > 0) {
+    const empty = segments.filter((s) => !s.text?.trim()).length;
+    const emptyRatio = empty / segments.length;
+    if (emptyRatio > 0.5) {
+      score -= 60;
+      reasons.push("больше половины фрагментов не распознаны");
+    } else if (emptyRatio > 0.2) {
+      score -= 30;
+      reasons.push("часть фрагментов не распознана");
+    }
+  }
+
+  // Слишком мало слов для такой длительности — речь была, а текста нет.
+  const words = extractWords(text).length;
+  const durationSec = segments.length > 0 ? segments[segments.length - 1].end : 0;
+  if (durationSec > 30) {
+    const perMinute = words / (durationSec / 60);
+    if (perMinute < WORDS_PER_MINUTE_POOR) {
+      score -= 50;
+      reasons.push("распознано очень мало слов для такой длительности");
+    } else if (perMinute < WORDS_PER_MINUTE_LOW) {
+      score -= 25;
+      reasons.push("распознано мало слов для такой длительности");
+    }
+  }
+
+  // Слова вне словаря: запись шумная или язык не тот.
+  const quality = assessTranscript(text, input.language);
+  if (quality.oovRate !== undefined) {
+    if (quality.oovRate >= config.TILTAB_NOISY_TRANSCRIPT_OOV) {
+      score -= 40;
+      reasons.push("много слов не похожи на слова этого языка");
+    } else if (quality.oovRate >= 0.1) {
+      score -= 15;
+      reasons.push("местами речь разобрана неуверенно");
+    }
+  }
+
+  const percent = Math.max(5, Math.min(100, Math.round(score / 5) * 5));
+  return { percent, reasons };
+}
+
+/**
+ * Строка для начала ответа. Про низкую уверенность прямо говорится, что делать:
+ * чаще всего виноват язык записи, а не бот.
+ */
+export function formatConfidenceLine(confidence: ResultConfidence, language: string): string {
+  const { percent, reasons } = confidence;
+  const head = `Уверенность бота: ${percent}%`;
+
+  if (percent >= 80) return head;
+
+  const why = reasons.length > 0 ? ` — ${reasons.join(", ")}` : "";
+  // Название языка, а не код: "ky" человеку ничего не говорит, а сверить
+  // "Кыргызча" с тем, что он слышит в записи, можно за секунду.
+  const advice =
+    percent <= 40
+      ? `\nПроверьте, что язык записи выбран верно (сейчас: ${getLanguageLabel(language)}). ` +
+        `Если речь на другом языке, выберите его и отправьте снова.`
+      : "";
+  return `${head}${why}.${advice}`;
 }
 
 /**

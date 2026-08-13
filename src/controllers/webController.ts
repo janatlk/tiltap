@@ -4,6 +4,7 @@ import { transcribeAudio, type TranscriptionProgress } from "../services/transcr
 import type { TranscriptionResult } from "../types";
 import { translateText } from "../services/translationService";
 import { cleanupTranscription, detectTranscriptionIssues } from "../services/cleanupService";
+import { assessResultConfidence, formatConfidenceLine } from "../services/transcriptQualityService";
 import { isSupportedMediaUrl, validateMediaUrl, transcribeMediaLink } from "../services/youtubeService";
 import type { TranslateRequest } from "../types";
 import * as webJobRepo from "../db/repos/webJobRepo";
@@ -444,10 +445,22 @@ async function finalizeTranscription(
   }
 
   const transcriptionWarning = (result as TranscriptionResult & { warning?: string }).warning;
-  // Предупреждение о шуме идёт первым: оно объясняет, почему всё остальное
-  // ниже может быть неточным.
+  const confidence = assessResultConfidence({
+    text: cleanedText,
+    language: result.language,
+    segments: result.segments,
+  });
+  // Оценка уверенности идёт первой: она объясняет, почему всё остальное ниже
+  // может быть неточным.
   const combinedWarning =
-    [quality.userWarning, cleanupWarning, transcriptionWarning].filter(Boolean).join("; ") || undefined;
+    [
+      formatConfidenceLine(confidence, result.language),
+      quality.userWarning,
+      cleanupWarning,
+      transcriptionWarning,
+    ]
+      .filter(Boolean)
+      .join("\n\n") || undefined;
 
   updateJob(job, {
     status: "completed",
