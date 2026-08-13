@@ -60,21 +60,11 @@
 
     h1, h2, h3, .card-title { letter-spacing: -0.022em; }
 
-    .app-bar {
-      display: flex; align-items: center; gap: 1rem;
-      padding-bottom: 1.25rem; border-bottom: 1px solid var(--rule);
-    }
-    .app-brand {
-      display: flex; align-items: center; gap: 0.5rem;
-      font-weight: 800; font-size: 1rem; letter-spacing: -0.03em;
-      text-decoration: none; color: var(--ink);
-    }
-    .app-brand-mark {
-      width: 24px; height: 24px; border-radius: 8px; flex: none;
-      background: var(--accent); color: var(--accent-ink);
-      display: grid; place-items: center; font-size: .75rem; font-weight: 800;
-    }
-    .app-bar-side { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
+    .page-body { padding: 2rem 1rem 0; }
+    .page-head { display: grid; gap: 0.5rem; }
+    .page-title { font-size: clamp(1.75rem, 3.4vw, 2.25rem); font-weight: 800;
+                  letter-spacing: -0.03em; }
+    .page-sub { color: var(--ink-soft); max-width: 60ch; }
 
     /* Карточки держатся на границе, а не на тени: на странице их несколько
        подряд, и плавающие друг над другом плашки создают глубину, которой
@@ -353,39 +343,49 @@
     }
   </style>
 </head>
-<body class="min-h-screen bg-base-200 py-8 px-4">
-  <div class="shell space-y-6">
+<body class="min-h-screen">
 
-    <header class="space-y-5">
-      <div class="app-bar">
-        <a class="app-brand" href="/">
-          <span class="app-brand-mark" aria-hidden="true">T</span>
+    <header class="nav" id="nav">
+      <div class="nav-inner">
+        <a class="brand" href="/">
+          <span class="brand-mark" aria-hidden="true">T</span>
           TilTap
         </a>
-        <div class="app-bar-side">
-        <div class="dropdown dropdown-end">
-          <div tabindex="0" role="button" class="btn btn-sm btn-ghost" id="langSwitcherBtn" data-i18n-title="uiLanguageHeader">
-            <span aria-hidden="true">🌐</span>
-            <span class="lang-flag" id="currentLangFlag">🇬🇧</span>
-            <span id="currentLangLabel">English</span>
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+
+        <nav class="nav-links" aria-label="TilTap">
+          <button type="button" id="navFormatsBtn" data-i18n="navFormats">Форматы</button>
+          <a href="https://t.me/tiltapbot" data-i18n="navBot">Бот</a>
+        </nav>
+
+        <div class="nav-side">
+          <div class="langpick">
+            <button class="langpick-btn" id="langBtn" type="button" aria-haspopup="true" aria-expanded="false">
+              <span id="langCurrent">Русский</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <ul class="langpick-menu" id="langMenu" hidden>
+              <li><button type="button" data-lang="ru">Русский</button></li>
+              <li><button type="button" data-lang="ky">Кыргызча</button></li>
+              <li><button type="button" data-lang="tg">Тоҷикӣ</button></li>
+              <li class="langpick-split">
+                <span>Oʻzbekcha</span>
+                <span class="script-toggle">
+                  <button type="button" data-lang="uz">Lotin</button>
+                  <button type="button" data-lang="uz_cyrl">Кирилл</button>
+                </span>
+              </li>
+              <li><button type="button" data-lang="en">English</button></li>
+            </ul>
           </div>
-          <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-1 w-56 p-2 shadow-sm">
-            <li class="menu-title text-xs" data-i18n="uiLanguageHeader">Interface language</li>
-            <li><a data-ui-lang="en"><span class="lang-flag">🇬🇧</span>English</a></li>
-            <li><a data-ui-lang="ru"><span class="lang-flag">🇷🇺</span>Русский</a></li>
-            <li><a data-ui-lang="ky"><span class="lang-flag">🇰🇬</span>Кыргызча</a></li>
-            <li><a data-ui-lang="tg"><span class="lang-flag">🇹🇯</span>Тоҷикӣ</a></li>
-            <li><a data-ui-lang="uz"><span class="lang-flag">🇺🇿</span>Oʻzbekcha</a></li>
-          </ul>
         </div>
-        </div>
-      </div>
-      <div class="space-y-2">
-        <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight" data-i18n="title">TilTap Web</h1>
-        <p class="text-base-content/70 max-w-2xl" data-i18n="subtitle">Transcribe audio, video, and links from YouTube, TikTok, and Instagram. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.</p>
       </div>
     </header>
+
+  <div class="shell space-y-6 page-body">
+    <div class="page-head">
+      <h1 class="page-title" data-i18n="title">TilTap Web</h1>
+      <p class="page-sub" data-i18n="subtitle">Transcribe audio, video, and links.</p>
+    </div>
 
     <!-- =====================================================================
          Рабочее пространство: слева материал, справа результат.
@@ -656,6 +656,8 @@
         entryText: "Text",
         dropHere: "Drop the file here",
         formatsLink: "Supported formats",
+        navFormats: "Formats",
+        navBot: "Bot",
         staffLogin: "Staff sign-in",
         fmtTitle: "What you can send",
         fmtAudio: "Audio and video",
@@ -739,6 +741,8 @@
         entryText: "Текст",
         dropHere: "Отпустите файл здесь",
         formatsLink: "Какие форматы",
+        navFormats: "Форматы",
+        navBot: "Бот",
         staffLogin: "Вход для сотрудников",
         fmtTitle: "Что можно прислать",
         fmtAudio: "Звук и видео",
@@ -824,6 +828,8 @@
         entryText: "Текст",
         dropHere: "Файлды бул жерге таштаңыз",
         formatsLink: "Кайсы форматтар",
+        navFormats: "Форматтар",
+        navBot: "Бот",
         staffLogin: "Кызматкерлер үчүн кирүү",
         fmtTitle: "Эмне жөнөтсө болот",
         fmtAudio: "Үн жана видео",
@@ -909,6 +915,8 @@
         entryText: "Матн",
         dropHere: "Файлро ин ҷо раҳо кунед",
         formatsLink: "Кадом форматҳо",
+        navFormats: "Форматҳо",
+        navBot: "Бот",
         staffLogin: "Вуруд барои кормандон",
         fmtTitle: "Чӣ фиристодан мумкин аст",
         fmtAudio: "Садо ва видео",
@@ -994,6 +1002,8 @@
         entryText: "Matn",
         dropHere: "Faylni shu yerga tashlang",
         formatsLink: "Qaysi formatlar",
+        navFormats: "Formatlar",
+        navBot: "Bot",
         staffLogin: "Xodimlar uchun kirish",
         fmtTitle: "Nimani yuborish mumkin",
         fmtAudio: "Ovoz va video",
@@ -1059,22 +1069,105 @@
         errorQueueFull: "Sizda navbatda {max} ta vazifa bor. Ular tugagach, yangisini yuboring.",
         uiLanguageShort: "Interfeys",
       },
+
+      uz_cyrl: {
+        title: "TilTap Web",
+        subtitle: "Аудио, видео ва ЁуТубе, ТикТок, Инстаграм ҳаволаларини таниб олинг. Қирғиз, тожик, ўзбек, рус ёки инглиз тилига таржима қилинг.",
+        adminLink: "Админ панели",
+        sourceLangLabel: "Таниш тили",
+        sourceLanguageLabel: "Манба тили",
+        targetLangLabel: "Таржима қилиш",
+        autoDetect: "Авто аниқлаш",
+        noTranslation: "Таржимасиз",
+        tabUpload: "Файл юклаш",
+        tabYouTube: "Видео ҳаволаси",
+        tabTranslate: "Матн таржима",
+        dropzoneText: "Аудио/видеони бу ерга судраб олиб келинг ёки кўриш учун босинг",
+        youtubeLabel: "Видео ҳаволаси (ЁуТубе, ТикТок, Инстаграм)",
+        translateTextLabel: "Таржима қилинадиган матн",
+        translateTextPlaceholder: "Таржима қилинадиган матнни киритинг...",
+        entryFile: "Файл",
+        entryText: "Матн",
+        dropHere: "Файлни шу ерга ташланг",
+        formatsLink: "Қайси форматлар",
+        navFormats: "Форматлар",
+        navBot: "Бот",
+        staffLogin: "Ходимлар учун кириш",
+        fmtTitle: "Нимани юбориш мумкин",
+        fmtAudio: "Овоз ва видео",
+        fmtDocs: "Ҳужжатлар",
+        fmtTables: "Жадваллар ва субтитрлар",
+        fmtAudioNote: "Нутқ вақт белгилари билан матнга айланади.",
+        fmtDocsNote: "Матн олинади ва таржима қилинади.",
+        fmtTablesNote: "Ўз форматида қайтади: устунлар ва вақт кодлари ўз жойида.",
+        fmtOld: "Эски .доc, .хлс ва .ппт файлларини янги форматда қайта сақланг. Сканерланган ПДФ ўқилмайди.",
+        close: "Ёпиш",
+        emptyTitle: "Натижа шу ерда пайдо бўлади",
+        emptySub: "Асл нусха ва таржима уларни солиштириш мумкин бўлиши учун ёнма-ён бўлади.",
+        waitDefault: "Қайта ишлаш серверда амалга оширилмоқда. Ички ойнани ёпмасангиз ҳам бўлади.",
+        waitTajik: "Тожик тили протсессорда ҳисобланади ва бошқа тилларга қараганда узоқроқ давом этади. Вкладкани ёпмаслик мумкин.",
+        clearTitle: "Олиб ташлаш",
+        entryPaste: "Матн ёки ҳавола",
+        pasteHint: "Ёки саҳифанинг исталган жойига cлипбоарддан қўйинг",
+        translateTextButton: "Таржима",
+        startBtn: "Бошлаш",
+        progressStarting: "Бошланмоқда...",
+        resultTitle: "Таниш",
+        downloadBtn: "Юклаб олиш .тхт",
+        translateLabel: "Натижани таржима қилиш:",
+        originalSummary: "Асл таниш",
+        footer: "TilTap — маҳаллий нутқни таниш ва таржима",
+        timedSegments: "Вақт бўйича сегментлар",
+        detected: "Аниқланди",
+        segments: "Сегментлар",
+        request: "Сўров",
+        fbTitle: "Натижа фойдали бўлдими?",
+        fbGood: "Яхши",
+        fbBad: "Ёмон",
+        fbThanks: "Фикрингиз учун раҳмат!",
+        fbReason: "Нима нотўғри эди?",
+        fbStt: "Матн нотўғри",
+        fbTranslation: "Таржима ёмон",
+        fbDownload: "Видео юкланмади",
+        fbSpeed: "Жуда секин",
+        fbOther: "Бошқа",
+        fbComment: "Батафсил ёзинг (ихтиёрий)",
+        fbReport: "Муаммо ҳақида хабар бериш",
+        fbReportTitle: "Дуч келган муаммони ёзинг",
+        fbReportPlaceholder: "Нима бўлди ва нимани кутган эдингиз?",
+        fbSend: "Юбориш",
+        translationFailed: "Таржима хатоси",
+        errorSelectFile: "Аввал файлни танланг",
+        errorFileTooLarge: "Файл жуда катта ({сизе} МБ). Максимум 25 МБ.",
+        errorEnterUrl: "Видео ҳаволасини киритинг",
+        errorEnterText: "Таржима қилинадиган матнни киритинг",
+        errorUploadFailed: "Юклаш хатоси. Уланишни текшириб, қайта уриниб кўринг.",
+        errorUploadCancelled: "Юклаш бекор қилинди.",
+        errorUploadTimeout: "Юклаш вақти тугади. Файл жуда катта ёки уланиш секин.",
+        errorNotAvailable: "Бу видео мавжуд эмас. У ўчирилган, хусусий, минтақавий блокланган ёки УРЛ нотўғри бўлиши мумкин.",
+        errorSignInRequired: "Бу видео ЁуТубеъга киришни талаб қилади. Бот уни юклай олмайди. Бошқа видеони синаб кўринг.",
+        errorPrivate: "Бу хусусий видео. Бот уни юклай олмайди.",
+        errorAgeRestricted: "Бу видео ёш чегарасига эга. Бот уни юклай олмайди.",
+        errorInvalidUrl: "Ҳавола қўллаб-қувватланмайди. ЁуТубе, ТикТок ёки Инстаграм ишлатинг.",
+        errorTimeout: "Ҳаволани текшириш вақти тугади. Қайта уриниб кўринг.",
+        errorJobFailed: "Вазифа хатоси",
+        retryButton: "Қайта уриниш",
+        uiLanguageHeader: "Интерфейс тили",
+        progressQueued: "Навбатда: {поситион}-ўрин. Тахминан {минутес} дақиқа.",
+        errorQueueFull: "Сизда навбатда {мах} та вазифа бор. Улар тугагач, янгисини юборинг.",
+        uiLanguageShort: "Интерфейс"
+      },
     };
 
-    const UI_LANG_FLAGS = {
-      en: "🇬🇧",
-      ru: "🇷🇺",
-      ky: "🇰🇬",
-      tg: "🇹🇯",
-      uz: "🇺🇿",
-    };
-
+    // Флаги убраны: страна и язык это разные вещи, а узбекский теперь ещё и
+    // в двух азбуках, для которых флага не существует вовсе.
     const UI_LANG_NAMES = {
       en: "English",
       ru: "Русский",
       ky: "Кыргызча",
       tg: "Тоҷикӣ",
       uz: "Oʻzbekcha",
+      uz_cyrl: "Ўзбекча",
     };
 
     // Запасной язык русский, а не английский: тот же выбор сделан на лендинге,
@@ -1114,14 +1207,11 @@
         el.title = t(el.dataset.i18nTitle);
       });
 
-      // Update language switcher button
-      const flag = UI_LANG_FLAGS[currentUiLang];
-      const name = UI_LANG_NAMES[currentUiLang];
-      document.getElementById("currentLangFlag").textContent = flag;
-      // Say what the control does. On its own, "English" was routinely read
-      // as the translation target, which is a different control below.
-      document.getElementById("currentLangLabel").textContent =
-        t("uiLanguageShort") + ": " + name;
+      // Подпись кнопки и отметка выбранного пункта
+      document.getElementById("langCurrent").textContent = UI_LANG_NAMES[currentUiLang];
+      document.querySelectorAll("#langMenu button[data-lang]").forEach((b) => {
+        b.setAttribute("aria-current", String(b.dataset.lang === currentUiLang));
+      });
     }
 
     function setUiLang(lang) {
@@ -1130,12 +1220,29 @@
       applyI18n();
     }
 
-    document.querySelectorAll("[data-ui-lang]").forEach((el) => {
-      el.addEventListener("click", (e) => {
-        e.preventDefault();
-        setUiLang(el.dataset.uiLang);
+    // Выпадающий список языка. Разметка и поведение те же, что на лендинге:
+    // один и тот же элемент управления не должен работать по-разному на двух
+    // страницах одного продукта.
+    (function () {
+      const btn = document.getElementById("langBtn");
+      const menu = document.getElementById("langMenu");
+
+      function close() { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); }
+
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        menu.hidden = !menu.hidden;
+        btn.setAttribute("aria-expanded", String(!menu.hidden));
       });
-    });
+      menu.addEventListener("click", (e) => {
+        const target = e.target.closest("button[data-lang]");
+        if (!target) return;
+        setUiLang(target.dataset.lang);
+        close();
+      });
+      document.addEventListener("click", close);
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+    })();
 
     // ===================== App =====================
     const API = "";
@@ -2062,6 +2169,8 @@
       const formatsBtn = document.getElementById("formatsBtn");
 
       formatsBtn.addEventListener("click", () => formatsDialog.showModal());
+      const navFormats = document.getElementById("navFormatsBtn");
+      if (navFormats) navFormats.addEventListener("click", () => formatsDialog.showModal());
       document.getElementById("fmtClose").addEventListener("click", () => formatsDialog.close());
 
       // Щелчок по затемнению приходит на сам dialog: его прямоугольник это
@@ -2109,6 +2218,19 @@
 
       syncSwapState();
       refresh();
+    })();
+
+    // Граница под шапкой появляется только после прокрутки: на самом верху
+    // она делит первый экран пополам без всякой причины.
+    (function () {
+      const nav = document.getElementById("nav");
+      const sentinel = document.createElement("div");
+      sentinel.style.cssText = "position:absolute;top:0;height:1px;width:1px;";
+      document.body.prepend(sentinel);
+      if (!("IntersectionObserver" in window)) return;
+      new IntersectionObserver((entries) => {
+        nav.classList.toggle("is-stuck", !entries[0].isIntersecting);
+      }).observe(sentinel);
     })();
 
     // Apply i18n on load
