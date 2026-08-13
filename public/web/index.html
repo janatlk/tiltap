@@ -149,7 +149,8 @@
 
     /* Оба способа равны по размеру и по весу: как только один становится
        крупнее или ярче, страница начинает просить именно его. */
-    .entry { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+    .entry { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .entry-hint { margin: 0.75rem 0 0; text-align: center; font-size: 0.8125rem; color: var(--ink-faint); }
     @media (max-width: 520px) { .entry { grid-template-columns: 1fr; } .entry-btn { min-height: 4.5rem; flex-direction: row; } }
     .entry-btn {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -353,15 +354,18 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/></svg>
               <span data-i18n="entryFile">Файл</span>
             </button>
-            <button type="button" class="entry-btn" id="entryLink">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
-              <span data-i18n="entryLink">Ссылка</span>
-            </button>
             <button type="button" class="entry-btn" id="entryText">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 11h16M4 16h10"/></svg>
-              <span data-i18n="entryText">Текст</span>
+              <span data-i18n="entryPaste">Текст или ссылка</span>
             </button>
           </div>
+
+          <!-- Настоящий жест человека это вставка из буфера, а не объявление
+               намерения заранее. Кнопки нужны тем, кто перетаскивает файл или
+               печатает руками, остальным достаточно Ctrl+V. -->
+          <p class="entry-hint" id="entryHint" data-i18n="pasteHint">
+            Или просто вставьте из буфера в любом месте страницы
+          </p>
 
           <div class="composer-slot" id="textSlot">
             <textarea id="translateText" class="composer-input"
@@ -547,8 +551,8 @@
         translateTextLabel: "Text to translate",
         translateTextPlaceholder: "Paste text or a video link, or drop a file here...",
         entryFile: "File",
-        entryLink: "Link",
-        linkPlaceholder: "Paste a video link: YouTube, TikTok, Instagram",
+        entryPaste: "Text or link",
+        pasteHint: "Or just paste from the clipboard anywhere on the page",
         entryText: "Text",
         dropHere: "Drop the file here",
         formatsLink: "Supported formats",
@@ -620,8 +624,8 @@
         entryText: "Текст",
         dropHere: "Отпустите файл здесь",
         formatsLink: "Какие форматы",
-        entryLink: "Ссылка",
-        linkPlaceholder: "Вставьте ссылку на видео: YouTube, TikTok, Instagram",
+        entryPaste: "Текст или ссылка",
+        pasteHint: "Или просто вставьте из буфера в любом месте страницы",
         translateTextButton: "Перевести",
         startBtn: "Начать",
         progressStarting: "Запуск...",
@@ -690,8 +694,8 @@
         entryText: "Текст",
         dropHere: "Файлды бул жерге таштаңыз",
         formatsLink: "Кайсы форматтар",
-        entryLink: "Шилтеме",
-        linkPlaceholder: "Видеого шилтеме киргизиңиз: YouTube, TikTok, Instagram",
+        entryPaste: "Текст же шилтеме",
+        pasteHint: "Же беттин каалаган жеринде буфердн чаптаңыз",
         translateTextButton: "Которуу",
         startBtn: "Баштоо",
         progressStarting: "Башталууда...",
@@ -760,8 +764,8 @@
         entryText: "Матн",
         dropHere: "Файлро ин ҷо раҳо кунед",
         formatsLink: "Кадом форматҳо",
-        entryLink: "Пайванд",
-        linkPlaceholder: "Пайванди видеоро гузоред: YouTube, TikTok, Instagram",
+        entryPaste: "Матн ё пайванд",
+        pasteHint: "Ё дар ҳар ҷои саҳифа аз ҳофиза гузоред",
         translateTextButton: "Тарҷума",
         startBtn: "Оғоз",
         progressStarting: "Оғоз шуда истодааст...",
@@ -830,8 +834,8 @@
         entryText: "Matn",
         dropHere: "Faylni shu yerga tashlang",
         formatsLink: "Qaysi formatlar",
-        entryLink: "Havola",
-        linkPlaceholder: "Videoga havola joylang: YouTube, TikTok, Instagram",
+        entryPaste: "Matn yoki havola",
+        pasteHint: "Yoki sahifaning istalgan joyiga clipboarddan qoʻying",
         translateTextButton: "Tarjima",
         startBtn: "Boshlash",
         progressStarting: "Boshlanmoqda...",
@@ -1778,22 +1782,41 @@
       let textOpened = false;
 
       document.getElementById("entryFile").addEventListener("click", () => fileInput.click());
-      // Ссылка и текст открывают одно и то же поле: разделять их технически
-      // незачем, а вот подсказка в поле должна отвечать на тот вопрос, который
-      // человек только что задал нажатием.
-      const basePlaceholder = translateText.placeholder;
-
-      function openText(forLink) {
+      function openText() {
         textOpened = true;
-        translateText.placeholder = forLink
-          ? (t("linkPlaceholder") || "Вставьте ссылку на видео")
-          : basePlaceholder;
         setState("text");
         translateText.focus();
       }
 
-      document.getElementById("entryText").addEventListener("click", () => openText(false));
-      document.getElementById("entryLink").addEventListener("click", () => openText(true));
+      document.getElementById("entryText").addEventListener("click", openText);
+
+      // Вставка из буфера работает на всей странице и ничего не спрашивает.
+      // Ссылка и текст приходят одним и тем же жестом, и заставлять человека
+      // сначала объявить, что именно он вставляет, значит просить его сделать
+      // за нас работу, которую мы и так умеем делать сами.
+      document.addEventListener("paste", (e) => {
+        const target = e.target;
+        if (target === translateText) return;                 // поле справится само
+        if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
+        if (currentFile) return;                              // материал уже выбран
+
+        const dropped = e.clipboardData && e.clipboardData.files;
+        if (dropped && dropped.length) {
+          e.preventDefault();
+          setFile(dropped[0]);
+          refresh();
+          return;
+        }
+
+        const pasted = e.clipboardData && e.clipboardData.getData("text");
+        if (!pasted || !pasted.trim()) return;
+        e.preventDefault();
+        translateText.value = pasted.trim();
+        textOpened = true;
+        collapseLink = true;      // вставка это законченное действие
+        refresh();
+        if (!looksLikeLink(pasted.trim())) translateText.focus();
+      });
 
       translateText.addEventListener("paste", () => {
         // Вставка это законченное действие, в отличие от набора по буквам.
@@ -1811,7 +1834,7 @@
       clearLinkBtn.addEventListener("click", () => {
         collapseLink = false;
         translateText.value = "";
-        openText(true);
+        openText();
         refresh();
       });
 
