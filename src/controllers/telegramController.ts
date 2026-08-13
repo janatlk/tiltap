@@ -322,8 +322,18 @@ async function handleCommand(
       break;
 
     case "/settings":
-    case "/lang":
       await sendSettingsMenu(chatId, userPrefs);
+      break;
+
+    // Аварийный выход для того, кто случайно выбрал язык, которого не знает:
+    // ведёт прямо к списку языков, минуя меню настроек — оно написано на том же
+    // непонятном языке и было бы ещё одной запертой дверью. Подпись
+    // перечисляет все языки сразу, поэтому читается при любой настройке.
+    case "/lang":
+    case "/language":
+      await sendTextMessage(chatId, "🌐 Language · Тил · Забон · Til · Язык", {
+        replyMarkup: createInterfaceLanguageKeyboard(lang, "action:main"),
+      });
       break;
 
     case "/test":

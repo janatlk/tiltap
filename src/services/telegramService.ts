@@ -1140,6 +1140,43 @@ export async function answerCallbackQuery(
 // ---------------------------------------------------------------------------
 // Keyboards
 // ---------------------------------------------------------------------------
+
+/**
+ * Регистрирует список команд, который Telegram показывает по кнопке меню.
+ *
+ * Нужно не для красоты: человек, случайно выбравший язык интерфейса, которого
+ * не знает, находит /language в этом списке и выбирается обратно, ничего не
+ * читая. Без регистрации команда существует, но узнать о ней неоткуда.
+ */
+export async function registerBotCommands(): Promise<void> {
+  if (!config.TELEGRAM_BOT_TOKEN) return;
+
+  const commands = [
+    { command: "start", description: "Начать · Start" },
+    { command: "language", description: "🌐 Сменить язык · Change language" },
+    { command: "help", description: "Помощь · Help" },
+    { command: "settings", description: "Настройки · Settings" },
+    { command: "stop", description: "Остановить · Stop" },
+  ];
+
+  try {
+    const res = await fetch(`${TELEGRAM_API}/setMyCommands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commands }),
+    });
+    if (!res.ok) {
+      logger.warn("Failed to register bot commands", { status: res.status });
+      return;
+    }
+    logger.info("Bot commands registered", { count: commands.length });
+  } catch (err) {
+    logger.warn("Failed to register bot commands", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export function createMainKeyboard(lang: SupportedLanguage): { inline_keyboard: InlineKeyboardButton[][] } {
   return {
     inline_keyboard: [
@@ -1147,8 +1184,10 @@ export function createMainKeyboard(lang: SupportedLanguage): { inline_keyboard: 
       // берётся в перевод сам. Кнопка требовала объявить намерение до того, как
       // его можно просто высказать.
       [
-        { text: t("settingsMenu", lang).split("\n")[0], callback_data: "action:settings" },
-        { text: t("helpButton", lang), callback_data: "action:help" },
+        // Значки, а не только слова: человек, случайно выбравший незнакомый
+        // язык, узнаёт шестерёнку и знак вопроса, не читая подписи.
+        { text: `⚙️ ${t("settingsMenu", lang).split("\n")[0]}`, callback_data: "action:settings" },
+        { text: `❓ ${t("helpButton", lang)}`, callback_data: "action:help" },
       ],
     ],
   };
@@ -1157,7 +1196,7 @@ export function createMainKeyboard(lang: SupportedLanguage): { inline_keyboard: 
 export function createSettingsMenuKeyboard(lang: SupportedLanguage): { inline_keyboard: InlineKeyboardButton[][] } {
   return {
     inline_keyboard: [
-      [{ text: t("settingsInterfaceLanguage", lang), callback_data: "action:settings:interface" }],
+      [{ text: `🌐 ${t("settingsInterfaceLanguage", lang)}`, callback_data: "action:settings:interface" }],
       [{ text: t("settingsSourceLanguage", lang), callback_data: "action:settings:source" }],
       [{ text: t("settingsTargetLanguage", lang), callback_data: "action:settings:target" }],
       [{ text: `← ${t("back", lang)}`, callback_data: "action:main" }],

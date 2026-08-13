@@ -1,3 +1,4 @@
+import { registerBotCommands } from "./services/telegramService";
 import dns from "dns";
 
 // Prefer IPv4 for every outgoing connection.
@@ -43,6 +44,9 @@ async function start() {
   app.listen(PORT, () => {
     logger.info(`🚀 TilTap backend running on port ${PORT} in ${config.NODE_ENV} mode`);
     startCobaltHealthMonitor();
+    // Список команд в меню бота — единственный способ найти /language
+    // тому, кто не читает язык интерфейса.
+    void registerBotCommands();
     startFeedbackReminders();
     // Expired sessions are already refused on use; this only keeps the
     // table from growing forever.
