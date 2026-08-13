@@ -132,6 +132,14 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
   logger.info("Webhook processed", { updateId: update.update_id, durationMs: duration });
 }
 
+/** Ниже этого порога сообщение считается репликой боту, а не текстом на перевод. */
+const MIN_WORDS_FOR_AUTO_TRANSLATE = 3;
+
+/** Слова считаем по буквам: цифры, смайлы и знаки словами не являются. */
+function countWords(text: string): number {
+  return (text.match(/[\p{L}\p{M}]+/gu) ?? []).length;
+}
+
 async function handleMessage(msg: TelegramMessage, updateId: number): Promise<void> {
   const chatId = msg.chat.id;
   const text = msg.text?.trim() ?? "";
@@ -221,7 +229,12 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
     // текст" была лишним шагом: Telegram и так сообщает тип сообщения, а из
     // текста ссылка отличается проверкой выше. Всё, что не команда, не ссылка
     // и не ответ на вопрос бота, человек прислал, чтобы это перевели.
-    if (text) {
+    //
+    // Кроме совсем коротких сообщений: "привет", "ок", "спасибо" — это разговор
+    // с ботом, а не задание. Отвечать на них двумя вопросами о языках значит
+    // раздражать на ровном месте. Кому нужно перевести одно слово, тот скажет
+    // это прямо через /translate.
+    if (countWords(text) >= MIN_WORDS_FOR_AUTO_TRANSLATE) {
       await startTranslateTextFlow(chatId, prefs, text);
       return;
     }
@@ -423,8 +436,12 @@ async function startTranslateTextFlow(
     createdAt: Date.now(),
   });
 
-  await sendTextMessage(chatId, t("chooseTranslationTargetLanguage", lang), {
-    replyMarkup: createTargetLanguageKeyboard(`translate_text:${actionId}`, lang, "action:main"),
+  // Сначала спрашиваем, на каком языке текст, и только потом — на какой
+  // переводить. Тот же порядок, что и для записей: сперва что прислали, потом
+  // что с этим сделать. Раньше здесь было наоборот, и в одном боте
+  // соседствовали два разных порядка одних и тех же вопросов.
+  await sendTextMessage(chatId, t("chooseTextSourceLanguage", lang), {
+    replyMarkup: createSourceLanguageKeyboard(`translate_text:${actionId}`, lang, "action:main"),
   });
 }
 
@@ -1834,23 +1851,10 @@ async function handleCallbackQuery(callbackQuery: {
       const pending = getPendingAction(chatId);
       if (pending && pending.type === "translate_text" && pending.actionId === actionId) {
         updatePendingAction(chatId, { sourceLanguage: normalized });
-        if (pending.documentFileId) {
-          clearPendingAction(chatId);
-          await processDocumentTranslation(
-            chatId,
-            pending.documentFileId,
-            pending.documentName ?? "document",
-            pending.targetLanguage,
-            prefs,
-            normalized
-          );
-          return;
-        }
-        if (pending.text) {
-          clearPendingAction(chatId);
-          await processTextTranslation(chatId, pending.text, pending.targetLanguage, prefs, normalized);
-          return;
-        }
+        await sendTextMessage(chatId, t("chooseTranslationTargetLanguage", lang), {
+          replyMarkup: createTargetLanguageKeyboard(`translate_text:${actionId}`, lang, "action:main"),
+        });
+        return;
       }
       await sendTextMessage(chatId, t("sendTextToTranslate", lang), { replyMarkup: createMainKeyboard(lang) });
     }
@@ -1876,17 +1880,31 @@ async function handleCallbackQuery(callbackQuery: {
     } else if (action === "translate_text" && actionId) {
       const pending = getPendingAction(chatId);
       if (pending && pending.type === "translate_text" && pending.actionId === actionId) {
-        if (normalized !== "none") {
-          updatePendingAction(chatId, { targetLanguage: normalized });
+        const target = normalized !== "none" ? normalized : pending.targetLanguage;
+        // Язык текста спрошен на прошлом шаге. Угадывать его нельзя: искажённый
+        // кыргызский, отправленный в русский без указанного источника,
+        // возвращался непереведённым — модель читала кириллицу как русский.
+        const source = pending.sourceLanguage;
+
+        if (pending.documentFileId) {
+          clearPendingAction(chatId);
+          await processDocumentTranslation(
+            chatId,
+            pending.documentFileId,
+            pending.documentName ?? "document",
+            target,
+            prefs,
+            source
+          );
+          return;
+        }
+        if (pending.text) {
+          clearPendingAction(chatId);
+          await processTextTranslation(chatId, pending.text, target, prefs, source);
+          return;
         }
       }
-      // Ask which language the text is in before taking it. Pasted text has no
-      // language attached, and a wrong assumption is not a small error: garbled
-      // Kyrgyz sent into Russian without a stated source comes back
-      // untranslated, because the model reads the Cyrillic as Russian already.
-      await sendTextMessage(chatId, t("chooseTextSourceLanguage", lang), {
-        replyMarkup: createSourceLanguageKeyboard(`translate_text:${actionId}`, lang, "action:main"),
-      });
+      await sendTextMessage(chatId, t("sendTextToTranslate", lang), { replyMarkup: createMainKeyboard(lang) });
     }
     return;
   }
