@@ -1197,7 +1197,6 @@ export function createSettingsMenuKeyboard(lang: SupportedLanguage): { inline_ke
   return {
     inline_keyboard: [
       [{ text: `🌐 ${t("settingsInterfaceLanguage", lang)}`, callback_data: "action:settings:interface" }],
-      [{ text: t("settingsSourceLanguage", lang), callback_data: "action:settings:source" }],
       [{ text: t("settingsTargetLanguage", lang), callback_data: "action:settings:target" }],
       [{ text: `← ${t("back", lang)}`, callback_data: "action:main" }],
     ],

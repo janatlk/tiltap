@@ -395,12 +395,10 @@ async function editMainMenu(chatId: number, messageId: number, prefs: UserPrefer
 
 function buildSettingsMenuText(prefs: UserPreferences): string {
   const lang = prefs.interfaceLanguage;
-  const sourceLabel = `${LANGUAGE_CODES[prefs.sourceLanguage]} ${LANGUAGE_LABELS[prefs.sourceLanguage]}`;
   const targetLabel = prefs.targetLanguage === "none" ? t("noDefaultTarget", lang) : `${LANGUAGE_CODES[prefs.targetLanguage]} ${LANGUAGE_LABELS[prefs.targetLanguage]}`;
 
   return `${t("settingsMenu", lang)}\n\n` +
     `${t("settingsInterfaceLanguage", lang)}: ${LANGUAGE_CODES[lang]} ${LANGUAGE_LABELS[lang]}\n` +
-    `${t("settingsSourceLanguage", lang)}: ${sourceLabel}\n` +
     `${t("settingsTargetLanguage", lang)}: ${targetLabel}`;
 }
 
