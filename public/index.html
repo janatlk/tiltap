@@ -1,22 +1,20 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TilTap: перевод между кыргызским, таджикским, узбекским, русским и английским</title>
-<meta name="description" content="TilTap переводит текст, документы и субтитры между кыргызским, таджикским, узбекским, русским и английским. Аудио и видео он тоже понимает: речь сначала расшифровывается, потом переводится.">
-<meta name="color-scheme" content="light dark">
+<title>TilTap</title>
+<meta name="description" content="Переводчик для кыргызского, таджикского и узбекского. Текст, документы, субтитры и записи голоса. Пары языков переводятся напрямую, без английского посредника.">
+<meta name="color-scheme" content="light">
 
 <meta property="og:type" content="website">
-<meta property="og:title" content="TilTap: перевод между пятью языками">
-<meta property="og:description" content="Текст, документы и субтитры на кыргызском, таджикском, узбекском, русском и английском. Записи и ссылки на видео сервис расшифровывает и переводит следом.">
+<meta property="og:title" content="TilTap">
+<meta property="og:description" content="Переводчик для кыргызского, таджикского и узбекского. Текст, документы, субтитры и записи голоса.">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- Onest берём с CDN осознанно: свои шрифты пришлось бы класть на сервер, а
-     весь остальной фронт проекта и так живёт на внешних CDN. Важнее другое:
-     шрифт обязан покрывать расширенную кириллицу, иначе ө, ү, ң и ҳ, ҷ, ӯ, ғ
-     подменятся системными и заголовок распадётся на два разных шрифта. -->
+<!-- Шрифт обязан покрывать расширенную кириллицу: без этого ө, ү, ң и ҳ, ҷ, ӯ
+     подменятся системными и строка распадётся на два разных начертания. -->
 <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/web/brand.css">
 
@@ -25,6 +23,9 @@
    Лендинг TilTap. Своя вёрстка без фреймворка: страница статична, а компиляция
    Tailwind в браузере стоила бы ровно тех секунд, за которые человек решает,
    остаться ему или закрыть вкладку.
+
+   Тема здесь одна, светлая: страница-визитка ничего не выигрывает от ночного
+   режима, а место в шапке нужнее переключателю языка.
    ======================================================================== */
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -41,7 +42,7 @@ body {
   overflow-x: hidden;
 }
 
-h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: -0.022em; line-height: 1.1; }
+h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: -0.022em; line-height: 1.12; }
 p { margin: 0; }
 a { color: inherit; }
 
@@ -52,13 +53,12 @@ a { color: inherit; }
   font-size: 0.75rem; font-weight: 600; letter-spacing: 0.14em;
   text-transform: uppercase; color: var(--accent);
 }
+.lede { color: var(--ink-soft); font-size: 1.0625rem; max-width: 62ch; }
 
-.lede { color: var(--ink-soft); font-size: 1.0625rem; max-width: 60ch; }
-
-/* --- Кнопки. Одна шкала нажимаемого: всё круглое, всё отзывается ---------- */
+/* --- Кнопки --------------------------------------------------------------- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
-  white-space: nowrap;                 /* подпись кнопки не переносится */
+  white-space: nowrap;
   font-family: inherit; font-size: 0.9375rem; font-weight: 600;
   padding: 0.8125rem 1.5rem; border-radius: var(--r-press);
   border: 1px solid transparent; cursor: pointer; text-decoration: none;
@@ -67,20 +67,17 @@ a { color: inherit; }
 }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .btn:active { transform: translateY(1px); }
-
 .btn-primary { background: var(--accent); color: var(--accent-ink); }
 .btn-primary:hover { background: var(--accent-hover); }
-
 .btn-quiet { background: transparent; color: var(--ink); border-color: var(--rule-strong); }
 .btn-quiet:hover { border-color: var(--ink); background: var(--paper-sunk); }
-
 .btn-sm { padding: 0.5rem 1rem; font-size: 0.875rem; }
 
-/* --- Шапка. Одна строка на десктопе, высота под контролем ----------------- */
+/* --- Шапка ---------------------------------------------------------------- */
 .nav {
-  position: sticky; top: 0; z-index: 50;
-  height: 68px; display: flex; align-items: center;
-  background: color-mix(in oklab, var(--paper) 86%, transparent);
+  position: sticky; top: 0; z-index: 50; height: 68px;
+  display: flex; align-items: center;
+  background: color-mix(in oklab, var(--paper) 88%, transparent);
   backdrop-filter: blur(12px) saturate(150%);
   -webkit-backdrop-filter: blur(12px) saturate(150%);
   border-bottom: 1px solid transparent;
@@ -95,7 +92,6 @@ a { color: inherit; }
   width: 26px; height: 26px; border-radius: 8px; flex: none;
   background: var(--accent); color: var(--accent-ink);
   display: grid; place-items: center; font-size: 0.8125rem; font-weight: 800;
-  letter-spacing: -0.04em;
 }
 
 .nav-links { display: flex; gap: 1.625rem; margin-left: auto; font-size: 0.9375rem;
@@ -103,29 +99,34 @@ a { color: inherit; }
 .nav-links a { text-decoration: none; transition: color 0.18s var(--ease); }
 .nav-links a:hover { color: var(--ink); }
 .nav-side { display: flex; align-items: center; gap: 0.625rem; }
-.nav-links + .nav-side { margin-left: 0; }
-.nav-links:not(:last-child) ~ .nav-side { margin-left: 0; }
+@media (max-width: 940px) { .nav-links { display: none; } .nav-side { margin-left: auto; } }
 
-.icon-btn {
-  width: 38px; height: 38px; border-radius: var(--r-press); flex: none;
-  display: grid; place-items: center; cursor: pointer;
-  background: transparent; color: var(--ink-soft);
-  border: 1px solid var(--rule);
+/* --- Выбор языка интерфейса ----------------------------------------------- */
+.langpick { position: relative; }
+.langpick-btn {
+  display: flex; align-items: center; gap: 0.4375rem; cursor: pointer;
+  font: inherit; font-size: 0.875rem; font-weight: 600;
+  padding: 0.5rem 0.75rem; border-radius: var(--r-press);
+  border: 1px solid var(--rule); background: transparent; color: var(--ink-soft);
   transition: color 0.18s var(--ease), border-color 0.18s var(--ease);
 }
-.icon-btn:hover { color: var(--ink); border-color: var(--rule-strong); }
-.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.icon-btn svg { width: 17px; height: 17px; }
-:root[data-theme="dark"] .icon-sun, .icon-moon { display: none; }
-:root[data-theme="dark"] .icon-moon { display: block; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .icon-sun { display: none; }
-  :root:not([data-theme="light"]) .icon-moon { display: block; }
+.langpick-btn:hover { color: var(--ink); border-color: var(--rule-strong); }
+.langpick-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.langpick-btn svg { width: 12px; height: 12px; opacity: .7; }
+.langpick-menu {
+  position: absolute; right: 0; top: calc(100% + 0.5rem); z-index: 60;
+  min-width: 11rem; padding: 0.375rem; margin: 0; list-style: none;
+  background: var(--paper-raised); border: 1px solid var(--rule);
+  border-radius: var(--r-field); box-shadow: var(--shadow-lift);
 }
-:root[data-theme="light"] .icon-sun { display: block; }
-:root[data-theme="light"] .icon-moon { display: none; }
-
-@media (max-width: 900px) { .nav-links { display: none; } }
+.langpick-menu[hidden] { display: none; }
+.langpick-menu button {
+  width: 100%; text-align: left; cursor: pointer; font: inherit; font-size: 0.875rem;
+  padding: 0.5rem 0.625rem; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink);
+}
+.langpick-menu button:hover { background: var(--paper-sunk); }
+.langpick-menu button[aria-current="true"] { color: var(--accent); font-weight: 600; }
 
 /* --- Первый экран --------------------------------------------------------- */
 .hero { padding: clamp(3rem, 7vw, 5.5rem) 0 clamp(3.5rem, 7vw, 6rem); }
@@ -133,47 +134,31 @@ a { color: inherit; }
   display: grid; grid-template-columns: 1.02fr 0.98fr;
   gap: clamp(2rem, 5vw, 4rem); align-items: center;
 }
-/* Размер подобран под длину заголовка, а не наоборот: на 4rem «Речь пяти
-   языков становится текстом» распадается на три строки, и первый экран
-   перестаёт читаться одним взглядом. */
 .hero h1 { font-size: clamp(2.125rem, 4vw, 3.375rem); font-weight: 800; letter-spacing: -0.038em; }
 .hero h1 em { font-style: normal; color: var(--accent); }
 .hero .lede { margin-top: 1.25rem; font-size: clamp(1rem, 1.6vw, 1.1875rem); }
 .hero-actions { margin-top: 2rem; display: flex; flex-wrap: wrap; gap: 0.75rem; }
 
-/* Живой предпросмотр. Внутри рамки открыт настоящий рабочий экран, а не
-   нарисованная из блоков картинка: показывать продукт подделкой продукта
-   стыдно, а поддерживать такую подделку ещё и накладно. */
 .preview {
   border: 1px solid var(--rule); border-radius: var(--r-surface);
-  background: var(--paper-raised); box-shadow: var(--shadow-lift);
-  overflow: hidden;
+  background: var(--paper-raised); box-shadow: var(--shadow-lift); overflow: hidden;
 }
 .preview-bar {
   height: 34px; display: flex; align-items: center; gap: 0.5rem;
-  padding: 0 0.875rem; border-bottom: 1px solid var(--rule);
-  background: var(--paper-sunk);
+  padding: 0 0.875rem; border-bottom: 1px solid var(--rule); background: var(--paper-sunk);
 }
 .preview-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--rule-strong); }
-.preview-url {
-  margin-left: 0.5rem; font-size: 0.6875rem; color: var(--ink-faint);
-  font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
+.preview-url { margin-left: 0.5rem; font-size: 0.6875rem; color: var(--ink-faint);
+               font-family: var(--font-mono); white-space: nowrap; }
 .preview-stage { position: relative; aspect-ratio: 4 / 3.15; overflow: hidden; }
 .preview-stage iframe {
   position: absolute; inset: 0; width: 143%; height: 143%; border: 0;
-  transform: scale(0.7); transform-origin: 0 0;
-  pointer-events: none;                /* рамка показывает, а не притворяется рабочей */
+  transform: scale(0.7); transform-origin: 0 0; pointer-events: none;
 }
-.preview-fallback {
-  position: absolute; inset: 0; display: grid; place-items: center;
-  color: var(--ink-faint); font-size: 0.875rem;
-  background: var(--paper-sunk);
-}
+.preview-fallback { position: absolute; inset: 0; background: var(--paper-sunk); }
 
-/* Ниже 900px рамка убирается целиком, а не показывает заглушку: настоящий
-   экран туда не грузится ради веса страницы, а держать вместо него пустой
-   прямоугольник значит показывать человеку брак вёрстки. */
+/* Ниже 900px рамка убирается целиком: настоящий экран туда не грузится ради
+   веса страницы, а пустой прямоугольник вместо него это показанный брак. */
 @media (max-width: 900px) {
   .hero-grid { grid-template-columns: 1fr; }
   .hero-visual { display: none; }
@@ -187,30 +172,24 @@ a { color: inherit; }
   grid-template-columns: repeat(5, 1fr);
   border: 1px solid var(--rule); border-radius: var(--r-surface); overflow: hidden;
 }
-.lang-cell {
-  background: var(--paper); padding: 1.5rem 1.25rem;
-  transition: background-color 0.22s var(--ease);
-}
+.lang-cell { background: var(--paper); padding: 1.5rem 1.25rem;
+             transition: background-color 0.22s var(--ease); }
 .lang-cell:hover { background: var(--paper-raised); }
 .lang-name { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
 .lang-code { font-size: 0.75rem; color: var(--ink-faint); font-family: var(--font-mono);
              text-transform: uppercase; margin-top: 0.125rem; }
-.lang-glyphs {
-  margin-top: 1rem; font-size: 1.5rem; color: var(--accent);
-  letter-spacing: 0.06em; line-height: 1.35;
-}
-.lang-note { margin-top: 0.5rem; font-size: 0.8125rem; color: var(--ink-faint); }
+.lang-glyphs { margin-top: 1rem; font-size: 1.5rem; color: var(--accent);
+               letter-spacing: 0.06em; line-height: 1.35; min-height: 2rem; }
 @media (max-width: 900px) { .lang-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 520px) { .lang-grid { grid-template-columns: 1fr; } }
 
-/* --- Возможности: сетка с разными по величине ячейками -------------------- */
+/* --- Секции --------------------------------------------------------------- */
 .section { padding: clamp(3.5rem, 7vw, 6rem) 0; }
-.section-head { max-width: 46ch; }
+.section-head { max-width: 48ch; }
 .section-head h2 { font-size: clamp(1.75rem, 3.4vw, 2.625rem); }
 .section-head p { margin-top: 0.875rem; color: var(--ink-soft); }
 
-.bento { margin-top: 2.5rem; display: grid; gap: 1rem;
-         grid-template-columns: repeat(6, 1fr); }
+.bento { margin-top: 2.5rem; display: grid; gap: 1rem; grid-template-columns: repeat(6, 1fr); }
 .tile {
   border: 1px solid var(--rule); border-radius: var(--r-surface);
   padding: 1.75rem; background: var(--paper-raised);
@@ -241,34 +220,27 @@ a { color: inherit; }
   color: var(--ink-soft); font-family: var(--font-mono);
 }
 
-/* --- Уверенность: широкая полоса с настоящим фрагментом ответа ------------- */
+/* --- Путь записи ---------------------------------------------------------- */
+.flow { margin-top: 2.5rem; display: grid; gap: 1px; background: var(--rule);
+        border: 1px solid var(--rule); border-radius: var(--r-surface); overflow: hidden; }
+.flow-row { background: var(--paper); padding: 1.75rem;
+            display: grid; grid-template-columns: 14rem 1fr; gap: 1.5rem; align-items: baseline; }
+.flow-row h3 { font-size: 1.3125rem; letter-spacing: -0.025em; }
+.flow-row p { color: var(--ink-soft); font-size: 0.9375rem; }
+@media (max-width: 720px) { .flow-row { grid-template-columns: 1fr; gap: 0.5rem; } }
+
+/* --- Границы -------------------------------------------------------------- */
 .trust { background: var(--paper-sunk); border-block: 1px solid var(--rule);
          padding: clamp(3.5rem, 7vw, 5.5rem) 0; }
-/* Границы держатся на линиях и воздухе, без карточек: список ограничений и
-   так читается тяжело, а обводка вокруг каждого пункта превращает его в
-   отдельное объявление. */
-.limits {
-  margin-top: 2.5rem; display: grid; grid-template-columns: repeat(3, 1fr);
-  gap: clamp(1.75rem, 3.5vw, 2.75rem);
-}
+.limits { margin-top: 2.5rem; display: grid; grid-template-columns: repeat(3, 1fr);
+          gap: clamp(1.75rem, 3.5vw, 2.75rem); }
 .limit { padding-top: 1.125rem; border-top: 2px solid var(--rule-strong); }
 .limit h3 { font-size: 1.0625rem; }
 .limit p { margin-top: 0.5rem; color: var(--ink-soft); font-size: 0.9375rem; }
 @media (max-width: 900px) { .limits { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) { .limits { grid-template-columns: 1fr; } }
 
-/* --- Порядок работы ------------------------------------------------------- */
-.flow { margin-top: 2.5rem; display: grid; gap: 1px; background: var(--rule);
-        border: 1px solid var(--rule); border-radius: var(--r-surface); overflow: hidden; }
-.flow-row {
-  background: var(--paper); padding: 1.75rem;
-  display: grid; grid-template-columns: 13rem 1fr; gap: 1.5rem; align-items: baseline;
-}
-.flow-row h3 { font-size: 1.375rem; letter-spacing: -0.025em; }
-.flow-row p { color: var(--ink-soft); font-size: 0.9375rem; }
-@media (max-width: 720px) { .flow-row { grid-template-columns: 1fr; gap: 0.5rem; } }
-
-/* --- Форматы: три смысловые группы вместо длинного списка ------------------ */
+/* --- Форматы -------------------------------------------------------------- */
 .groups { margin-top: 2.5rem; display: grid; grid-template-columns: repeat(3, 1fr);
           gap: clamp(1.5rem, 3vw, 2.5rem); }
 .group h3 { font-size: 1rem; padding-bottom: 0.75rem; border-bottom: 2px solid var(--accent);
@@ -276,7 +248,7 @@ a { color: inherit; }
 .group p { margin-top: 1rem; color: var(--ink-soft); font-size: 0.9375rem; }
 @media (max-width: 820px) { .groups { grid-template-columns: 1fr; } }
 
-/* --- Финальный призыв ----------------------------------------------------- */
+/* --- Призыв --------------------------------------------------------------- */
 .cta { padding: clamp(3.5rem, 7vw, 5.5rem) 0; }
 .cta-card {
   border-radius: calc(var(--r-surface) + 6px); padding: clamp(2.25rem, 5vw, 3.75rem);
@@ -287,10 +259,6 @@ a { color: inherit; }
   display: grid; grid-template-columns: 1fr auto; gap: 2rem; align-items: center;
 }
 .cta-card h2 { font-size: clamp(1.5rem, 3vw, 2.25rem); color: var(--paper-raised); }
-:root[data-theme="dark"] .cta-card h2 { color: var(--ink); }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .cta-card h2 { color: var(--ink); }
-}
 .cta-card p { margin-top: 0.75rem; opacity: 0.72; max-width: 46ch; }
 .cta-card .btn-primary { background: var(--paper-raised); color: var(--ink); }
 .cta-card .btn-primary:hover { background: var(--paper); }
@@ -323,38 +291,44 @@ a { color: inherit; }
       TilTap
     </a>
 
-    <nav class="nav-links" aria-label="Разделы страницы">
-      <a href="#languages">Языки</a>
-      <a href="#features">Возможности</a>
-      <a href="#formats">Форматы</a>
+    <nav class="nav-links" aria-label="TilTap">
+      <a href="#languages" data-i18n="navLanguages">Языки</a>
+      <a href="#what" data-i18n="navWhat">Возможности</a>
+      <a href="#pipeline" data-i18n="navHow">Как устроен</a>
     </nav>
 
     <div class="nav-side">
-      <button class="icon-btn" id="themeBtn" type="button" aria-label="Переключить тему">
-        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
-        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
-      </button>
-      <a class="btn btn-primary btn-sm" href="/web/">Открыть TilTap</a>
+      <div class="langpick">
+        <button class="langpick-btn" id="langBtn" type="button" aria-haspopup="true" aria-expanded="false">
+          <span id="langCurrent">Русский</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <ul class="langpick-menu" id="langMenu" hidden>
+          <li><button type="button" data-lang="ru">Русский</button></li>
+          <li><button type="button" data-lang="ky">Кыргызча</button></li>
+          <li><button type="button" data-lang="tg">Тоҷикӣ</button></li>
+          <li><button type="button" data-lang="uz">Oʻzbekcha</button></li>
+          <li><button type="button" data-lang="en">English</button></li>
+        </ul>
+      </div>
+      <a class="btn btn-primary btn-sm" href="/web/" data-i18n="ctaOpen">Открыть TilTap</a>
     </div>
   </div>
 </header>
 
 <main>
 
-  <!-- Первый экран ------------------------------------------------------- -->
   <section class="hero">
     <div class="wrap hero-grid">
       <div>
-        <h1>Перевод между <em>пятью языками</em></h1>
-        <p class="lede">
-          Текст, документы и субтитры на кыргызском, таджикском, узбекском,
-          русском и английском. Аудио и видео сервис тоже понимает.
+        <h1 data-i18n="heroTitle">Переводчик для языков, <em data-i18n="heroTitleAccent">которые обычно переводят плохо</em></h1>
+        <p class="lede" data-i18n="heroLede">
+          Кыргызский, таджикский, узбекский, русский, английский. Любая пара
+          переводится напрямую, без английского посредника.
         </p>
         <div class="hero-actions">
-          <a class="btn btn-primary" href="/web/">Открыть TilTap</a>
-          <!-- Кнопка бота появится, когда будет известен его адрес. Угаданное
-               имя здесь публиковать нельзя: ссылка ведёт наружу. -->
-          <a class="btn btn-quiet" href="#pipeline">Как это работает</a>
+          <a class="btn btn-primary" href="/web/" data-i18n="ctaOpen">Открыть TilTap</a>
+          <a class="btn btn-quiet" href="#pipeline" data-i18n="ctaHow">Как он устроен</a>
         </div>
       </div>
 
@@ -365,271 +339,224 @@ a { color: inherit; }
             <span class="preview-url">tiltap /web/</span>
           </div>
           <div class="preview-stage" id="previewStage">
-            <div class="preview-fallback" id="previewFallback">Рабочий экран TilTap</div>
+            <div class="preview-fallback" id="previewFallback"></div>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Языки: настоящие начертания, а не флаги ----------------------------- -->
   <section class="langs" id="languages">
     <div class="wrap">
       <div class="section-head reveal">
-        <h2>Пять языков, три системы письма</h2>
-        <p>
-          Кыргызский, таджикский и узбекский пишутся буквами, которых нет в
-          обычной раскладке. TilTap набирает и отдаёт их правильно.
+        <h2 data-i18n="langsTitle">Пять языков, три системы письма</h2>
+        <p data-i18n="langsLede">
+          У трёх из них есть буквы, которых нет в обычной раскладке. Их проще
+          всего потерять: они выпадают при копировании и подменяются похожими.
+          Здесь они доходят до конца целыми.
         </p>
       </div>
 
       <div class="lang-grid reveal">
         <div class="lang-cell">
-          <div class="lang-name">Кыргызча</div>
-          <div class="lang-code">ky</div>
+          <div class="lang-name">Кыргызча</div><div class="lang-code">ky</div>
           <div class="lang-glyphs">ө ү ң</div>
-          <div class="lang-note">Кириллица с тремя добавочными буквами</div>
         </div>
         <div class="lang-cell">
-          <div class="lang-name">Тоҷикӣ</div>
-          <div class="lang-code">tg</div>
+          <div class="lang-name">Тоҷикӣ</div><div class="lang-code">tg</div>
           <div class="lang-glyphs">ҳ ҷ ӯ ғ қ ӣ</div>
-          <div class="lang-note">Кириллица с шестью добавочными буквами</div>
         </div>
         <div class="lang-cell">
-          <div class="lang-name">Oʻzbekcha</div>
-          <div class="lang-code">uz</div>
+          <div class="lang-name">Oʻzbekcha</div><div class="lang-code">uz</div>
           <div class="lang-glyphs">oʻ gʻ ʼ</div>
-          <div class="lang-note">Латиница с модификаторами</div>
         </div>
         <div class="lang-cell">
-          <div class="lang-name">Русский</div>
-          <div class="lang-code">ru</div>
-          <div class="lang-glyphs">а б в</div>
-          <div class="lang-note">Кириллица</div>
+          <div class="lang-name">Русский</div><div class="lang-code">ru</div>
+          <div class="lang-glyphs"></div>
         </div>
         <div class="lang-cell">
-          <div class="lang-name">English</div>
-          <div class="lang-code">en</div>
-          <div class="lang-glyphs">a b c</div>
-          <div class="lang-note">Латиница</div>
+          <div class="lang-name">English</div><div class="lang-code">en</div>
+          <div class="lang-glyphs"></div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Возможности --------------------------------------------------------- -->
-  <section class="section" id="features">
+  <section class="section" id="what">
     <div class="wrap">
       <div class="section-head reveal">
-        <span class="eyebrow">Возможности</span>
-        <h2 style="margin-top:.75rem">Перевод сначала, остальное вокруг него</h2>
+        <span class="eyebrow" data-i18n="whatEyebrow">Возможности</span>
+        <h2 style="margin-top:.75rem" data-i18n="whatTitle">Что он делает</h2>
       </div>
 
       <div class="bento">
         <article class="tile tile-wide tile-accent reveal">
-          <h3>Перевод между любой парой из пяти языков</h3>
-          <p>
-            Ради этого сервис и делался. Кыргызский, таджикский и узбекский
-            редко попадают в обычные переводчики целыми: направления к ним и от
-            них здесь основные, а не приложенные к английскому.
+          <h3 data-i18n="f1Title">Перевод между любой парой</h3>
+          <p data-i18n="f1Text">
+            Кыргызский в таджикский идёт напрямую, а не через английский с
+            потерями на каждом шаге. Ради этого сервис и делался.
           </p>
           <div class="chips">
             <span class="chip">KY</span><span class="chip">TG</span>
-            <span class="chip">UZ</span><span class="chip">RU</span>
-            <span class="chip">EN</span>
+            <span class="chip">UZ</span><span class="chip">RU</span><span class="chip">EN</span>
           </div>
         </article>
 
         <article class="tile tile-tall tile-figured reveal">
-          <h3>Документы целиком</h3>
-          <p>
-            Таблицы и субтитры возвращаются в своём формате. Столбцы и
-            тайм-коды остаются на местах, переводится только текст.
+          <h3 data-i18n="f2Title">Документы остаются документами</h3>
+          <p data-i18n="f2Text">
+            Таблица возвращается таблицей, субтитры сохраняют тайм-коды.
+            Переводится содержимое, а не разметка.
           </p>
         </article>
 
         <article class="tile tile-third reveal">
-          <h3>Расшифровка речи</h3>
-          <p>
-            Появилась позже перевода. Аудио и видео становятся текстом, который
-            дальше идёт обычным путём.
-          </p>
+          <h3 data-i18n="f3Title">Запись голоса</h3>
+          <p data-i18n="f3Text">Интервью, эфир, голосовое сообщение. Текст приходит с отметками времени.</p>
         </article>
 
         <article class="tile tile-third tile-figured reveal">
-          <h3>Ссылки на видео</h3>
-          <p>YouTube, TikTok и Instagram. Достаточно прислать адрес, скачивание берём на себя.</p>
+          <h3 data-i18n="f4Title">Ссылка вместо файла</h3>
+          <p data-i18n="f4Text">YouTube, TikTok, Instagram. Скачивание берём на себя.</p>
         </article>
 
         <article class="tile tile-third reveal">
-          <h3>Тайм-коды</h3>
-          <p>У расшифровки текст разложен по отрезкам записи, поэтому нужное место находится за секунды.</p>
+          <h3 data-i18n="f5Title">Два входа, одна обработка</h3>
+          <p data-i18n="f5Text">Эта страница и бот в Telegram делают ровно одно и то же.</p>
         </article>
       </div>
     </div>
   </section>
 
-  <!-- Путь записи: что на самом деле происходит внутри --------------------- -->
-  <section class="section" id="pipeline">
+  <section class="section" id="pipeline" style="padding-top:0">
     <div class="wrap">
-      <div class="section-head reveal" style="max-width:52ch">
-        <span class="eyebrow">Путь записи</span>
-        <h2 style="margin-top:.75rem">Через что проходит ваше аудио</h2>
-        <p>
-          Текст переводится сразу. Запись сначала надо превратить в текст, и
-          этот путь длиннее: шесть шагов, на каждом есть что терять. Лучше
-          знать, где именно, чем удивляться результату.
+      <div class="section-head reveal" style="max-width:54ch">
+        <span class="eyebrow" data-i18n="howEyebrow">Как устроен</span>
+        <h2 style="margin-top:.75rem" data-i18n="howTitle">Путь записи до текста</h2>
+        <p data-i18n="howLede">
+          Текст переводится сразу. Запись сначала надо услышать, и этот путь
+          длиннее. Полезнее знать его заранее, чем гадать потом, где потерялась
+          фраза.
         </p>
       </div>
 
       <div class="flow reveal">
         <div class="flow-row">
-          <h3>Приём</h3>
-          <p>
-            Файл загружается напрямую. Ссылка на YouTube, TikTok или Instagram
-            сначала скачивается на нашей стороне, и это самый хрупкий шаг:
-            площадки регулярно меняют защиту, и тогда скачивание отваливается
-            раньше, чем начинается распознавание.
+          <h3 data-i18n="s1Title">Загрузка</h3>
+          <p data-i18n="s1Text">
+            Файл идёт напрямую. Ссылку мы сначала скачиваем сами, и это самое
+            хрупкое место: площадки меняют защиту, и тогда всё останавливается
+            ещё до распознавания.
           </p>
         </div>
         <div class="flow-row">
-          <h3>Приведение звука</h3>
-          <p>
-            Что бы вы ни прислали, дальше идёт одна и та же дорожка: моно,
-            16 кГц. У видео картинка отбрасывается, остаётся только звук.
+          <h3 data-i18n="s2Title">Один формат звука</h3>
+          <p data-i18n="s2Text">
+            Что бы вы ни прислали, дальше идёт одна дорожка: моно, 16 кГц. У
+            видео картинка отбрасывается.
           </p>
         </div>
         <div class="flow-row">
-          <h3>Нарезка</h3>
-          <p>
-            Целую запись модель не принимает, поэтому она режется на куски.
-            Сейчас нарезка идёт по времени, а не по паузам в речи, и на стыке
-            кусков слово может потеряться. Это известное слабое место, а не
-            особенность.
+          <h3 data-i18n="s3Title">Нарезка на куски</h3>
+          <p data-i18n="s3Text">
+            Целую запись модель не принимает. Сейчас мы режем по времени, а не
+            по паузам в речи, поэтому на стыке кусков слово иногда пропадает.
           </p>
         </div>
         <div class="flow-row">
-          <h3>Распознавание</h3>
-          <p>
-            Модель выбирается по языку записи, одной на всех нет. Кыргызский,
-            узбекский и русский идут в модель, которая держится в памяти
-            постоянно. Таджикский считается на процессоре и потому заметно
-            медленнее. Английский уходит на отдельную видеокарту.
+          <h3 data-i18n="s4Title">Распознавание</h3>
+          <p data-i18n="s4Text">
+            Модель выбирается по языку: одной хорошей на все пять не бывает.
+            Три языка идут в модель, которая постоянно держится в памяти,
+            таджикский считается на процессоре, английский на видеокарте.
           </p>
         </div>
         <div class="flow-row">
-          <h3>Сборка и проверка</h3>
-          <p>
+          <h3 data-i18n="s5Title">Сборка и сверка</h3>
+          <p data-i18n="s5Text">
             Куски склеиваются, проставляются тайм-коды, узбекский приводится к
-            нужной письменности. Затем текст сверяется со словарём языка и
-            считается доля слов, которых там нет. Это простая арифметика, а не
-            понимание смысла: она ловит явный шум и мимо неё легко пройдёт
-            гладкая, но неверная расшифровка.
+            нужной письменности. Потом текст сверяется со словарём языка. Это
+            арифметика, а не понимание: она видит шум и пропускает гладкую
+            ошибку.
           </p>
         </div>
         <div class="flow-row">
-          <h3>Перевод</h3>
-          <p>
-            Текст делится на части и переводится языковой моделью, потом второй
-            проход сверяет перевод с оригиналом. У документов структура
-            собирается обратно: ячейки таблицы и тайм-коды субтитров остаются
-            на своих местах.
+          <h3 data-i18n="s6Title">Перевод</h3>
+          <p data-i18n="s6Text">
+            Текст делится на части и переводится, затем второй проход сверяет
+            перевод с оригиналом. У документов структура собирается обратно.
           </p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Границы: что система делает плохо ------------------------------------ -->
   <section class="trust">
     <div class="wrap">
       <div class="section-head reveal" style="max-width:52ch">
-        <h2 style="font-size:clamp(1.75rem,3.4vw,2.5rem)">Чего ждать не стоит</h2>
-        <p>
-          Список короткий и честный. Проверять его на своей записи дешевле, чем
-          обнаружить всё это в день сдачи материала.
+        <h2 style="font-size:clamp(1.75rem,3.4vw,2.5rem)" data-i18n="limitsTitle">Где он ошибается</h2>
+        <p data-i18n="limitsLede">
+          Проверить это на своём материале дешевле, чем обнаружить в день сдачи.
         </p>
       </div>
 
       <div class="limits reveal">
         <div class="limit">
-          <h3>Шум забирает качество</h3>
-          <p>
-            Улица, базар, несколько говорящих разом. Чем хуже запись, тем
-            больше в тексте выдумки, и никакая модель этого не чинит.
-          </p>
+          <h3 data-i18n="l1Title">Шум</h3>
+          <p data-i18n="l1Text">Улица, базар, несколько голосов разом. Чем хуже запись, тем больше в тексте выдумки.</p>
         </div>
         <div class="limit">
-          <h3>Говорящие не разделяются</h3>
-          <p>
-            Диалог придёт сплошным текстом. Кто именно произнёс реплику,
-            система не отмечает.
-          </p>
+          <h3 data-i18n="l2Title">Диалог</h3>
+          <p data-i18n="l2Text">Реплики не разделяются по говорящим. Разговор придёт сплошным текстом.</p>
         </div>
         <div class="limit">
-          <h3>Оценка качества грубая</h3>
-          <p>
-            Это проверка по словарю, а не понимание. Она видит шум и не видит
-            смысловой ошибки в связном предложении.
-          </p>
+          <h3 data-i18n="l3Title">Проверка качества</h3>
+          <p data-i18n="l3Text">Сверка со словарём ловит шум, но не видит ошибку в связном предложении.</p>
         </div>
         <div class="limit">
-          <h3>Таджикский медленный</h3>
-          <p>
-            Он считается на процессоре, а не на видеокарте. На длинной записи
-            разница со остальными языками заметна.
-          </p>
+          <h3 data-i18n="l4Title">Скорость таджикского</h3>
+          <p data-i18n="l4Text">Он считается на процессоре. На длинной записи разница с другими языками заметна.</p>
         </div>
         <div class="limit">
-          <h3>Сканы не читаются</h3>
-          <p>
-            PDF без текстового слоя это картинка. Распознавания печатного
-            текста в системе нет.
-          </p>
+          <h3 data-i18n="l5Title">Сканы</h3>
+          <p data-i18n="l5Text">PDF без текстового слоя это картинка. Распознавания печатного текста нет.</p>
         </div>
         <div class="limit">
-          <h3>Итог нужно вычитывать</h3>
-          <p>
-            TilTap экономит время на наборе, а не заменяет редактора. Перед
-            публикацией текст читает человек.
-          </p>
+          <h3 data-i18n="l6Title">Вычитка</h3>
+          <p data-i18n="l6Text">Сервис экономит время на наборе. Перед публикацией текст всё равно читает человек.</p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Форматы ------------------------------------------------------------- -->
-  <section class="section" id="formats" style="padding-top:0">
+  <section class="section" id="formats">
     <div class="wrap">
       <div class="section-head reveal">
-        <h2>Что можно прислать</h2>
+        <h2 data-i18n="formatsTitle">Что можно прислать</h2>
       </div>
 
       <div class="groups reveal">
         <div class="group">
-          <h3>Звук и видео</h3>
-          <p>Распознаём речь и отдаём текст с разбивкой по времени.</p>
+          <h3 data-i18n="g1Title">Звук и видео</h3>
+          <p data-i18n="g1Text">Речь становится текстом с отметками времени.</p>
           <div class="chips">
             <span class="chip">MP3</span><span class="chip">WAV</span><span class="chip">OGG</span>
             <span class="chip">M4A</span><span class="chip">MP4</span><span class="chip">MOV</span>
             <span class="chip">MKV</span>
           </div>
         </div>
-
         <div class="group">
-          <h3>Документы</h3>
-          <p>Достаём текст и переводим. Ответ приходит текстом.</p>
+          <h3 data-i18n="g2Title">Документы</h3>
+          <p data-i18n="g2Text">Текст достаётся и переводится. Ответ приходит текстом.</p>
           <div class="chips">
             <span class="chip">TXT</span><span class="chip">DOCX</span><span class="chip">PDF</span>
             <span class="chip">PPTX</span><span class="chip">XLSX</span><span class="chip">ODT</span>
             <span class="chip">RTF</span><span class="chip">HTML</span><span class="chip">MD</span>
           </div>
         </div>
-
         <div class="group">
-          <h3>Таблицы и субтитры</h3>
-          <p>Возвращаются в исходном формате: тайм-коды и столбцы на месте.</p>
+          <h3 data-i18n="g3Title">Таблицы и субтитры</h3>
+          <p data-i18n="g3Text">Возвращаются в своём формате: столбцы и тайм-коды на месте.</p>
           <div class="chips">
             <span class="chip">CSV</span><span class="chip">TSV</span>
             <span class="chip">SRT</span><span class="chip">VTT</span>
@@ -637,27 +564,20 @@ a { color: inherit; }
         </div>
       </div>
 
-      <p class="lede" style="margin-top:2rem; font-size:.9375rem">
-        Старые .doc, .xls и .ppt пересохраните в новом формате. PDF из сканов
-        пока не читаем: в них нет текстового слоя.
+      <p class="lede" style="margin-top:2rem; font-size:.9375rem" data-i18n="formatsNote">
+        Старые .doc, .xls и .ppt пересохраните в новом формате.
       </p>
     </div>
   </section>
 
-  <!-- Призыв -------------------------------------------------------------- -->
   <section class="cta">
     <div class="wrap">
       <div class="cta-card reveal">
         <div>
-          <h2>Проверьте на своём материале</h2>
-          <p>
-            Регистрация не нужна. Откройте рабочий экран, выберите языки и
-            вставьте текст или перетащите файл.
-          </p>
+          <h2 data-i18n="ctaTitle">Проверьте на своём материале</h2>
+          <p data-i18n="ctaText">Ничего устанавливать и регистрировать не нужно.</p>
         </div>
-        <div>
-          <a class="btn btn-primary" href="/web/">Открыть TilTap</a>
-        </div>
+        <div><a class="btn btn-primary" href="/web/" data-i18n="ctaOpen">Открыть TilTap</a></div>
       </div>
     </div>
   </section>
@@ -665,61 +585,165 @@ a { color: inherit; }
 
 <footer class="foot">
   <div class="wrap">
-    <span>TilTap: перевод и расшифровка речи</span>
+    <span>TilTap</span>
     <span class="foot-right">
-      <a href="/web/">Рабочий экран</a>
-      <a href="/web/dataset.html">Разметка</a>
-      <a href="https://t.me/jj07n">Поддержка</a>
+      <a href="/web/" data-i18n="footApp">Рабочий экран</a>
+      <a href="https://t.me/jj07n" data-i18n="footSupport">Поддержка</a>
     </span>
   </div>
 </footer>
 
 <script>
 // ===========================================================================
-// Тема. Три состояния: системная, светлая, тёмная. Выбор запоминается, потому
-// что человек, однажды включивший тёмную, ждёт её и на следующий день.
+// Перевод интерфейса страницы.
+//
+// Русский и английский написаны и вычитаны. Кыргызский, таджикский и узбекский
+// пока опущены сознательно: черновой машинный перевод на витрине переводческого
+// сервиса подрывает ровно то, что эта витрина продаёт. Ключи готовы, тексты
+// подставляются в одном месте, как только лингвисты их пришлют.
 // ===========================================================================
-var TilTapTheme = (function () {
-  function resolved() {
-    return document.documentElement.getAttribute("data-theme")
-      || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+var I18N = {
+  ru: null, // русский лежит в самой разметке и служит запасным вариантом
+
+  en: {
+    navLanguages: "Languages",
+    navWhat: "What it does",
+    navHow: "How it works",
+    ctaOpen: "Open TilTap",
+    ctaHow: "How it works",
+
+    heroTitle: 'A translator for the languages <em>that usually come out wrong</em>',
+    heroLede: "Kyrgyz, Tajik, Uzbek, Russian, English. Every pair goes straight across, with no detour through English.",
+
+    langsTitle: "Five languages, three writing systems",
+    langsLede: "Three of them use letters your keyboard does not have. Those are the first thing to go missing: they drop out when text is copied and get swapped for lookalikes. Here they survive the trip.",
+
+    whatEyebrow: "What it does",
+    whatTitle: "The short list",
+    f1Title: "Any pair, translated directly",
+    f1Text: "Kyrgyz into Tajik goes straight across instead of losing something at every hop through English. This is the reason the service exists.",
+    f2Title: "Documents come back as documents",
+    f2Text: "A table stays a table, subtitles keep their timings. The content is translated, the structure is left alone.",
+    f3Title: "Recorded speech",
+    f3Text: "Interviews, broadcasts, voice messages. The text arrives with timestamps.",
+    f4Title: "A link instead of a file",
+    f4Text: "YouTube, TikTok, Instagram. We handle the download.",
+    f5Title: "Two front doors, one engine",
+    f5Text: "This page and the Telegram bot do exactly the same work.",
+
+    howEyebrow: "How it works",
+    howTitle: "From recording to text",
+    howLede: "Text is translated straight away. A recording has to be heard first, and that road is longer. Better to know it in advance than to wonder later where a sentence went.",
+    s1Title: "Upload",
+    s1Text: "A file goes straight through. A link we have to fetch ourselves, and that is the brittle part: platforms keep changing their defences, and everything stops before transcription even starts.",
+    s2Title: "One audio format",
+    s2Text: "Whatever you send, what continues is a single track: mono, 16 kHz. Video loses its picture here.",
+    s3Title: "Cut into pieces",
+    s3Text: "The model will not take a whole recording. We currently cut by the clock rather than at pauses in speech, so a word at a seam sometimes disappears.",
+    s4Title: "Transcription",
+    s4Text: "The model is chosen by language, because no single good one covers all five. Three languages go to a model kept in memory, Tajik runs on the processor, English on a graphics card.",
+    s5Title: "Reassembly and check",
+    s5Text: "Pieces are joined, timings added, Uzbek converted to the right script. Then the text is checked against a dictionary. That is arithmetic, not understanding: it catches noise and lets a fluent mistake through.",
+    s6Title: "Translation",
+    s6Text: "The text is split, translated, and a second pass compares the result with the original. For documents the structure is rebuilt.",
+
+    limitsTitle: "Where it gets things wrong",
+    limitsLede: "Testing this on your own material costs less than finding it on deadline day.",
+    l1Title: "Noise",
+    l1Text: "A street, a market, several voices at once. The worse the recording, the more of the text is invention.",
+    l2Title: "Dialogue",
+    l2Text: "Speakers are not separated. A conversation arrives as one continuous block.",
+    l3Title: "The quality check",
+    l3Text: "A dictionary comparison catches noise, but cannot see an error inside a fluent sentence.",
+    l4Title: "Tajik speed",
+    l4Text: "It runs on the processor. On a long recording the gap against the other languages shows.",
+    l5Title: "Scans",
+    l5Text: "A PDF with no text layer is a picture. There is no printed-text recognition here.",
+    l6Title: "Proofreading",
+    l6Text: "The service saves the typing. A person still reads the text before it is published.",
+
+    formatsTitle: "What you can send",
+    g1Title: "Audio and video",
+    g1Text: "Speech becomes text with timestamps.",
+    g2Title: "Documents",
+    g2Text: "The text is extracted and translated. The answer comes back as text.",
+    g3Title: "Tables and subtitles",
+    g3Text: "Returned in their own format, columns and timings intact.",
+    formatsNote: "Save older .doc, .xls and .ppt files in the newer format first.",
+
+    ctaTitle: "Try it on your own material",
+    ctaText: "Nothing to install, nothing to sign up for.",
+    footApp: "Open the app",
+    footSupport: "Support"
   }
+};
+
+(function () {
+  var LANG_NAMES = { ru: "Русский", ky: "Кыргызча", tg: "Тоҷикӣ", uz: "Oʻzbekcha", en: "English" };
+  var HTML_KEYS = { heroTitle: true };   // единственная строка с разметкой внутри
+
+  var btn = document.getElementById("langBtn");
+  var menu = document.getElementById("langMenu");
+  var current = document.getElementById("langCurrent");
+
+  // Русский исходник забираем из разметки один раз, чтобы возврат к нему был
+  // просто ещё одним переключением, а не особым случаем.
+  var ru = {};
+  document.querySelectorAll("[data-i18n]").forEach(function (el) {
+    var key = el.dataset.i18n;
+    if (!(key in ru)) ru[key] = HTML_KEYS[key] ? el.innerHTML : el.textContent.trim();
+  });
+  I18N.ru = ru;
+
+  function apply(lang) {
+    var dict = I18N[lang] || I18N.ru;
+    document.querySelectorAll("[data-i18n]").forEach(function (el) {
+      var value = dict[el.dataset.i18n];
+      if (value === undefined) value = ru[el.dataset.i18n];
+      if (value === undefined) return;
+      if (HTML_KEYS[el.dataset.i18n]) el.innerHTML = value;
+      else el.textContent = value;
+    });
+    document.documentElement.lang = lang;
+    current.textContent = LANG_NAMES[lang];
+    menu.querySelectorAll("button").forEach(function (b) {
+      b.setAttribute("aria-current", String(b.dataset.lang === lang));
+    });
+    try { localStorage.setItem("tiltap-site-lang", lang); } catch (e) {}
+  }
+
+  function close() { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); }
+
+  btn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    menu.hidden = !menu.hidden;
+    btn.setAttribute("aria-expanded", String(!menu.hidden));
+  });
+  menu.addEventListener("click", function (e) {
+    var target = e.target.closest("button[data-lang]");
+    if (!target) return;
+    apply(target.dataset.lang);
+    close();
+  });
+  document.addEventListener("click", close);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
 
   var saved = null;
-  try { saved = localStorage.getItem("tiltap-theme"); } catch (e) {}
-  if (saved === "dark" || saved === "light") {
-    document.documentElement.setAttribute("data-theme", saved);
-  }
-
-  var listeners = [];
-
-  document.getElementById("themeBtn").addEventListener("click", function () {
-    var next = resolved() === "dark" ? "light" : "dark";
-    document.documentElement.setAttribute("data-theme", next);
-    try { localStorage.setItem("tiltap-theme", next); } catch (e) {}
-    listeners.forEach(function (fn) { fn(next); });
-  });
-
-  return {
-    resolved: resolved,
-    onChange: function (fn) { listeners.push(fn); }
-  };
+  try { saved = localStorage.getItem("tiltap-site-lang"); } catch (e) {}
+  apply(saved && LANG_NAMES[saved] ? saved : "ru");
 })();
 
 // ===========================================================================
 // Появление блоков при прокрутке. Через IntersectionObserver, а не по событию
 // scroll: обработчик прокрутки срабатывает на каждый кадр и первым же делом
-// портит плавность именно на слабых телефонах, где она нужнее всего.
+// портит плавность на слабых телефонах, где она нужнее всего.
 // ===========================================================================
 (function () {
   var items = document.querySelectorAll(".reveal");
-  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  if (reduced || !("IntersectionObserver" in window)) {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) {
     items.forEach(function (el) { el.classList.add("is-in"); });
     return;
   }
-
   var io = new IntersectionObserver(function (entries) {
     entries.forEach(function (entry) {
       if (!entry.isIntersecting) return;
@@ -727,31 +751,25 @@ var TilTapTheme = (function () {
       io.unobserve(entry.target);
     });
   }, { rootMargin: "0px 0px -10% 0px", threshold: 0.12 });
-
   items.forEach(function (el) { io.observe(el); });
 })();
 
-// ===========================================================================
 // Граница под шапкой появляется только после прокрутки: на самом верху она
 // делит первый экран пополам без всякой причины.
-// ===========================================================================
 (function () {
   var nav = document.getElementById("nav");
   var sentinel = document.createElement("div");
   sentinel.style.cssText = "position:absolute;top:0;height:1px;width:1px;";
   document.body.prepend(sentinel);
-
   if (!("IntersectionObserver" in window)) return;
   new IntersectionObserver(function (entries) {
     nav.classList.toggle("is-stuck", !entries[0].isIntersecting);
   }).observe(sentinel);
 })();
 
-// ===========================================================================
-// Предпросмотр рабочего экрана. Внутри рамки открывается настоящее приложение.
-// Грузим только на широких экранах и только после загрузки страницы: на
-// телефоне это лишний вес ради картинки, которую всё равно почти не видно.
-// ===========================================================================
+// Предпросмотр рабочего экрана: внутри рамки открывается настоящее приложение.
+// Только на широких экранах и только после загрузки страницы: на телефоне это
+// лишний вес ради картинки, которую всё равно почти не видно.
 (function () {
   var stage = document.getElementById("previewStage");
   if (!stage || window.innerWidth < 900) return;
@@ -759,27 +777,20 @@ var TilTapTheme = (function () {
   function mount() {
     var frame = document.createElement("iframe");
     frame.src = "/web/";
-    frame.title = "Рабочий экран TilTap";
+    frame.title = "TilTap";
     frame.setAttribute("tabindex", "-1");
     frame.setAttribute("aria-hidden", "true");
     frame.setAttribute("scrolling", "no");
-    // Тему рамке навязываем снаружи. Иначе приложение внутри решает её по
-    // системной настройке и на светлой странице оказывается тёмный экран,
-    // будто это чужой сайт, вставленный в чужую страницу.
-    function syncTheme() {
-      try {
-        var doc = frame.contentDocument;
-        if (doc) doc.documentElement.style.colorScheme = TilTapTheme.resolved();
-        if (doc) doc.documentElement.setAttribute("data-frame-theme", TilTapTheme.resolved());
-      } catch (e) {}
-    }
-
     frame.addEventListener("load", function () {
       var fallback = document.getElementById("previewFallback");
       if (fallback) fallback.remove();
-      syncTheme();
+      // Лендинг всегда светлый, и рамке навязываем то же самое: иначе внутри
+      // окажется тёмный экран, будто это чужой сайт внутри страницы.
+      try {
+        var doc = frame.contentDocument;
+        if (doc) doc.documentElement.setAttribute("data-frame-theme", "light");
+      } catch (e) {}
     });
-    TilTapTheme.onChange(syncTheme);
     stage.appendChild(frame);
   }
 

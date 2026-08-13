@@ -146,8 +146,44 @@
 
     /* --- Один вход вместо трёх вкладок ---------------------------------- */
     .composer { position: relative; }
+
+    /* Оба способа равны по размеру и по весу: как только один становится
+       крупнее или ярче, страница начинает просить именно его. */
+    .entry { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+    @media (max-width: 520px) { .entry { grid-template-columns: 1fr; } .entry-btn { min-height: 4.5rem; flex-direction: row; } }
+    .entry-btn {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 0.5rem; min-height: 8.5rem; cursor: pointer;
+      font: inherit; font-size: 0.9375rem; font-weight: 600; color: var(--ink-soft);
+      background: var(--paper-sunk);
+      border: 1.5px dashed var(--rule-strong); border-radius: var(--r-field);
+      transition: color .18s var(--ease), border-color .18s var(--ease),
+                  background-color .18s var(--ease);
+    }
+    .entry-btn svg { width: 26px; height: 26px; opacity: .8; }
+    .entry-btn:hover {
+      color: var(--ink); border-color: var(--accent);
+      background: var(--accent-quiet);
+    }
+    .entry-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* Поле раскрывается, а не появляется рывком: переход сообщает, что это то
+       же самое место, а не новый экран. */
+    .composer-slot {
+      display: grid; grid-template-rows: 0fr; opacity: 0;
+      transition: grid-template-rows .28s var(--ease), opacity .28s var(--ease);
+    }
+    .composer-slot > * { overflow: hidden; min-height: 0; }
+    .composer.is-text .composer-slot { grid-template-rows: 1fr; opacity: 1; }
+    @media (prefers-reduced-motion: reduce) {
+      .composer-slot { transition: none; }
+    }
+
+    /* Минимальную высоту даём только раскрытому полю: иначе она не даёт
+       строке схлопнуться до нуля и под кнопками остаётся пустая полоса. */
+    .composer.is-text .composer-input { min-height: 9.5rem; }
     .composer-input {
-      width: 100%; resize: vertical; min-height: 9.5rem;
+      width: 100%; resize: vertical;
       font-family: inherit; font-size: 0.9375rem; line-height: 1.65;
       padding: 0.875rem 1rem;
       color: var(--ink); background: var(--paper-sunk);
@@ -155,9 +191,20 @@
     }
     .composer-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-    .composer-file { border: 1px solid var(--rule); border-radius: var(--r-field);
+    .composer-card { border: 1px solid var(--rule); border-radius: var(--r-field);
                      background: var(--paper-sunk); padding: 0.875rem; }
     .file-card { display: flex; align-items: center; gap: 0.75rem; }
+    .icon-x {
+      flex: none; width: 28px; height: 28px; border-radius: var(--r-press);
+      display: grid; place-items: center; cursor: pointer; line-height: 1;
+      background: transparent; border: 0; color: var(--ink-faint); font-size: 0.875rem;
+    }
+    .icon-x:hover { color: var(--ink); background: var(--paper-raised); }
+
+    /* Предпросмотр ролика подтверждает ссылку, а не показывает кино: на пол
+       экрана он вытеснял собой всё, ради чего человек пришёл. */
+    .ytpreview { width: min(100%, 320px); aspect-ratio: 16 / 9; margin-top: 0.75rem; }
+    .ytpreview iframe { width: 100%; height: 100%; border: 0; border-radius: var(--r-field); }
     .file-ext {
       flex: none; font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 700;
       padding: 0.3125rem 0.5rem; border-radius: 6px;
@@ -298,36 +345,60 @@
 
       <section class="pane">
         <div class="composer" id="composer">
-          <textarea id="translateText" class="composer-input"
-                    rows="7" data-i18n-placeholder="translateTextPlaceholder"
-                    placeholder="Вставьте текст или ссылку, либо перетащите файл..."></textarea>
+          <!-- Два равных входа. Раньше поле ввода стояло открытым, и страница
+               этим просила текст, хотя запись и ссылка здесь не менее частые.
+               Ни один из способов не должен выглядеть основным. -->
+          <div class="entry" id="entryChoice">
+            <button type="button" class="entry-btn" id="entryFile">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5h5M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/></svg>
+              <span data-i18n="entryFile">Файл</span>
+            </button>
+            <button type="button" class="entry-btn" id="entryLink">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>
+              <span data-i18n="entryLink">Ссылка</span>
+            </button>
+            <button type="button" class="entry-btn" id="entryText">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 11h16M4 16h10"/></svg>
+              <span data-i18n="entryText">Текст</span>
+            </button>
+          </div>
 
-          <!-- Выбранный файл занимает место поля ввода: два состояния сразу
-               заставляли бы гадать, что именно уйдёт на обработку. -->
-          <div id="composerFile" class="composer-file hidden">
+          <div class="composer-slot" id="textSlot">
+            <textarea id="translateText" class="composer-input"
+                      rows="7" data-i18n-placeholder="translateTextPlaceholder"
+                      placeholder="Вставьте текст или ссылку, либо перетащите файл..."></textarea>
+          </div>
+
+          <!-- Выбранный материал занимает место поля ввода: два открытых
+               состояния сразу заставляли бы гадать, что именно обработается. -->
+          <div id="composerFile" class="composer-card hidden">
             <div class="file-card">
               <span class="file-ext" id="fileExt">FILE</span>
               <span class="file-name" id="fileName"></span>
-              <button type="button" class="btn btn-xs btn-ghost" id="clearFileBtn" aria-label="Убрать файл">✕</button>
+              <button type="button" class="icon-x" id="clearFileBtn" title="✕">✕</button>
             </div>
-            <audio id="fileAudio" controls class="hidden w-full mt-3"></audio>
+            <audio id="fileAudio" controls class="w-full mt-3 hidden"></audio>
           </div>
 
-          <div id="youtubePreview" class="hidden mt-3 aspect-video">
-            <iframe id="youtubeIframe" class="w-full h-full rounded-box" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          <div id="linkCard" class="composer-card hidden">
+            <div class="file-card">
+              <span class="file-ext">LINK</span>
+              <span class="file-name" id="linkName"></span>
+              <button type="button" class="icon-x" id="clearLinkBtn" title="✕">✕</button>
+            </div>
+            <div id="youtubePreview" class="ytpreview hidden">
+              <iframe id="youtubeIframe" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+            </div>
           </div>
 
-          <div class="dropzone" id="dropzone"><span id="dropzoneLabel">Отпустите файл здесь</span></div>
+          <div class="dropzone" id="dropzone"><span data-i18n="dropHere">Отпустите файл здесь</span></div>
         </div>
 
         <div class="composer-bar">
-          <button type="button" class="btn btn-sm btn-outline" id="pickFileBtn">
-            <span id="pickFileLabel">Выбрать файл</span>
-          </button>
           <input type="file" id="fileInput" class="hidden"
                  accept="audio/*,video/*,.txt,.md,.csv,.tsv,.srt,.vtt,.docx,.pptx,.xlsx,.odt,.pdf,.rtf,.html,.htm">
           <span class="kind-chip" id="kindChip" aria-live="polite"></span>
-          <button type="button" class="link-quiet" id="formatsBtn">Какие форматы</button>
+          <button type="button" class="link-quiet" id="formatsBtn" data-i18n="formatsLink">Какие форматы</button>
         </div>
 
         <!-- Языки спрашиваем после материала, а не до него. -->
@@ -336,10 +407,10 @@
             <label class="label" for="sourceLang"><span class="label-text" data-i18n="sourceLangLabel">Transcription language</span></label>
             <select id="sourceLang" class="select select-bordered w-full">
               <option value="auto" data-i18n="autoDetect">Auto detect</option>
-              <option value="ky">Kyrgyz</option>
-              <option value="tg">Tajik</option>
-              <option value="uz">Uzbek</option>
-              <option value="ru">Russian</option>
+              <option value="ky">Кыргызча</option>
+              <option value="tg">Тоҷикӣ</option>
+              <option value="uz">Oʻzbekcha</option>
+              <option value="ru">Русский</option>
               <option value="en">English</option>
             </select>
           </div>
@@ -352,10 +423,10 @@
             <label class="label" for="targetLang"><span class="label-text" data-i18n="targetLangLabel">Translate to</span></label>
             <select id="targetLang" class="select select-bordered w-full">
               <option value="none" data-i18n="noTranslation">No translation</option>
-              <option value="ky">Kyrgyz</option>
-              <option value="tg">Tajik</option>
-              <option value="uz">Uzbek</option>
-              <option value="ru">Russian</option>
+              <option value="ky">Кыргызча</option>
+              <option value="tg">Тоҷикӣ</option>
+              <option value="uz">Oʻzbekcha</option>
+              <option value="ru">Русский</option>
               <option value="en">English</option>
             </select>
           </div>
@@ -475,6 +546,12 @@
         youtubeLabel: "Video link (YouTube, TikTok, Instagram)",
         translateTextLabel: "Text to translate",
         translateTextPlaceholder: "Paste text or a video link, or drop a file here...",
+        entryFile: "File",
+        entryLink: "Link",
+        linkPlaceholder: "Paste a video link: YouTube, TikTok, Instagram",
+        entryText: "Text",
+        dropHere: "Drop the file here",
+        formatsLink: "Supported formats",
         translateTextButton: "Translate",
         startBtn: "Start",
         progressStarting: "Starting...",
@@ -539,6 +616,12 @@
         youtubeLabel: "Ссылка на видео (YouTube, TikTok, Instagram)",
         translateTextLabel: "Текст для перевода",
         translateTextPlaceholder: "Вставьте текст или ссылку на видео, либо перетащите файл...",
+        entryFile: "Файл",
+        entryText: "Текст",
+        dropHere: "Отпустите файл здесь",
+        formatsLink: "Какие форматы",
+        entryLink: "Ссылка",
+        linkPlaceholder: "Вставьте ссылку на видео: YouTube, TikTok, Instagram",
         translateTextButton: "Перевести",
         startBtn: "Начать",
         progressStarting: "Запуск...",
@@ -603,6 +686,12 @@
         youtubeLabel: "Видео шилтемеси (YouTube, TikTok, Instagram)",
         translateTextLabel: "Которула турган текст",
         translateTextPlaceholder: "Которула турган текстти киргизиңиз...",
+        entryFile: "Файл",
+        entryText: "Текст",
+        dropHere: "Файлды бул жерге таштаңыз",
+        formatsLink: "Кайсы форматтар",
+        entryLink: "Шилтеме",
+        linkPlaceholder: "Видеого шилтеме киргизиңиз: YouTube, TikTok, Instagram",
         translateTextButton: "Которуу",
         startBtn: "Баштоо",
         progressStarting: "Башталууда...",
@@ -667,6 +756,12 @@
         youtubeLabel: "Пайванди видео (YouTube, TikTok, Instagram)",
         translateTextLabel: "Матни тарҷума",
         translateTextPlaceholder: "Матни тарҷумаашро ворид кунед...",
+        entryFile: "Файл",
+        entryText: "Матн",
+        dropHere: "Файлро ин ҷо раҳо кунед",
+        formatsLink: "Кадом форматҳо",
+        entryLink: "Пайванд",
+        linkPlaceholder: "Пайванди видеоро гузоред: YouTube, TikTok, Instagram",
         translateTextButton: "Тарҷума",
         startBtn: "Оғоз",
         progressStarting: "Оғоз шуда истодааст...",
@@ -731,6 +826,12 @@
         youtubeLabel: "Video havolasi (YouTube, TikTok, Instagram)",
         translateTextLabel: "Tarjima qilinadigan matn",
         translateTextPlaceholder: "Tarjima qilinadigan matnni kiriting...",
+        entryFile: "Fayl",
+        entryText: "Matn",
+        dropHere: "Faylni shu yerga tashlang",
+        formatsLink: "Qaysi formatlar",
+        entryLink: "Havola",
+        linkPlaceholder: "Videoga havola joylang: YouTube, TikTok, Instagram",
         translateTextButton: "Tarjima",
         startBtn: "Boshlash",
         progressStarting: "Boshlanmoqda...",
@@ -857,11 +958,15 @@
 
     // ===================== App =====================
     const API = "";
+    // Самоназвания, а не перевод: "Кыргызча" одинаково узнаётся при любом
+    // языке интерфейса, и список не приходится переводить пять раз. Раньше
+    // здесь стояли английские названия, и они оставались английскими даже на
+    // русском интерфейсе.
     const SUPPORTED_LANGS = {
-      ky: "Kyrgyz",
-      tg: "Tajik",
-      uz: "Uzbek",
-      ru: "Russian",
+      ky: "Кыргызча",
+      tg: "Тоҷикӣ",
+      uz: "Oʻzbekcha",
+      ru: "Русский",
       en: "English",
     };
 
@@ -947,9 +1052,19 @@
         URL.revokeObjectURL(currentFileUrl);
         currentFileUrl = null;
       }
-      currentFileUrl = URL.createObjectURL(file);
-      fileAudio.src = currentFileUrl;
-      fileAudio.classList.remove("hidden");
+      // Проигрыватель только для того, что действительно звучит. Для .txt и
+      // .docx он показывал дорожку нулевой длины: элемент управления, который
+      // ничего не воспроизводит, читается как поломка.
+      const playable = /^(audio|video)\//.test(file.type) ||
+        /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|mp4|mov|mkv|webm|avi)$/i.test(file.name);
+      if (playable) {
+        currentFileUrl = URL.createObjectURL(file);
+        fileAudio.src = currentFileUrl;
+        fileAudio.classList.remove("hidden");
+      } else {
+        fileAudio.removeAttribute("src");
+        fileAudio.classList.add("hidden");
+      }
     }
 
     function extractYouTubeId(url) {
@@ -1552,10 +1667,13 @@
     (function () {
       const composer = document.getElementById("composer");
       const composerFile = document.getElementById("composerFile");
+      const entryChoice = document.getElementById("entryChoice");
+      const linkCard = document.getElementById("linkCard");
+      const linkName = document.getElementById("linkName");
       const fileExt = document.getElementById("fileExt");
       const kindChip = document.getElementById("kindChip");
-      const pickFileBtn = document.getElementById("pickFileBtn");
       const clearFileBtn = document.getElementById("clearFileBtn");
+      const clearLinkBtn = document.getElementById("clearLinkBtn");
       const swapBtn = document.getElementById("swapLangBtn");
       const waitNote = document.getElementById("waitNote");
       const resultEmpty = document.getElementById("resultEmpty");
@@ -1589,12 +1707,30 @@
         if (tab && !tab.classList.contains("tab-active")) tab.click();
       }
 
+      // Состояние ввода ровно одно за раз: выбор способа, текст, ссылка или
+      // файл. Когда человек уже принёс запись, поле для набора текста ему не
+      // нужно и только отнимает место.
+      function setState(state) {
+        entryChoice.classList.toggle("hidden", state !== "choose");
+        composer.classList.toggle("is-text", state === "text");
+        composerFile.classList.toggle("hidden", state !== "file");
+        linkCard.classList.toggle("hidden", state !== "link");
+      }
+
+      function hostOf(value) {
+        try {
+          return new URL(/^https?:/i.test(value) ? value : "https://" + value)
+            .hostname.replace(/^www\./, "");
+        } catch (e) { return value; }
+      }
+
       function refresh() {
         const raw = translateText.value;
         const trimmed = raw.trim();
 
         if (currentFile) {
           setMode("file");
+          setState("file");
           const ext = (currentFile.name.split(".").pop() || "file").toUpperCase();
           fileExt.textContent = ext.slice(0, 5);
           kindChip.textContent = ext;
@@ -1602,22 +1738,28 @@
         } else if (looksLikeLink(trimmed)) {
           setMode("youtube");
           setLinkValue(trimmed);
-          let host = trimmed;
-          try { host = new URL(/^https?:/i.test(trimmed) ? trimmed : "https://" + trimmed).hostname.replace(/^www\./, ""); } catch (e) {}
-          kindChip.textContent = host;
+          // Пока человек печатает, поле не отнимаем: свернём его в карточку,
+          // когда ссылка вставлена целиком или ввод завершён.
+          if (collapseLink) {
+            setState("link");
+            linkName.textContent = trimmed;
+          }
+          kindChip.textContent = hostOf(trimmed);
           kindChip.dataset.kind = "youtube";
         } else if (trimmed.length > 0) {
           setMode("text");
-          youtubeUrl.value = "";
+          setState("text");
+          setLinkValue("");
           // Для текста метка не нужна: поле ввода и так говорит само за себя.
-          // Метка существует, чтобы подтвердить распознанное, а не считать
-          // знаки, которые человек и не просил считать.
+          // Метка подтверждает распознанное, а не считает знаки, которых
+          // человек посчитать не просил.
           kindChip.textContent = "";
           delete kindChip.dataset.kind;
         } else {
-          // Пустой ввод возвращаем в текстовый режим, иначе после стёртой
+          // Пустой ввод возвращаем к выбору способа, иначе после стёртой
           // ссылки страница осталась бы настроена на скачивание видео.
           setMode("text");
+          setState(textOpened ? "text" : "choose");
           setLinkValue("");
           kindChip.textContent = "";
           delete kindChip.dataset.kind;
@@ -1630,10 +1772,48 @@
         updateWaitNote();
       }
 
-      function showFile(on) {
-        composerFile.classList.toggle("hidden", !on);
-        translateText.classList.toggle("hidden", on);
+      // Свернуть ссылку в карточку можно только тогда, когда ввод закончен:
+      // иначе поле схлопнется на середине набранного адреса.
+      let collapseLink = false;
+      let textOpened = false;
+
+      document.getElementById("entryFile").addEventListener("click", () => fileInput.click());
+      // Ссылка и текст открывают одно и то же поле: разделять их технически
+      // незачем, а вот подсказка в поле должна отвечать на тот вопрос, который
+      // человек только что задал нажатием.
+      const basePlaceholder = translateText.placeholder;
+
+      function openText(forLink) {
+        textOpened = true;
+        translateText.placeholder = forLink
+          ? (t("linkPlaceholder") || "Вставьте ссылку на видео")
+          : basePlaceholder;
+        setState("text");
+        translateText.focus();
       }
+
+      document.getElementById("entryText").addEventListener("click", () => openText(false));
+      document.getElementById("entryLink").addEventListener("click", () => openText(true));
+
+      translateText.addEventListener("paste", () => {
+        // Вставка это законченное действие, в отличие от набора по буквам.
+        setTimeout(() => { collapseLink = true; refresh(); }, 0);
+      });
+      translateText.addEventListener("blur", () => { collapseLink = true; refresh(); });
+      translateText.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey && looksLikeLink(translateText.value.trim())) {
+          e.preventDefault();
+          collapseLink = true;
+          refresh();
+        }
+      });
+
+      clearLinkBtn.addEventListener("click", () => {
+        collapseLink = false;
+        translateText.value = "";
+        openText(true);
+        refresh();
+      });
 
       // Перетаскивание слушаем на всём поле ввода, а не на подсветке: сама
       // подсветка появляется только во время переноса и до этого события до
@@ -1655,14 +1835,12 @@
         dropzone.classList.remove("dragover");
         if (e.dataTransfer.files.length) {
           setFile(e.dataTransfer.files[0]);
-          showFile(true);
           refresh();
         }
       });
 
-      pickFileBtn.addEventListener("click", () => fileInput.click());
       fileInput.addEventListener("change", () => {
-        if (fileInput.files.length) { showFile(true); refresh(); }
+        if (fileInput.files.length) refresh();
       });
 
       clearFileBtn.addEventListener("click", () => {
@@ -1671,8 +1849,7 @@
         fileName.textContent = "";
         fileAudio.classList.add("hidden");
         fileAudio.removeAttribute("src");
-        showFile(false);
-        translateText.focus();
+        textOpened = false;
         refresh();
       });
 

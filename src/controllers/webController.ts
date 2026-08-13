@@ -17,6 +17,7 @@ import {
 } from "../db/repos/feedbackRepo";
 import { sendAdminAlert } from "../services/alertService";
 import { isQueueFull, beginJob, endJob, MAX_QUEUED_PER_USER } from "../services/concurrencyGate";
+import { isSupportedDocument, translateDocument } from "../services/documentService";
 import { normalizeLanguageCode } from "../utils/languageCodes";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -163,6 +164,31 @@ export async function handleWebTranscribe(req: Request, res: Response): Promise<
       return;
     }
     beginJob(owner);
+
+    // Документ и запись это два разных конвейера. Раньше сюда уходило всё
+    // подряд, и .docx или .md попадал в ffmpeg, который честно сообщал, что
+    // это не аудио. Поле приёма документы обещало, обработчик их не имел.
+    if (isSupportedDocument(file.originalname)) {
+      if (!targetLang) {
+        endJob(owner);
+        res.status(400).json({ error: "document_needs_target" });
+        return;
+      }
+
+      const docJob = await createJob("transcribe", {
+        sourceLang,
+        targetLang,
+        filename: file.originalname,
+        sourceType: "web_document",
+      });
+      res.status(202).json({ jobId: docJob.id, requestNumber: docJob.requestNumber });
+
+      processDocumentJob(docJob, file.buffer, file.originalname, sourceLang, targetLang, owner).catch((err) => {
+        logger.error("Web document job failed", { error: err instanceof Error ? err.message : String(err), jobId: docJob.id });
+        updateJob(docJob, { status: "failed", error: err instanceof Error ? err.message : String(err) });
+      });
+      return;
+    }
 
     const job = await createJob("transcribe", {
       sourceLang,
@@ -364,6 +390,69 @@ async function processAudioJob(
     );
 
     await finalizeTranscription(job, result, targetLanguage, undefined, sourceType);
+  } finally {
+    if (owner) endJob(owner);
+  }
+}
+
+/**
+ * Перевод документа.
+ *
+ * Расшифровки здесь нет: текст в файле уже есть, его надо только достать и
+ * перевести. Результат укладывается в ту же форму, что и у записи, чтобы
+ * страница показывала его без отдельной ветки на своей стороне.
+ */
+async function processDocumentJob(
+  job: WebJob,
+  buffer: Buffer,
+  filename: string,
+  sourceLang: string,
+  targetLang: string,
+  owner?: string
+): Promise<void> {
+  updateJob(job, { status: "running", progress: { percent: 5, label: "Читаю файл..." } });
+
+  try {
+    const doc = await translateDocument({
+      buffer,
+      filename,
+      sourceLang: sourceLang && sourceLang !== "auto" ? sourceLang : undefined,
+      targetLang,
+      onProgress: (label) => setJobProgress(job, { percent: 45, label }),
+    });
+
+    const result: TranscriptionResult = {
+      text: doc.text,
+      segments: [],
+      language: sourceLang || "auto",
+      provider: "document",
+      model: doc.format,
+    };
+
+    updateJob(job, {
+      status: "completed",
+      progress: { percent: 100, label: "Готово" },
+      result,
+      cleanedText: doc.text,
+      translatedText: doc.text,
+      translatedLang: targetLang,
+      translationWarning: doc.warning,
+    });
+
+    webJobRepo.updateWebJob(job.id, {
+      status: "completed",
+      full_text: doc.text,
+      segments_json: [],
+      provider: "document",
+      model: doc.format,
+      gpu: null,
+      completed_at: new Date(),
+    }).catch((err) => {
+      logger.error("Failed to persist web document result", {
+        error: err instanceof Error ? err.message : String(err),
+        jobId: job.id,
+      });
+    });
   } finally {
     if (owner) endJob(owner);
   }
