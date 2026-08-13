@@ -1181,12 +1181,21 @@ export function createSourceLanguageKeyboard(
   lang: SupportedLanguage,
   backAction = "action:settings"
 ): { inline_keyboard: InlineKeyboardButton[][] } {
-  const buttons = SOURCE_LANGUAGES.map((lang) => ({
+  const buttons: InlineKeyboardButton[] = SOURCE_LANGUAGES.map((lang) => ({
     text: `${LANGUAGE_CODES[lang]} ${LANGUAGE_LABELS[lang]}`,
     callback_data: `source:${lang}:${action}`,
   }));
+
+  // Языков-источников пять, а языков перевода шесть. Без заполнителя второй ряд
+  // получается из двух кнопок вместо трёх, и при переходе от одного вопроса к
+  // другому клавиатура заметно дёргается — кнопки меняют ширину и положение.
+  //
+  // Текст у заполнителя — точка, а не пробел: кнопку из одних пробелов Telegram
+  // может отклонить, и тогда сломается всё меню целиком, а не выравнивание.
+  buttons.push({ text: "·", callback_data: "noop" });
+
   return {
-    inline_keyboard: [buttons.slice(0, 3), buttons.slice(3, 5), [{ text: `← ${t("back", lang)}`, callback_data: backAction }]],
+    inline_keyboard: [buttons.slice(0, 3), buttons.slice(3, 6), [{ text: `← ${t("back", lang)}`, callback_data: backAction }]],
   };
 }
 

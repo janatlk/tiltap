@@ -1767,6 +1767,11 @@ async function handleCallbackQuery(callbackQuery: {
     return;
   }
 
+  // Кнопка-заполнитель, выравнивающая ряды клавиатуры. Нажатие уже погашено
+  // выше, и делать больше нечего — иначе оно провалится в общий обработчик и
+  // человек получит меню вместо ничего.
+  if (data === "noop") return;
+
   const prefs = await getUserPreferences(chatId);
   const lang = prefs.interfaceLanguage;
 
