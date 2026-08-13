@@ -73,11 +73,25 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     ru: "⚠️ <b>Бот работает в тестовом режиме.</b> Возможны ошибки — если заметите, сообщите.\n\nДобро пожаловать в <b>TilTap</b>!\n\nЯ превращаю речь из аудио, видео и следующих ссылок в текст:\n• YouTube\n• TikTok\n• Instagram Reels\n\nПоддерживаю следующие языки:\n• Кыргызский\n• Таджикский\n• Узбекский\n• Русский\n• Английский\n\nА ещё переведу готовый результат на выбранный вами язык.\n\nПросто отправьте мне аудио, видео, голосовое сообщение или ссылку.",
   },
   help: {
-    ky: "<b>Жардам</b>\n\n<b>Файл жиберүү:</b> аудио, видео, үн каттуу же документ жибериңиз. Бот тилди сурайт, андан кийин иштей баштайт.\n\n<b>Шилтемелер:</b> YouTube, TikTok, Instagram Reels шилтемелерин түз эле жибериңиз.\n\n<b>Тил орнотуулар:</b> «Орнотуулар» менен интерфейстин тилин жана которуу үчүн демейки тилди тандаңыз.\n\n<b>Командаалар:</b>\n/start — негизки меню\n/help — бул жардам\n/settings — тил орнотуулар\n/stop — активдүү процессти токтотуу",
-    tg: "<b>Кӯмак</b>\n\n<b>Фиристодани файл:</b> аудио, видео ё файл фиристед. Бот забонро пурсонда, сипас корро оғоз мекунад.\n\n<b>Пайвандҳо:</b> мустақиман YouTube, TikTok, Instagram Reels фиристед.\n\n<b>Танзимоти забон:</b> тавассути «Танзимот» забони интерфейс ва забони пешфарзи тарҷумаро интихоб кунед.\n\n<b>Дастурҳо:</b>\n/start — менюи асосӣ\n/help — ин кӯмак\n/settings — танзимоти забон\n/stop — қатъ кардани раванди фаъол",
-    uz: "<b>Yordam</b>\n\n<b>Fayl yuborish:</b> audio, video yoki hujjat yuboring. Bot tilni so'raydi, keyin ishlaydi.\n\n<b>Havolalar:</b> YouTube, TikTok, Instagram Reels havolalarini to'g'ridan-to'g'ri yuboring.\n\n<b>Til sozlamalari:</b> «Sozlamalar» orqali interfeys tilini va tarjima uchun standart tilni tanlang.\n\n<b>Buyruqlar:</b>\n/start — asosiy menyu\n/help — bu yordam\n/settings — til sozlamalari\n/stop — faol jarayonni to'xtatish",
-    en: "<b>Help</b>\n\n<b>Send a file:</b> send audio, video, voice, or a document. The bot will ask for the language, then start working.\n\n<b>Links:</b> send YouTube, TikTok, or Instagram Reels links directly.\n\n<b>Language settings:</b> use Settings to choose the interface language and default translation language.\n\n<b>Commands:</b>\n/start — main menu\n/help — this help\n/settings — language settings\n/translate — translate text\n/stop — stop active process",
-    ru: "<b>Помощь</b>\n\n<b>Отправьте файл:</b> аудио, видео, голосовое или документ. Бот спросит язык, затем начнёт работу.\n\n<b>Ссылки:</b> отправляйте ссылки на YouTube, TikTok или Instagram Reels напрямую.\n\n<b>Настройки языка:</b> через «Настройки» выберите язык интерфейса и язык перевода по умолчанию.\n\n<b>Команды:</b>\n/start — главное меню\n/help — эта помощь\n/settings — настройки языка\n/translate — перевести текст\n/stop — остановить активный процесс",
+    ky: "<b>Жардам</b>\n\n<b>Файл жиберүү:</b> аудио, видео, үн каттуу же документ жибериңиз. Бот тилди сурайт, андан кийин иштей баштайт.\n\n<b>Шилтемелер:</b> YouTube, TikTok, Instagram Reels шилтемелерин түз эле жибериңиз.\n\n<b>Тил орнотуулар:</b> «Орнотуулар» менен интерфейстин тилин жана которуу үчүн демейки тилди тандаңыз.\n\n<b>Командаалар:</b>\n/start — негизки меню\n/help — бул жардам\n/settings — тил орнотуулар\n/stop — активдүү процессти токтотуу\n\n<b>Документтер:</b> TXT, DOCX, PDF, PPTX, XLSX, ODT, RTF, HTML, MD, CSV, SRT, VTT — которуп берем. Таблицалар менен субтитрлер өз форматында кайтат, калганы жөнөкөй текст болуп.",
+    tg: "<b>Кӯмак</b>\n\n<b>Фиристодани файл:</b> аудио, видео ё файл фиристед. Бот забонро пурсонда, сипас корро оғоз мекунад.\n\n<b>Пайвандҳо:</b> мустақиман YouTube, TikTok, Instagram Reels фиристед.\n\n<b>Танзимоти забон:</b> тавассути «Танзимот» забони интерфейс ва забони пешфарзи тарҷумаро интихоб кунед.\n\n<b>Дастурҳо:</b>\n/start — менюи асосӣ\n/help — ин кӯмак\n/settings — танзимоти забон\n/stop — қатъ кардани раванди фаъол\n\n<b>Ҳуҷҷатҳо:</b> TXT, DOCX, PDF, PPTX, XLSX, ODT, RTF, HTML, MD, CSV, SRT, VTT — тарҷума мекунам. Ҷадвалҳо ва зерунвонҳо дар формати худ бармегарданд, боқимонда — матни оддӣ.",
+    uz: "<b>Yordam</b>\n\n<b>Fayl yuborish:</b> audio, video yoki hujjat yuboring. Bot tilni so'raydi, keyin ishlaydi.\n\n<b>Havolalar:</b> YouTube, TikTok, Instagram Reels havolalarini to'g'ridan-to'g'ri yuboring.\n\n<b>Til sozlamalari:</b> «Sozlamalar» orqali interfeys tilini va tarjima uchun standart tilni tanlang.\n\n<b>Buyruqlar:</b>\n/start — asosiy menyu\n/help — bu yordam\n/settings — til sozlamalari\n/stop — faol jarayonni to'xtatish\n\n<b>Hujjatlar:</b> TXT, DOCX, PDF, PPTX, XLSX, ODT, RTF, HTML, MD, CSV, SRT, VTT — tarjima qilaman. Jadvallar va subtitrlar o'z formatida qaytadi, qolgani oddiy matn.",
+    en: "<b>Help</b>\n\n<b>Send a file:</b> send audio, video, voice, or a document. The bot will ask for the language, then start working.\n\n<b>Links:</b> send YouTube, TikTok, or Instagram Reels links directly.\n\n<b>Language settings:</b> use Settings to choose the interface language and default translation language.\n\n<b>Commands:</b>\n/start — main menu\n/help — this help\n/settings — language settings\n/translate — translate text\n/stop — stop active process\n\n<b>Documents:</b> TXT, DOCX, PDF, PPTX, XLSX, ODT, RTF, HTML, MD, CSV, SRT, VTT — I translate them. Tables and subtitles come back in their own format, everything else as plain text.",
+    ru: "<b>Помощь</b>\n\n<b>Отправьте файл:</b> аудио, видео, голосовое или документ. Бот спросит язык, затем начнёт работу.\n\n<b>Ссылки:</b> отправляйте ссылки на YouTube, TikTok или Instagram Reels напрямую.\n\n<b>Настройки языка:</b> через «Настройки» выберите язык интерфейса и язык перевода по умолчанию.\n\n<b>Команды:</b>\n/start — главное меню\n/help — эта помощь\n/settings — настройки языка\n/translate — перевести текст\n/stop — остановить активный процесс\n\n<b>Документы:</b> TXT, DOCX, PDF, PPTX, XLSX, ODT, RTF, HTML, MD, CSV, SRT, VTT — переведу. Таблицы и субтитры вернутся в своём формате, остальное простым текстом.",
+  },
+  documentReturnedAsText: {
+    ky: "Форматтоо сакталган жок: файл жөнөкөй текст болуп кайтарылды.",
+    tg: "Формат нигоҳ дошта нашуд: файл ҳамчун матни оддӣ баргардонида шуд.",
+    uz: "Formatlash saqlanmadi: fayl oddiy matn sifatida qaytarildi.",
+    en: "Formatting was not preserved: the file is returned as plain text.",
+    ru: "Оформление не сохранено: файл возвращён простым текстом.",
+  },
+  charactersTranslated: {
+    ky: "белги которулду",
+    tg: "аломат тарҷума шуд",
+    uz: "belgi tarjima qilindi",
+    en: "characters translated",
+    ru: "знаков переведено",
   },
   chooseInterfaceLanguage: {
     ky: "Интерфейстин тилин тандаңыз:",
@@ -403,11 +417,11 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     ru: "В транскрипции обнаружены предупреждения",
   },
   unsupportedFileType: {
-    ky: "Бул файл түрү колдойбойт. Тек гана аудио же видео жибериңиз.",
-    tg: "Ин навъи файл дастгирӣ намешавад. Фақат аудио ё видео фиристед.",
-    uz: "Bu fayl turi qo'llab-quvvatlanmaydi. Faqat audio yoki video yuboring.",
-    en: "This file type is not supported. Please send only audio or video.",
-    ru: "Этот формат не поддерживается. Отправьте только аудио или видео.",
+    ky: "Бул формат колдоого алынбайт.\n\nАудио жана видео: MP3, WAV, OGG, MP4, MOV.\nДокументтер: TXT, DOCX, PDF, PPTX, XLSX, ODT, RTF, HTML, MD, CSV, SRT, VTT.\nЭски .doc, .xls, .ppt форматтарын жаңысына сактаңыз.",
+    tg: "Ин формат дастгирӣ намешавад.\n\nАудио ва видео: MP3, WAV, OGG, MP4, MOV.\nҲуҷҷатҳо: TXT, DOCX, PDF, PPTX, XLSX, ODT, RTF, HTML, MD, CSV, SRT, VTT.\nФорматҳои кӯҳнаи .doc, .xls, .ppt-ро дубора нигоҳ доред.",
+    uz: "Bu format qo'llab-quvvatlanmaydi.\n\nAudio va video: MP3, WAV, OGG, MP4, MOV.\nHujjatlar: TXT, DOCX, PDF, PPTX, XLSX, ODT, RTF, HTML, MD, CSV, SRT, VTT.\nEski .doc, .xls, .ppt formatlarini qayta saqlang.",
+    en: "This format is not supported.\n\nAudio and video: MP3, WAV, OGG, MP4, MOV.\nDocuments: TXT, DOCX, PDF, PPTX, XLSX, ODT, RTF, HTML, MD, CSV, SRT, VTT.\nRe-save old .doc, .xls, .ppt files in the newer format.",
+    ru: "Этот формат не поддерживается.\n\nАудио и видео: MP3, WAV, OGG, MP4, MOV.\nДокументы: TXT, DOCX, PDF, PPTX, XLSX, ODT, RTF, HTML, MD, CSV, SRT, VTT.\nСтарые .doc, .xls, .ppt пересохраните в новом формате.",
   },
   fileTooLarge: {
     ky: "Файл өтө чоң ({size} МБ). Максимум 25 МБ колдойт. Кичирээк файл жибериңиз.",
@@ -755,6 +769,12 @@ export interface PendingTranslateText {
   sourceLanguage?: SupportedLanguage;
   /** Text supplied with the command, held while we ask the two questions. */
   text?: string;
+  /**
+   * Документ вместо набранного текста. Вопросы о языке и обе клавиатуры у них
+   * общие, поэтому документ едет тем же путём, а не заводит свой.
+   */
+  documentFileId?: string;
+  documentName?: string;
   createdAt: number;
 }
 

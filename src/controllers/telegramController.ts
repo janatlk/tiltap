@@ -1,3 +1,4 @@
+import { translateDocument, isSupportedDocument } from "../services/documentService";
 import { Request, Response } from "express";
 import { logger } from "../utils/logger";
 import { unlink } from "fs/promises";
@@ -215,7 +216,25 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
       });
       return;
     }
+
+    // Обычный текст — сразу берём его в перевод. Отдельная кнопка "перевести
+    // текст" была лишним шагом: Telegram и так сообщает тип сообщения, а из
+    // текста ссылка отличается проверкой выше. Всё, что не команда, не ссылка
+    // и не ответ на вопрос бота, человек прислал, чтобы это перевели.
+    if (text) {
+      await startTranslateTextFlow(chatId, prefs, text);
+      return;
+    }
+
     await sendMainMenu(chatId, prefs);
+    return;
+  }
+
+  // Документ на перевод: текстовые форматы уходят своим путём, минуя
+  // распознавание речи. Определяем по расширению, а не по mime — Telegram
+  // присылает docx как application/octet-stream не реже, чем как положено.
+  if (msg.document?.file_name && isSupportedDocument(msg.document.file_name)) {
+    await handleDocumentTranslation(chatId, msg.document, prefs);
     return;
   }
 
@@ -383,13 +402,20 @@ async function askYouTubeLink(chatId: number, prefs: UserPreferences): Promise<v
   await sendTextMessage(chatId, t("sendYoutubeLink", lang), { replyMarkup: createMainKeyboard(lang) });
 }
 
-async function startTranslateTextFlow(chatId: number, prefs: UserPreferences, initialText?: string): Promise<void> {
+async function startTranslateTextFlow(
+  chatId: number,
+  prefs: UserPreferences,
+  initialText?: string,
+  document?: { fileId: string; name: string }
+): Promise<void> {
   const lang = prefs.interfaceLanguage;
   const targetLang = prefs.targetLanguage === "none" ? undefined : prefs.targetLanguage;
 
   const actionId = setPendingAction(chatId, {
     type: "translate_text",
     targetLanguage: targetLang ?? "ru",
+    documentFileId: document?.fileId,
+    documentName: document?.name,
     // Held until both questions are answered. Translating it straight away
     // would skip the source-language question for anyone using /translate with
     // the text on the same line, which is exactly where guessing goes wrong.
@@ -400,6 +426,81 @@ async function startTranslateTextFlow(chatId: number, prefs: UserPreferences, in
   await sendTextMessage(chatId, t("chooseTranslationTargetLanguage", lang), {
     replyMarkup: createTargetLanguageKeyboard(`translate_text:${actionId}`, lang, "action:main"),
   });
+}
+
+
+/**
+ * Документ на перевод. Вопросы о языке те же, что и для набранного текста,
+ * поэтому идём общим путём — меняется только то, что переводим.
+ */
+async function handleDocumentTranslation(
+  chatId: number,
+  document: { file_id: string; file_name?: string; file_size?: number },
+  prefs: UserPreferences
+): Promise<void> {
+  const lang = prefs.interfaceLanguage;
+  const name = document.file_name ?? "document";
+
+  if (document.file_size && document.file_size > MAX_MEDIA_BYTES) {
+    await sendTextMessage(chatId, t("fileTooLarge", lang), { replyMarkup: createMainKeyboard(lang) });
+    return;
+  }
+
+  await startTranslateTextFlow(chatId, prefs, undefined, { fileId: document.file_id, name });
+}
+
+
+/**
+ * Скачивает документ и отдаёт перевод файлом. Таблицы и субтитры возвращаются
+ * в своём формате, остальное — текстом: обещать .docx с сохранённой вёрсткой
+ * мы пока не можем, и лучше сказать это заранее, чем разочаровать результатом.
+ */
+async function processDocumentTranslation(
+  chatId: number,
+  fileId: string,
+  filename: string,
+  targetLang: SupportedLanguage,
+  prefs: UserPreferences,
+  sourceLang?: SupportedLanguage
+): Promise<void> {
+  const lang = prefs.interfaceLanguage;
+  const statusMessageId = await sendTextMessage(chatId, t("translating", lang), {
+    replyMarkup: createMainKeyboard(lang),
+  });
+
+  try {
+    const { buffer } = await fetchTelegramFile(fileId);
+    const result = await translateDocument({
+      buffer,
+      filename,
+      sourceLang,
+      targetLang,
+      onProgress: (label) => {
+        void editMessageText(chatId, statusMessageId, label).catch(() => {});
+      },
+    });
+
+    const note = result.structured
+      ? ""
+      : `
+
+${t("documentReturnedAsText", lang)}`;
+
+    await sendDocument(
+      chatId,
+      Buffer.from(result.text, "utf-8"),
+      result.outputFilename,
+      `${result.chars.toLocaleString("ru")} ${t("charactersTranslated", lang)}${note}`
+    );
+
+    if (result.warning) {
+      await sendTextMessage(chatId, result.warning, { replyMarkup: createMainKeyboard(lang) });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("Document translation failed", { error: message, chatId, filename });
+    await sendTextMessage(chatId, message, { replyMarkup: createMainKeyboard(lang) });
+  }
 }
 
 async function processTextTranslation(
@@ -1733,6 +1834,18 @@ async function handleCallbackQuery(callbackQuery: {
       const pending = getPendingAction(chatId);
       if (pending && pending.type === "translate_text" && pending.actionId === actionId) {
         updatePendingAction(chatId, { sourceLanguage: normalized });
+        if (pending.documentFileId) {
+          clearPendingAction(chatId);
+          await processDocumentTranslation(
+            chatId,
+            pending.documentFileId,
+            pending.documentName ?? "document",
+            pending.targetLanguage,
+            prefs,
+            normalized
+          );
+          return;
+        }
         if (pending.text) {
           clearPendingAction(chatId);
           await processTextTranslation(chatId, pending.text, pending.targetLanguage, prefs, normalized);
