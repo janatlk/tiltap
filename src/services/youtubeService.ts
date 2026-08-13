@@ -335,7 +335,21 @@ export async function transcribeMediaLink(
   onQueuePosition?: (position: number) => void,
   owner?: string
 ): Promise<TranscriptionResult> {
-  const { readAudio, tmpWav, pid } = await downloadMediaAudio(url, onProgress, abortSignal, owner);
+  // Скачивание и распознавание отчитываются каждое по своей шкале от нуля до
+  // ста. На одной полосе это выглядело так: цифра доходила до сотни, а потом
+  // падала обратно в ноль, и человек считал, что всё началось заново. Отводим
+  // каждому этапу свою часть полосы, и она движется только вперёд.
+  const band = (from: number, to: number) => (p: TranscriptionProgress) => {
+    onProgress?.({ ...p, percent: from + (Math.max(0, Math.min(100, p.percent)) * (to - from)) / 100 });
+  };
+  const DOWNLOAD_SHARE_END = 35;
+
+  const { readAudio, tmpWav, pid } = await downloadMediaAudio(
+    url,
+    onProgress ? band(0, DOWNLOAD_SHARE_END) : undefined,
+    abortSignal,
+    owner
+  );
   if (onProcessStart && pid) {
     onProcessStart(pid);
   }
@@ -345,7 +359,7 @@ export async function transcribeMediaLink(
       mediaAudioFilename(url),
       language,
       onProcessStart,
-      onProgress,
+      onProgress ? band(DOWNLOAD_SHARE_END, 100) : undefined,
       abortSignal,
       onQueuePosition,
       owner

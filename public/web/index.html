@@ -523,7 +523,10 @@
         <div id="resultBox" class="hidden space-y-4">
           <div class="flex flex-wrap justify-between items-center gap-3">
             <h3 class="card-title text-lg" id="resultTitle" data-i18n="resultTitle">Transcription</h3>
-            <button class="btn btn-sm btn-outline" id="downloadBtn" data-i18n="downloadBtn">Download .txt</button>
+            <div class="flex gap-2">
+              <button class="btn btn-sm btn-outline" id="copyBtn" data-i18n="copyBtn">Копировать</button>
+              <button class="btn btn-sm btn-outline" id="downloadBtn" data-i18n="downloadBtn">Download .txt</button>
+            </div>
           </div>
           <div class="text-sm text-base-content/70" id="resultMeta"></div>
           <div id="translationWarning" class="alert alert-warning hidden text-sm" role="alert"></div>
@@ -652,6 +655,12 @@
         entryText: "Text",
         dropHere: "Drop the file here",
         formatsLink: "Supported formats",
+        stageDownload: "Downloading",
+        stageTranscribe: "Transcribing",
+        stageTranslate: "Translating",
+        stagePrepare: "Preparing",
+        copyBtn: "Copy",
+        copied: "Copied",
         navFormats: "Formats",
         navBot: "Bot",
         staffLogin: "Staff sign-in",
@@ -666,7 +675,6 @@
         close: "Close",
         emptyTitle: "The result will appear here",
         emptySub: "The original and the translation sit side by side so you can compare them.",
-        waitDefault: "Processing runs on the server. You can leave this tab open.",
         waitTajik: "Tajik runs on the processor and takes longer than the other languages. You can leave this tab open.",
         clearTitle: "Remove",
         translateTextButton: "Translate",
@@ -737,6 +745,12 @@
         entryText: "Текст",
         dropHere: "Отпустите файл здесь",
         formatsLink: "Какие форматы",
+        stageDownload: "Скачиваю",
+        stageTranscribe: "Распознаю речь",
+        stageTranslate: "Перевожу",
+        stagePrepare: "Готовлю",
+        copyBtn: "Копировать",
+        copied: "Скопировано",
         navFormats: "Форматы",
         navBot: "Бот",
         staffLogin: "Вход для сотрудников",
@@ -751,7 +765,6 @@
         close: "Закрыть",
         emptyTitle: "Результат появится здесь",
         emptySub: "Оригинал и перевод будут рядом, чтобы их можно было сверить.",
-        waitDefault: "Обработка идёт на сервере. Вкладку можно не закрывать.",
         waitTajik: "Таджикский считается на процессоре и идёт дольше остальных языков. Вкладку можно не закрывать.",
         clearTitle: "Убрать",
         entryPaste: "Текст или ссылка",
@@ -824,6 +837,12 @@
         entryText: "Текст",
         dropHere: "Файлды бул жерге таштаңыз",
         formatsLink: "Кайсы форматтар",
+        stageDownload: "Жүктөп жатам",
+        stageTranscribe: "Сүйлөөнү таанып жатам",
+        stageTranslate: "Которуп жатам",
+        stagePrepare: "Даярдап жатам",
+        copyBtn: "Көчүрүү",
+        copied: "Көчүрүлдү",
         navFormats: "Форматтар",
         navBot: "Бот",
         staffLogin: "Кызматкерлер үчүн кирүү",
@@ -838,7 +857,6 @@
         close: "Жабуу",
         emptyTitle: "Натыйжа бул жерде пайда болот",
         emptySub: "Түп нускасы менен котормосу салыштырып текшерилиши үчүн жанаша жайгаштырылат.",
-        waitDefault: "Иштетүү серверде жүрүп жатат. Өтмөктү жаппай эле койсоңуз болот.",
         waitTajik: "Тажик тили процессордо иштетилет жана башка тилдерге караганда көбүрөөк убакытты талап кылат. Өтмөктү жаппай эле койсо болот.",
         clearTitle: "Алып салуу",
         entryPaste: "Текст же шилтеме",
@@ -911,6 +929,12 @@
         entryText: "Матн",
         dropHere: "Файлро ин ҷо раҳо кунед",
         formatsLink: "Кадом форматҳо",
+        stageDownload: "Боргирӣ мекунам",
+        stageTranscribe: "Суханро мешиносам",
+        stageTranslate: "Тарҷума мекунам",
+        stagePrepare: "Омода мекунам",
+        copyBtn: "Нусха бардоштан",
+        copied: "Нусхабардорӣ шуд",
         navFormats: "Форматҳо",
         navBot: "Бот",
         staffLogin: "Вуруд барои кормандон",
@@ -925,7 +949,6 @@
         close: "Бастан fad?",
         emptyTitle: "Натиҷа дар ин ҷо пайдо мешавад",
         emptySub: "Асл ва тарҷума паҳлуи ҳам хоҳанд буд, то онҳоро муқоиса кардан мумкин бошад.",
-        waitDefault: "Коркард дар сервер анҷом меёбад. Варақаро пӯшидан шарт нест.",
         waitTajik: "Забони тоҷикӣ тавассути протсессор ҳисоб карда мешавад ва нисбат ба забонҳои дигар вақти бештар мегирад. Варақаро пӯшидан лозим нест.",
         clearTitle: "Хориҷ кардан",
         entryPaste: "Матн ё пайванд",
@@ -998,6 +1021,12 @@
         entryText: "Matn",
         dropHere: "Faylni shu yerga tashlang",
         formatsLink: "Qaysi formatlar",
+        stageDownload: "Yuklab olyapman",
+        stageTranscribe: "Nutqni tanimoqdaman",
+        stageTranslate: "Tarjima qilaman",
+        stagePrepare: "Tayyorlayapman",
+        copyBtn: "Nusxalash",
+        copied: "Nusxalandi",
         navFormats: "Formatlar",
         navBot: "Bot",
         staffLogin: "Xodimlar uchun kirish",
@@ -1012,7 +1041,6 @@
         close: "Yopish",
         emptyTitle: "Natija shu yerda paydo boʻladi",
         emptySub: "Asl nusxa va tarjima ularni solishtirish mumkin boʻlishi uchun yonma-yon boʻladi.",
-        waitDefault: "Qayta ishlash serverda amalga oshirilmoqda. Ichki oynani yopmasangiz ham boʻladi.",
         waitTajik: "Tojik tili protsessorda hisoblanadi va boshqa tillarga qaraganda uzoqroq davom etadi. Vkladkani yopmaslik mumkin.",
         clearTitle: "Olib tashlash",
         entryPaste: "Matn yoki havola",
@@ -1086,6 +1114,12 @@
         entryText: "Матн",
         dropHere: "Файлни шу ерга ташланг",
         formatsLink: "Қайси форматлар",
+        stageDownload: "Юклаб оляпман",
+        stageTranscribe: "Нутқни танимоқдаман",
+        stageTranslate: "Таржима қиламан",
+        stagePrepare: "Тайёрлаяпман",
+        copyBtn: "Нусхалаш",
+        copied: "Нусхаланди",
         navFormats: "Форматлар",
         navBot: "Бот",
         staffLogin: "Ходимлар учун кириш",
@@ -1100,7 +1134,6 @@
         close: "Ёпиш",
         emptyTitle: "Натижа шу ерда пайдо бўлади",
         emptySub: "Асл нусха ва таржима уларни солиштириш мумкин бўлиши учун ёнма-ён бўлади.",
-        waitDefault: "Қайта ишлаш серверда амалга оширилмоқда. Ички ойнани ёпмасангиз ҳам бўлади.",
         waitTajik: "Тожик тили протсессорда ҳисобланади ва бошқа тилларга қараганда узоқроқ давом этади. Вкладкани ёпмаслик мумкин.",
         clearTitle: "Олиб ташлаш",
         entryPaste: "Матн ёки ҳавола",
@@ -1278,6 +1311,29 @@
     const progressWrap = document.getElementById("progressWrap");
     const progressBar = document.getElementById("progressBar");
     const progressLabel = document.getElementById("progressLabel");
+
+    /**
+     * Подпись этапа вместо строки от сервера.
+     *
+     * Сервер и питоновские скрипты присылают свободный текст, местами
+     * английский, местами с нашими внутренними именами и номерами кусков.
+     * Человеку важен один вопрос: что сейчас происходит. Ответов на него
+     * ровно четыре, и все четыре переведены. Всё остальное шум, который к
+     * тому же невозможно перевести, не переписав весь конвейер.
+     */
+    const STAGE_PATTERNS = [
+      [/скачива|download|юкла|боргир/i, "stageDownload"],
+      [/распозна|transcrib|таны|шинос|таним|определяю язык|detect/i, "stageTranscribe"],
+      [/перевожу|перевод|translat|котор|тарҷум|tarjima/i, "stageTranslate"],
+    ];
+
+    function stageLabel(raw) {
+      if (!raw) return t("progressStarting");
+      for (const [pattern, key] of STAGE_PATTERNS) {
+        if (pattern.test(raw)) return t(key);
+      }
+      return t("stagePrepare");
+    }
     const progressPercent = document.getElementById("progressPercent");
     const errorBox = document.getElementById("errorBox");
     const resultBox = document.getElementById("resultBox");
@@ -1476,7 +1532,7 @@
           minutes: Math.max(1, Math.ceil((position * QUEUE_ESTIMATE_SEC) / 60)),
         });
       } else {
-        progressLabel.textContent = progress.label || t("progressStarting");
+        progressLabel.textContent = stageLabel(progress.label);
       }
 
       progressPercent.textContent = pct + "%";
@@ -1771,6 +1827,37 @@
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+    });
+
+    // Копирование берёт тот же текст, что и скачивание: два способа унести
+    // результат не должны расходиться в том, что именно они уносят.
+    document.getElementById("copyBtn").addEventListener("click", async (e) => {
+      if (!currentDownloadText) return;
+      const btn = e.currentTarget;
+      try {
+        await navigator.clipboard.writeText(currentDownloadText);
+      } catch (err) {
+        // Без защищённого соединения буфер обмена браузеру недоступен, а
+        // сайт открыт по http. Запасной путь через скрытое поле работает и
+        // там, иначе кнопка молча не делала бы ничего.
+        const area = document.createElement("textarea");
+        area.value = currentDownloadText;
+        area.style.cssText = "position:fixed;top:-1000px;opacity:0";
+        document.body.appendChild(area);
+        area.select();
+        try { document.execCommand("copy"); } catch (e2) { /* ignore */ }
+        document.body.removeChild(area);
+      }
+
+      // Подтверждение прямо на кнопке: всплывающее сообщение здесь избыточно,
+      // а без всякого отклика человек нажимает второй раз.
+      const original = t("copyBtn");
+      btn.textContent = t("copied");
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.disabled = false;
+      }, 1600);
     });
 
     function saveLanguagePrefs() {
@@ -2210,11 +2297,11 @@
       // Молчащая полоса прогресса в этот момент читается как зависание.
       function updateWaitNote() {
         if (!waitNote) return;
+        // Заметка появляется только там, где есть что сказать. Общая строка
+        // про то, что обработка идёт на сервере, была верна всегда и потому
+        // не сообщала ничего: её перестают читать с первого раза.
         const isAudio = !!currentFile || looksLikeLink(translateText.value.trim());
-        if (!isAudio) { waitNote.textContent = ""; return; }
-        waitNote.textContent = sourceLang.value === "tg"
-          ? t("waitTajik")
-          : t("waitDefault");
+        waitNote.textContent = isAudio && sourceLang.value === "tg" ? t("waitTajik") : "";
       }
 
       sourceLang.addEventListener("change", () => { syncSwapState(); updateWaitNote(); });

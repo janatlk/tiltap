@@ -174,7 +174,7 @@ def _iter_resolved(payload: dict, timeout: int, progress_cb=None, resolve_errors
         raise RuntimeError("No Cobalt API URLs configured")
 
     if len(apis) > 1:
-        _emit(progress_cb, 8, f"Выбираю быстрейший Cobalt из {len(apis)}...")
+        _emit(progress_cb, 8, "Ищу самый быстрый источник...")
 
     result_q: "queue.Queue" = queue.Queue()
     errors = []
@@ -223,22 +223,47 @@ def _iter_resolved(payload: dict, timeout: int, progress_cb=None, resolve_errors
             raise RuntimeError("; ".join(errors) or "all Cobalt instances failed")
 
 
-def _download_media(media_url: str, output_path: str, max_bytes: int = 0):
+def _download_media(media_url: str, output_path: str, max_bytes: int = 0, progress_cb=None):
     """Download a media file from a Cobalt tunnel/redirect URL.
 
     ``max_bytes`` aborts the transfer mid-stream once the cap is exceeded. We
     only ever need the audio track, so a run-away download is always a video
     fallback gone wrong — and on a metered proxy it is billed traffic. Checking
     Content-Length is not enough: it is often absent on tunnelled responses.
+
+    Прогресс отдаётся по мере получения байтов. Раньше здесь была тишина от
+    начала до конца скачивания, и полоса замирала на одном числе: для человека
+    это выглядит зависанием, а не работой.
     """
     with requests.get(media_url, stream=True, timeout=DOWNLOAD_TIMEOUT) as dl:
         dl.raise_for_status()
+        # Заголовка длины на туннелях часто нет. Тогда показываем не долю, а
+        # накопленный объём: врать долей, которую не из чего вычислить, хуже,
+        # чем показать честные мегабайты.
+        try:
+            total = int(dl.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            total = 0
         written = 0
+        last_report = 0
         with open(output_path, "wb") as f:
             for chunk in dl.iter_content(chunk_size=64 * 1024):
                 if not chunk:
                     continue
                 written += len(chunk)
+
+                # Не чаще, чем раз на 256 КБ: иначе поток сообщений сам станет
+                # заметной частью работы.
+                if progress_cb and written - last_report >= 256 * 1024:
+                    last_report = written
+                    megabytes = written / (1024 * 1024)
+                    if total:
+                        share = min(0.99, written / total)
+                        _emit(progress_cb, 15 + int(share * 65), "Скачиваю запись...")
+                    else:
+                        _emit(progress_cb, min(80, 15 + int(megabytes * 4)),
+                              "Скачиваю запись, %.1f МБ..." % megabytes)
+
                 if max_bytes and written > max_bytes:
                     f.close()
                     try:
@@ -284,13 +309,13 @@ def download_media_via_cobalt(
         filename = os.path.basename(data.get("filename") or "") or "audio.mp3"
         output_path = os.path.join(output_dir, filename)
 
-        _emit(progress_cb, 15, "Скачиваю аудио через Cobalt...")
+        _emit(progress_cb, 15, "Скачиваю запись...")
         try:
-            _download_media(media_url, output_path, max_bytes=max_bytes)
+            _download_media(media_url, output_path, max_bytes=max_bytes, progress_cb=progress_cb)
             size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
             if size < MIN_MEDIA_BYTES:
                 raise RuntimeError(f"empty audio file ({size} bytes)")
-            _emit(progress_cb, 85, "Обрабатываю аудио...")
+            _emit(progress_cb, 85, "Готовлю запись...")
             return output_path
         except Exception as e:
             # Leave nothing behind: the caller picks the first media file it
@@ -300,7 +325,7 @@ def download_media_via_cobalt(
             except OSError:
                 pass
             errors.append(f"{api}: {e}")
-            _emit(progress_cb, 10, "Инстанс не отдал аудио, пробую следующий...")
+            _emit(progress_cb, 10, "Пробую другой источник...")
 
     raise RuntimeError("; ".join(errors + resolve_errors) or "all Cobalt instances failed")
 

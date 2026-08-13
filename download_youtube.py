@@ -105,7 +105,7 @@ def download(url: str, tmpdir: str):
             return result
         if not VIDEO_FALLBACK_ENABLED:
             raise RuntimeError(f"audio mode failed and video fallback is disabled: {audio_error}")
-        emit_progress(5, "Аудиопоток недоступен, скачиваю видео...")
+        emit_progress(5, "Скачиваю видео...")
         try:
             return download_media_via_cobalt(
                 url, tmpdir, progress_cb=report, download_mode="auto",
@@ -126,7 +126,7 @@ def main():
 
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
-            emit_progress(5, "Скачиваю через Cobalt...")
+            emit_progress(5, "Скачиваю запись...")
             download(url, tmpdir)
 
             media_file = _find_media_file(tmpdir)
@@ -134,7 +134,7 @@ def main():
                 print("ERROR: Cobalt did not produce a media file", file=sys.stderr)
                 sys.exit(1)
 
-            emit_progress(90, "Конвертирую аудио...")
+            emit_progress(90, "Готовлю запись...")
             convert_to_wav(media_file, output_wav, ffmpeg_path)
             emit_progress(100, "Аудио готово")
             print(f"Downloaded and converted to {output_wav}")

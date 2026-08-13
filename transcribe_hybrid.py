@@ -489,7 +489,7 @@ def select_best_output(candidates):
 def transcribe_vosk(wav_path: str, model_path: str, progress_label: str = "Распознаю"):
     from vosk import Model, KaldiRecognizer
 
-    emit_progress(0, f"{progress_label}: загрузка модели...")
+    emit_progress(0, f"{progress_label}: готовлю модель...")
     model = Model(model_path)
     wf = wave.open(wav_path, "rb")
     rec = KaldiRecognizer(model, wf.getframerate())
@@ -564,7 +564,7 @@ def transcribe_vosk_chunked(wav_path: str, model_path: str, chunk_seconds: float
 
     from vosk import Model, KaldiRecognizer
 
-    emit_progress(0, f"{progress_label}: загрузка модели...")
+    emit_progress(0, f"{progress_label}: готовлю модель...")
     model = Model(model_path)
 
     wf = wave.open(wav_path, "rb")
@@ -616,7 +616,7 @@ def transcribe_vosk_chunked(wav_path: str, model_path: str, chunk_seconds: float
 
         chunk_index += 1
         progress = int(10 + 80 * chunk_index / chunk_count) if chunk_count else 10
-        emit_progress(progress, f"{progress_label}: чанк {chunk_index}/{chunk_count}")
+        emit_progress(progress, f"{progress_label}: часть {chunk_index} из {chunk_count}")
         start_frame += step_frames
 
     wf.close()
@@ -677,7 +677,7 @@ def transcribe_whisper(
         if emit_progress_enabled:
             emit_progress(percent, label)
 
-    _emit(0, f"{progress_label}: загрузка модели...")
+    _emit(0, f"{progress_label}: готовлю модель...")
 
     prompt = initial_prompt if initial_prompt else DEFAULT_INITIAL_PROMPT
 
@@ -1013,7 +1013,7 @@ def transcribe_whisper_with_vad(
     overlap_ms = _vad_float_env("TILTAB_VAD_OVERLAP_MS", 400)
     overlap_sec = overlap_ms / 1000.0
 
-    emit_progress(2, f"{progress_label}: VAD segmentation...")
+    emit_progress(2, f"{progress_label}: разбиваю на фрагменты...")
     speech_segments = vad_utils.get_speech_segments(
         wav_path,
         sample_rate=16000,
@@ -1269,7 +1269,7 @@ def transcribe_kyrgyz(wav_path: str):
             large_word_count=len(full_text.split()),
             min_expected_words=min_expected_words,
         )
-        results = transcribe_vosk_chunked(wav_path, small_path, progress_label="Кыргызча распознаю (small fallback)")
+        results = transcribe_vosk_chunked(wav_path, small_path, progress_label="Кыргызча распознаю")
         segments = build_vosk_segments(results)
         full_text = normalize_repeated_punctuation(" ".join(s["text"] for s in segments))
 
@@ -1347,7 +1347,7 @@ def transcribe_tajik(wav_path: str):
                 wav_path,
                 "tg",
                 local_whisper_model_path(),
-                progress_label="Тоҷикӣ (fallback) распознаю",
+                progress_label="Тоҷикӣ распознаю",
                 initial_prompt=TAJIK_INITIAL_PROMPT,
             )
             fallback_quality = detect_hallucination(fallback["text"], fallback["segments"], "tg")
@@ -1365,7 +1365,7 @@ def transcribe_tajik(wav_path: str):
         if os.path.exists(vosk_path):
             log_diagnostic(language="tg", fallback_model="vosk-small-tg")
             try:
-                results = transcribe_vosk(wav_path, vosk_path, progress_label="Тоҷикӣ Vosk fallback")
+                results = transcribe_vosk(wav_path, vosk_path, progress_label="Тоҷикӣ распознаю")
                 segments = build_vosk_segments(results)
                 full_text = normalize_repeated_punctuation(" ".join(s["text"] for s in segments))
                 vosk_result = {"text": full_text, "language": "tg", "segments": segments}
@@ -1412,7 +1412,7 @@ def transcribe_uzbek(wav_path: str):
                 wav_path,
                 "uz",
                 rubai_path,
-                progress_label="O'zbekcha Rubai распознаю",
+                progress_label="O'zbekcha распознаю",
                 initial_prompt=UZBEK_INITIAL_PROMPT,
             )
             rubai_quality = detect_hallucination(rubai_result["text"], rubai_result["segments"], "uz")
@@ -1437,7 +1437,7 @@ def transcribe_uzbek(wav_path: str):
                 wav_path,
                 "uz",
                 fallback_path,
-                progress_label="O'zbekcha Whisper fallback",
+                progress_label="O'zbekcha распознаю",
                 initial_prompt=UZBEK_INITIAL_PROMPT,
             )
             whisper_quality = detect_hallucination(whisper_result["text"], whisper_result["segments"], "uz")
@@ -1457,7 +1457,7 @@ def transcribe_uzbek(wav_path: str):
     if not disable_fallback and os.path.exists(model_path):
         log_diagnostic(language="uz", fallback_model="vosk", model_path=model_path)
         try:
-            results = transcribe_vosk(wav_path, model_path, progress_label="O'zbekcha Vosk распознаю")
+            results = transcribe_vosk(wav_path, model_path, progress_label="O'zbekcha распознаю")
             segments = build_vosk_segments(results)
             full_text = normalize_repeated_punctuation(" ".join(s["text"] for s in segments))
             vosk_result = {"text": full_text, "language": "uz", "segments": segments}
@@ -1568,7 +1568,7 @@ def transcribe_gigaam(wav_path: str, language: str, progress_label: str = "Ра�
     """Transcribe with GigaAM CTC by slicing into <=24 s chunks."""
     import wave as _wave
 
-    emit_progress(5, f"{progress_label} (GigaAM)...")
+    emit_progress(5, f"{progress_label}...")
     model = get_gigaam_model(revision)
 
     segments = []
@@ -1613,7 +1613,7 @@ def transcribe_gigaam(wav_path: str, language: str, progress_label: str = "Ра�
                 text_parts.append(text)
 
             idx += 1
-            emit_progress(5 + int(90 * idx / n_chunks), f"{progress_label} (GigaAM)...")
+            emit_progress(5 + int(90 * idx / n_chunks), f"{progress_label}...")
             pos += step
 
     return {
