@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TilTap</title>
-<meta name="description" content="Переводчик для кыргызского, таджикского и узбекского. Текст, документы, субтитры и записи голоса. Пары языков переводятся напрямую, без английского посредника.">
+<meta name="description" content="Перевод и расшифровка речи для кыргызского, таджикского, узбекского, русского и английского. Текст, документы, аудио, видео и ссылки.">
 <meta name="color-scheme" content="light">
 
 <meta property="og:type" content="website">
 <meta property="og:title" content="TilTap">
-<meta property="og:description" content="Переводчик для кыргызского, таджикского и узбекского. Текст, документы, субтитры и записи голоса.">
+<meta property="og:description" content="Перевод и расшифровка речи для пяти языков: текст, документы, аудио, видео и ссылки.">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -292,9 +292,8 @@ a { color: inherit; }
     </a>
 
     <nav class="nav-links" aria-label="TilTap">
-      <a href="#languages" data-i18n="navLanguages">Языки</a>
-      <a href="#what" data-i18n="navWhat">Возможности</a>
-      <a href="#pipeline" data-i18n="navHow">Как устроен</a>
+      <a href="#formats" data-i18n="navFormats">Форматы</a>
+      <a href="https://t.me/tiltapbot" data-i18n="navBot">Бот</a>
     </nav>
 
     <div class="nav-side">
@@ -321,14 +320,14 @@ a { color: inherit; }
   <section class="hero">
     <div class="wrap hero-grid">
       <div>
-        <h1 data-i18n="heroTitle">Переводчик для языков, <em data-i18n="heroTitleAccent">которые обычно переводят плохо</em></h1>
+        <h1 data-i18n="heroTitle">Перевод для <em>пяти языков</em></h1>
         <p class="lede" data-i18n="heroLede">
-          Кыргызский, таджикский, узбекский, русский, английский. Любая пара
-          переводится напрямую, без английского посредника.
+          Кыргызский, таджикский, узбекский, русский, английский. Текст,
+          документы, аудио и видео.
         </p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="/web/" data-i18n="ctaOpen">Открыть TilTap</a>
-          <a class="btn btn-quiet" href="#pipeline" data-i18n="ctaHow">Как он устроен</a>
+          <a class="btn btn-quiet" href="https://t.me/tiltapbot" data-i18n="ctaBot">Бот в Telegram</a>
         </div>
       </div>
 
@@ -348,182 +347,21 @@ a { color: inherit; }
 
   <section class="langs" id="languages">
     <div class="wrap">
-      <div class="section-head reveal">
-        <h2 data-i18n="langsTitle">Пять языков, три системы письма</h2>
-        <p data-i18n="langsLede">
-          У трёх из них есть буквы, которых нет в обычной раскладке. Их проще
-          всего потерять: они выпадают при копировании и подменяются похожими.
-          Здесь они доходят до конца целыми.
-        </p>
-      </div>
-
       <div class="lang-grid reveal">
         <div class="lang-cell">
           <div class="lang-name">Кыргызча</div><div class="lang-code">ky</div>
-          <div class="lang-glyphs">ө ү ң</div>
         </div>
         <div class="lang-cell">
           <div class="lang-name">Тоҷикӣ</div><div class="lang-code">tg</div>
-          <div class="lang-glyphs">ҳ ҷ ӯ ғ қ ӣ</div>
         </div>
         <div class="lang-cell">
           <div class="lang-name">Oʻzbekcha</div><div class="lang-code">uz</div>
-          <div class="lang-glyphs">oʻ gʻ ʼ</div>
         </div>
         <div class="lang-cell">
           <div class="lang-name">Русский</div><div class="lang-code">ru</div>
-          <div class="lang-glyphs"></div>
         </div>
         <div class="lang-cell">
           <div class="lang-name">English</div><div class="lang-code">en</div>
-          <div class="lang-glyphs"></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="section" id="what">
-    <div class="wrap">
-      <div class="section-head reveal">
-        <span class="eyebrow" data-i18n="whatEyebrow">Возможности</span>
-        <h2 style="margin-top:.75rem" data-i18n="whatTitle">Что он делает</h2>
-      </div>
-
-      <div class="bento">
-        <article class="tile tile-wide tile-accent reveal">
-          <h3 data-i18n="f1Title">Перевод между любой парой</h3>
-          <p data-i18n="f1Text">
-            Кыргызский в таджикский идёт напрямую, а не через английский с
-            потерями на каждом шаге. Ради этого сервис и делался.
-          </p>
-          <div class="chips">
-            <span class="chip">KY</span><span class="chip">TG</span>
-            <span class="chip">UZ</span><span class="chip">RU</span><span class="chip">EN</span>
-          </div>
-        </article>
-
-        <article class="tile tile-tall tile-figured reveal">
-          <h3 data-i18n="f2Title">Документы остаются документами</h3>
-          <p data-i18n="f2Text">
-            Таблица возвращается таблицей, субтитры сохраняют тайм-коды.
-            Переводится содержимое, а не разметка.
-          </p>
-        </article>
-
-        <article class="tile tile-third reveal">
-          <h3 data-i18n="f3Title">Запись голоса</h3>
-          <p data-i18n="f3Text">Интервью, эфир, голосовое сообщение. Текст приходит с отметками времени.</p>
-        </article>
-
-        <article class="tile tile-third tile-figured reveal">
-          <h3 data-i18n="f4Title">Ссылка вместо файла</h3>
-          <p data-i18n="f4Text">YouTube, TikTok, Instagram. Скачивание берём на себя.</p>
-        </article>
-
-        <article class="tile tile-third reveal">
-          <h3 data-i18n="f5Title">Два входа, одна обработка</h3>
-          <p data-i18n="f5Text">Эта страница и бот в Telegram делают ровно одно и то же.</p>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <section class="section" id="pipeline" style="padding-top:0">
-    <div class="wrap">
-      <div class="section-head reveal" style="max-width:54ch">
-        <span class="eyebrow" data-i18n="howEyebrow">Как устроен</span>
-        <h2 style="margin-top:.75rem" data-i18n="howTitle">Путь записи до текста</h2>
-        <p data-i18n="howLede">
-          Текст переводится сразу. Запись сначала надо услышать, и этот путь
-          длиннее. Полезнее знать его заранее, чем гадать потом, где потерялась
-          фраза.
-        </p>
-      </div>
-
-      <div class="flow reveal">
-        <div class="flow-row">
-          <h3 data-i18n="s1Title">Загрузка</h3>
-          <p data-i18n="s1Text">
-            Файл идёт напрямую. Ссылку мы сначала скачиваем сами, и это самое
-            хрупкое место: площадки меняют защиту, и тогда всё останавливается
-            ещё до распознавания.
-          </p>
-        </div>
-        <div class="flow-row">
-          <h3 data-i18n="s2Title">Один формат звука</h3>
-          <p data-i18n="s2Text">
-            Что бы вы ни прислали, дальше идёт одна дорожка: моно, 16 кГц. У
-            видео картинка отбрасывается.
-          </p>
-        </div>
-        <div class="flow-row">
-          <h3 data-i18n="s3Title">Нарезка на куски</h3>
-          <p data-i18n="s3Text">
-            Целую запись модель не принимает. Сейчас мы режем по времени, а не
-            по паузам в речи, поэтому на стыке кусков слово иногда пропадает.
-          </p>
-        </div>
-        <div class="flow-row">
-          <h3 data-i18n="s4Title">Распознавание</h3>
-          <p data-i18n="s4Text">
-            Модель выбирается по языку: одной хорошей на все пять не бывает.
-            Три языка идут в модель, которая постоянно держится в памяти,
-            таджикский считается на процессоре, английский на видеокарте.
-          </p>
-        </div>
-        <div class="flow-row">
-          <h3 data-i18n="s5Title">Сборка и сверка</h3>
-          <p data-i18n="s5Text">
-            Куски склеиваются, проставляются тайм-коды, узбекский приводится к
-            нужной письменности. Потом текст сверяется со словарём языка. Это
-            арифметика, а не понимание: она видит шум и пропускает гладкую
-            ошибку.
-          </p>
-        </div>
-        <div class="flow-row">
-          <h3 data-i18n="s6Title">Перевод</h3>
-          <p data-i18n="s6Text">
-            Текст делится на части и переводится, затем второй проход сверяет
-            перевод с оригиналом. У документов структура собирается обратно.
-          </p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="trust">
-    <div class="wrap">
-      <div class="section-head reveal" style="max-width:52ch">
-        <h2 style="font-size:clamp(1.75rem,3.4vw,2.5rem)" data-i18n="limitsTitle">Где он ошибается</h2>
-        <p data-i18n="limitsLede">
-          Проверить это на своём материале дешевле, чем обнаружить в день сдачи.
-        </p>
-      </div>
-
-      <div class="limits reveal">
-        <div class="limit">
-          <h3 data-i18n="l1Title">Шум</h3>
-          <p data-i18n="l1Text">Улица, базар, несколько голосов разом. Чем хуже запись, тем больше в тексте выдумки.</p>
-        </div>
-        <div class="limit">
-          <h3 data-i18n="l2Title">Диалог</h3>
-          <p data-i18n="l2Text">Реплики не разделяются по говорящим. Разговор придёт сплошным текстом.</p>
-        </div>
-        <div class="limit">
-          <h3 data-i18n="l3Title">Проверка качества</h3>
-          <p data-i18n="l3Text">Сверка со словарём ловит шум, но не видит ошибку в связном предложении.</p>
-        </div>
-        <div class="limit">
-          <h3 data-i18n="l4Title">Скорость таджикского</h3>
-          <p data-i18n="l4Text">Он считается на процессоре. На длинной записи разница с другими языками заметна.</p>
-        </div>
-        <div class="limit">
-          <h3 data-i18n="l5Title">Сканы</h3>
-          <p data-i18n="l5Text">PDF без текстового слоя это картинка. Распознавания печатного текста нет.</p>
-        </div>
-        <div class="limit">
-          <h3 data-i18n="l6Title">Вычитка</h3>
-          <p data-i18n="l6Text">Сервис экономит время на наборе. Перед публикацией текст всё равно читает человек.</p>
         </div>
       </div>
     </div>
@@ -538,7 +376,7 @@ a { color: inherit; }
       <div class="groups reveal">
         <div class="group">
           <h3 data-i18n="g1Title">Звук и видео</h3>
-          <p data-i18n="g1Text">Речь становится текстом с отметками времени.</p>
+          <p data-i18n="g1Text">Речь становится текстом с отметками времени. Можно прислать ссылку на YouTube, TikTok или Instagram.</p>
           <div class="chips">
             <span class="chip">MP3</span><span class="chip">WAV</span><span class="chip">OGG</span>
             <span class="chip">M4A</span><span class="chip">MP4</span><span class="chip">MOV</span>
@@ -547,7 +385,7 @@ a { color: inherit; }
         </div>
         <div class="group">
           <h3 data-i18n="g2Title">Документы</h3>
-          <p data-i18n="g2Text">Текст достаётся и переводится. Ответ приходит текстом.</p>
+          <p data-i18n="g2Text">Текст достаётся и переводится.</p>
           <div class="chips">
             <span class="chip">TXT</span><span class="chip">DOCX</span><span class="chip">PDF</span>
             <span class="chip">PPTX</span><span class="chip">XLSX</span><span class="chip">ODT</span>
@@ -563,10 +401,29 @@ a { color: inherit; }
           </div>
         </div>
       </div>
+    </div>
+  </section>
 
-      <p class="lede" style="margin-top:2rem; font-size:.9375rem" data-i18n="formatsNote">
-        Старые .doc, .xls и .ppt пересохраните в новом формате.
-      </p>
+  <section class="trust">
+    <div class="wrap">
+      <div class="section-head reveal" style="max-width:52ch">
+        <h2 style="font-size:clamp(1.75rem,3.4vw,2.5rem)" data-i18n="limitsTitle">Что стоит знать заранее</h2>
+      </div>
+
+      <div class="limits reveal">
+        <div class="limit">
+          <h3 data-i18n="l1Title">Шум</h3>
+          <p data-i18n="l1Text">Чем хуже запись, тем больше ошибок в расшифровке.</p>
+        </div>
+        <div class="limit">
+          <h3 data-i18n="l2Title">Говорящие</h3>
+          <p data-i18n="l2Text">Реплики не разделяются: диалог придёт сплошным текстом.</p>
+        </div>
+        <div class="limit">
+          <h3 data-i18n="l3Title">Сканы</h3>
+          <p data-i18n="l3Text">PDF без текстового слоя не читается.</p>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -575,7 +432,7 @@ a { color: inherit; }
       <div class="cta-card reveal">
         <div>
           <h2 data-i18n="ctaTitle">Проверьте на своём материале</h2>
-          <p data-i18n="ctaText">Ничего устанавливать и регистрировать не нужно.</p>
+          <p data-i18n="ctaText">Регистрация не нужна.</p>
         </div>
         <div><a class="btn btn-primary" href="/web/" data-i18n="ctaOpen">Открыть TilTap</a></div>
       </div>
@@ -588,7 +445,7 @@ a { color: inherit; }
     <span>TilTap</span>
     <span class="foot-right">
       <a href="/web/" data-i18n="footApp">Рабочий экран</a>
-      <a href="https://t.me/jj07n" data-i18n="footSupport">Поддержка</a>
+      <a href="https://t.me/tiltapbot">@tiltapbot</a>
     </span>
   </div>
 </footer>
@@ -606,75 +463,33 @@ var I18N = {
   ru: null, // русский лежит в самой разметке и служит запасным вариантом
 
   en: {
-    navLanguages: "Languages",
-    navWhat: "What it does",
-    navHow: "How it works",
+    navFormats: "Formats",
+    navBot: "Bot",
     ctaOpen: "Open TilTap",
-    ctaHow: "How it works",
+    ctaBot: "Telegram bot",
 
-    heroTitle: 'A translator for the languages <em>that usually come out wrong</em>',
-    heroLede: "Kyrgyz, Tajik, Uzbek, Russian, English. Every pair goes straight across, with no detour through English.",
-
-    langsTitle: "Five languages, three writing systems",
-    langsLede: "Three of them use letters your keyboard does not have. Those are the first thing to go missing: they drop out when text is copied and get swapped for lookalikes. Here they survive the trip.",
-
-    whatEyebrow: "What it does",
-    whatTitle: "The short list",
-    f1Title: "Any pair, translated directly",
-    f1Text: "Kyrgyz into Tajik goes straight across instead of losing something at every hop through English. This is the reason the service exists.",
-    f2Title: "Documents come back as documents",
-    f2Text: "A table stays a table, subtitles keep their timings. The content is translated, the structure is left alone.",
-    f3Title: "Recorded speech",
-    f3Text: "Interviews, broadcasts, voice messages. The text arrives with timestamps.",
-    f4Title: "A link instead of a file",
-    f4Text: "YouTube, TikTok, Instagram. We handle the download.",
-    f5Title: "Two front doors, one engine",
-    f5Text: "This page and the Telegram bot do exactly the same work.",
-
-    howEyebrow: "How it works",
-    howTitle: "From recording to text",
-    howLede: "Text is translated straight away. A recording has to be heard first, and that road is longer. Better to know it in advance than to wonder later where a sentence went.",
-    s1Title: "Upload",
-    s1Text: "A file goes straight through. A link we have to fetch ourselves, and that is the brittle part: platforms keep changing their defences, and everything stops before transcription even starts.",
-    s2Title: "One audio format",
-    s2Text: "Whatever you send, what continues is a single track: mono, 16 kHz. Video loses its picture here.",
-    s3Title: "Cut into pieces",
-    s3Text: "The model will not take a whole recording. We currently cut by the clock rather than at pauses in speech, so a word at a seam sometimes disappears.",
-    s4Title: "Transcription",
-    s4Text: "The model is chosen by language, because no single good one covers all five. Three languages go to a model kept in memory, Tajik runs on the processor, English on a graphics card.",
-    s5Title: "Reassembly and check",
-    s5Text: "Pieces are joined, timings added, Uzbek converted to the right script. Then the text is checked against a dictionary. That is arithmetic, not understanding: it catches noise and lets a fluent mistake through.",
-    s6Title: "Translation",
-    s6Text: "The text is split, translated, and a second pass compares the result with the original. For documents the structure is rebuilt.",
-
-    limitsTitle: "Where it gets things wrong",
-    limitsLede: "Testing this on your own material costs less than finding it on deadline day.",
-    l1Title: "Noise",
-    l1Text: "A street, a market, several voices at once. The worse the recording, the more of the text is invention.",
-    l2Title: "Dialogue",
-    l2Text: "Speakers are not separated. A conversation arrives as one continuous block.",
-    l3Title: "The quality check",
-    l3Text: "A dictionary comparison catches noise, but cannot see an error inside a fluent sentence.",
-    l4Title: "Tajik speed",
-    l4Text: "It runs on the processor. On a long recording the gap against the other languages shows.",
-    l5Title: "Scans",
-    l5Text: "A PDF with no text layer is a picture. There is no printed-text recognition here.",
-    l6Title: "Proofreading",
-    l6Text: "The service saves the typing. A person still reads the text before it is published.",
+    heroTitle: 'Translation for <em>five languages</em>',
+    heroLede: "Kyrgyz, Tajik, Uzbek, Russian, English. Text, documents, audio and video.",
 
     formatsTitle: "What you can send",
     g1Title: "Audio and video",
-    g1Text: "Speech becomes text with timestamps.",
+    g1Text: "Speech becomes text with timestamps. You can also send a YouTube, TikTok or Instagram link.",
     g2Title: "Documents",
-    g2Text: "The text is extracted and translated. The answer comes back as text.",
+    g2Text: "The text is extracted and translated.",
     g3Title: "Tables and subtitles",
     g3Text: "Returned in their own format, columns and timings intact.",
-    formatsNote: "Save older .doc, .xls and .ppt files in the newer format first.",
+
+    limitsTitle: "Worth knowing first",
+    l1Title: "Noise",
+    l1Text: "The worse the recording, the more errors in the transcript.",
+    l2Title: "Speakers",
+    l2Text: "Speakers are not separated: a conversation arrives as one block.",
+    l3Title: "Scans",
+    l3Text: "A PDF with no text layer cannot be read.",
 
     ctaTitle: "Try it on your own material",
-    ctaText: "Nothing to install, nothing to sign up for.",
-    footApp: "Open the app",
-    footSupport: "Support"
+    ctaText: "No sign-up needed.",
+    footApp: "Open the app"
   }
 };
 
