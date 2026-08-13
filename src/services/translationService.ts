@@ -480,12 +480,30 @@ function buildPayload(
         content: `<SOURCE>\n${text}\n</SOURCE>`,
       },
     ],
-    temperature: 0.0,
   };
-  if (maxTokens && maxTokens > 0) {
-    payload.max_tokens = maxTokens;
-  }
+  applyModelParams(payload, model, maxTokens);
   return payload;
+}
+
+/**
+ * Новые поколения моделей принимают другой набор полей: max_tokens заменён на
+ * max_completion_tokens, а temperature допускает только значение по умолчанию.
+ * Отправить им наш прежний payload — получить 400 и полный отказ перевода,
+ * поэтому смена модели в конфиге без этой поправки ломает бота целиком.
+ */
+function usesLegacyParams(model: string): boolean {
+  return !/^(gpt-5|o[1-9])/i.test(model.trim());
+}
+
+function applyModelParams(payload: Record<string, unknown>, model: string, maxTokens?: number): void {
+  if (usesLegacyParams(model)) {
+    payload.temperature = 0.0;
+    if (maxTokens && maxTokens > 0) payload.max_tokens = maxTokens;
+    return;
+  }
+  // temperature не задаём вовсе: любое значение, кроме единицы, отвергается,
+  // а единица — и есть умолчание.
+  if (maxTokens && maxTokens > 0) payload.max_completion_tokens = maxTokens;
 }
 
 async function callTranslationProvider(
@@ -841,12 +859,9 @@ function buildReviewPayload(
   const payload: Record<string, unknown> = {
     model,
     messages: [{ role: "user", content: prompt }],
-    temperature: 0.0,
     response_format: { type: "json_object" },
   };
-  if (maxTokens && maxTokens > 0) {
-    payload.max_tokens = maxTokens;
-  }
+  applyModelParams(payload, model, maxTokens);
   return payload;
 }
 
@@ -1371,6 +1386,14 @@ export function listTranslationEngines(): TranslationEngineInfo[] {
       pricing: "$2.50 / $10.00 за 1M токенов",
       unavailable: config.OPENAI_API_KEY ? undefined : "OPENAI_API_KEY не задан",
     },
+    // Кандидаты на замену. Стоят рядом с боевыми, чтобы лингвист сравнивал их
+    // на одном и том же тексте, а не на ощущениях.
+    ...config.TILTAB_TRANSLATION_BENCH_MODELS.filter((m) => m !== strong && m !== cheap).map((model) => ({
+      id: `openai:${model}`,
+      label: `OpenAI ${model} (кандидат)`,
+      pricing: "цену уточнить у OpenAI",
+      unavailable: config.OPENAI_API_KEY ? undefined : "OPENAI_API_KEY не задан",
+    })),
     {
       id: "lingva",
       label: "Lingva (Google Translate)",

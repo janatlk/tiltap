@@ -101,6 +101,19 @@ const envSchema = z.object({
   // 0.15 выбрано по реальным расшифровкам с прода: испорченная запись дала
   // 0.22, худшая из нормальных — 0.11.
   TILTAB_NOISY_TRANSCRIPT_OOV: z.string().default("0.15").transform(Number),
+  // Дополнительные модели для стенда сравнения. Нужны, чтобы примерить
+  // кандидата на реальных текстах, ничего не меняя в бою.
+  TILTAB_TRANSLATION_BENCH_MODELS: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .default("gpt-5.5,gpt-5.6-terra")
+    .transform((val) =>
+      val
+        ?.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean) ?? []
+    ),
   TILTAB_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("gpt-4o-mini"),
   // Kyrgyz, Tajik and Uzbek are low-resource: the mini model produces malformed
   // word forms and Russian/Turkic hybrids, so route them to a stronger model.
