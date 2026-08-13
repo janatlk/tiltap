@@ -522,8 +522,7 @@ async function callTranslationProvider(
   url: string,
   apiKey: string,
   payload: object,
-  providerName: string,
-  maxTokens?: number
+  providerName: string
 ): Promise<{ text: string; costUsd: number }> {
   const res = await fetch(url, {
     method: "POST",
@@ -541,7 +540,7 @@ async function callTranslationProvider(
   }
 
   const data = (await res.json()) as {
-    choices: Array<{ message: { content: string } }>;
+    choices: Array<{ message: { content: string }; finish_reason?: string }>;
     usage?: { prompt_tokens?: number; completion_tokens?: number };
     model?: string;
   };
@@ -550,11 +549,23 @@ async function callTranslationProvider(
   const completionTokens = data.usage?.completion_tokens ?? 0;
   const costUsd = logTranslationCost(providerName.toLowerCase(), model, data.usage?.prompt_tokens ?? 0, completionTokens);
 
-  if (maxTokens && completionTokens >= maxTokens) {
-    logger.warn(`${providerName} translation hit max_tokens and may be truncated`, {
+  // Обрыв определяем по ответу провайдера, а не по счётчику токенов. У моделей
+  // нового поколения completion_tokens включает рассуждения, поэтому счётчик
+  // спокойно перерастает наш расчёт бюджета на целом, неурезанном переводе —
+  // и прежняя проверка объявляла обрывом каждый такой ответ.
+  const finishReason = data.choices[0]?.finish_reason;
+  const limit = (payload as { max_tokens?: number; max_completion_tokens?: number });
+  const budget = limit.max_tokens ?? limit.max_completion_tokens;
+  const truncated =
+    finishReason === "length" ||
+    (finishReason === undefined && !!budget && completionTokens >= budget);
+
+  if (truncated) {
+    logger.warn(`${providerName} translation hit its token budget and may be truncated`, {
       model,
       completionTokens,
-      maxTokens,
+      budget,
+      finishReason,
     });
     throw new TranslationTruncatedError(providerName);
   }
@@ -630,8 +641,7 @@ async function translateChunkWithOpenAI(
       OPENAI_API_URL,
       apiKey,
       buildPayload(targetName, sourceName, text, model, maxTokens, glossary),
-      "OpenAI",
-      maxTokens
+      "OpenAI"
     );
   } catch (err) {
     // Only truncation is recoverable by splitting; anything else propagates.
@@ -951,8 +961,7 @@ async function reviewTranslation(
     OPENAI_API_URL,
     key,
     buildReviewPayload(req.text, translatedText, sourceName, targetName, model, maxTokens),
-    "OpenAI-review",
-    maxTokens
+    "OpenAI-review"
   );
   const totalCostUsd = previousCostUsd + reviewCostUsd;
   const parsed = parseReviewResponse(raw);
