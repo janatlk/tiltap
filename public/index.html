@@ -580,6 +580,10 @@ var I18N = {
 };
 
 (function () {
+  // Ключ общий с рабочим экраном: переключатель языка должен быть один на
+  // весь продукт. Раньше их было два, и выбор на лендинге не доезжал до
+  // приложения, из-за чего человек переключал язык дважды.
+  var LANG_KEY = "tiltab_ui_lang";
   var LANG_NAMES = { ru: "Русский", ky: "Кыргызча", tg: "Тоҷикӣ", uz: "Oʻzbekcha", en: "English" };
   var HTML_KEYS = { heroTitle: true };   // единственная строка с разметкой внутри
 
@@ -610,7 +614,7 @@ var I18N = {
     menu.querySelectorAll("button").forEach(function (b) {
       b.setAttribute("aria-current", String(b.dataset.lang === lang));
     });
-    try { localStorage.setItem("tiltap-site-lang", lang); } catch (e) {}
+    try { localStorage.setItem(LANG_KEY, lang); } catch (e) {}
   }
 
   function close() { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); }
@@ -630,7 +634,7 @@ var I18N = {
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
 
   var saved = null;
-  try { saved = localStorage.getItem("tiltap-site-lang"); } catch (e) {}
+  try { saved = localStorage.getItem(LANG_KEY); } catch (e) {}
   apply(saved && LANG_NAMES[saved] ? saved : "ru");
 })();
 

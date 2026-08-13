@@ -278,6 +278,60 @@
     .empty-state p { margin: 0; font-size: 0.9375rem; color: var(--ink-soft); }
     .empty-state .empty-sub { font-size: 0.8125rem; color: var(--ink-faint); max-width: 32ch; }
 
+    /* --- Подвал ---------------------------------------------------------- */
+    .app-foot {
+      display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; align-items: center;
+      padding: 1.5rem 0 0.5rem; border-top: 1px solid var(--rule);
+      font-size: 0.8125rem; color: var(--ink-faint);
+    }
+    .staff-link {
+      margin-left: auto; color: var(--ink-faint); text-decoration: none;
+      border-bottom: 1px dotted var(--rule-strong); padding-bottom: 1px;
+    }
+    .staff-link:hover { color: var(--ink-soft); border-bottom-color: var(--ink-soft); }
+
+    /* --- Лист с форматами ------------------------------------------------- */
+    .sheet {
+      /* Центровку dialog держит margin: auto из стилей браузера, а сброс
+         Tailwind обнуляет поля у всего подряд. Без этой строки лист
+         прилипает к левому верхнему углу. */
+      margin: auto;
+      width: min(100% - 2rem, 34rem); max-height: min(85vh, 44rem);
+      padding: 0; border: 1px solid var(--rule); border-radius: var(--r-surface);
+      background: var(--paper-raised); color: var(--ink);
+      box-shadow: var(--shadow-lift); overflow: hidden;
+    }
+    .sheet::backdrop { background: oklch(0.21 0.012 265 / 0.45); backdrop-filter: blur(2px); }
+    .sheet[open] { display: flex; flex-direction: column; }
+
+    .sheet-head {
+      display: flex; align-items: center; gap: 1rem;
+      padding: 1.125rem 1.25rem; border-bottom: 1px solid var(--rule);
+    }
+    .sheet-head h2 { margin: 0; font-size: 1.0625rem; font-weight: 700; letter-spacing: -0.02em; }
+    .sheet-head .icon-x { margin-left: auto; }
+
+    .sheet-body { padding: 1.25rem; overflow-y: auto; display: grid; gap: 1.5rem; }
+    .fmt-group h3 { margin: 0; font-size: 0.9375rem; font-weight: 700; }
+    .fmt-group p { margin: 0.375rem 0 0; font-size: 0.8125rem; color: var(--ink-soft); }
+    .fmt-group .chips { margin-top: 0.75rem; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+    .chip {
+      font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 600;
+      padding: 0.25rem 0.5rem; border-radius: var(--r-press);
+      border: 1px solid var(--rule-strong); color: var(--ink-soft);
+    }
+    .sheet-note { margin: 0; font-size: 0.8125rem; color: var(--ink-faint); line-height: 1.55; }
+
+    /* На телефоне лист прижимается к низу экрана: до верхнего угла большим
+       пальцем не дотянуться, а до нижнего края дотянуться легко. */
+    @media (max-width: 640px) {
+      .sheet {
+        width: 100%; max-width: 100%; margin: auto 0 0; border-radius: var(--r-surface) var(--r-surface) 0 0;
+        max-height: 85vh;
+      }
+    }
+
     .sr-only {
       position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
       overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
@@ -330,7 +384,6 @@
       <div class="space-y-2">
         <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight" data-i18n="title">TilTap Web</h1>
         <p class="text-base-content/70 max-w-2xl" data-i18n="subtitle">Transcribe audio, video, and links from YouTube, TikTok, and Instagram. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.</p>
-        <a href="/web/admin.html" class="link link-primary text-sm" data-i18n="adminLink">Admin panel</a>
       </div>
     </header>
 
@@ -379,7 +432,7 @@
             <div class="file-card">
               <span class="file-ext" id="fileExt">FILE</span>
               <span class="file-name" id="fileName"></span>
-              <button type="button" class="icon-x" id="clearFileBtn" title="✕">✕</button>
+              <button type="button" class="icon-x" id="clearFileBtn" data-i18n-title="clearTitle" title="Убрать">✕</button>
             </div>
             <audio id="fileAudio" controls class="w-full mt-3 hidden"></audio>
           </div>
@@ -388,7 +441,7 @@
             <div class="file-card">
               <span class="file-ext">LINK</span>
               <span class="file-name" id="linkName"></span>
-              <button type="button" class="icon-x" id="clearLinkBtn" title="✕">✕</button>
+              <button type="button" class="icon-x" id="clearLinkBtn" data-i18n-title="clearTitle" title="Убрать">✕</button>
             </div>
             <div id="youtubePreview" class="ytpreview hidden">
               <iframe id="youtubeIframe" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
@@ -468,8 +521,8 @@
       <section class="pane pane-result">
         <div id="resultEmpty" class="empty-state">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 11h16M4 16h9"/></svg>
-          <p id="emptyTitle">Результат появится здесь</p>
-          <p class="empty-sub" id="emptySub">Оригинал и перевод будут рядом, чтобы их можно было сверить.</p>
+          <p id="emptyTitle" data-i18n="emptyTitle">Результат появится здесь</p>
+          <p class="empty-sub" id="emptySub" data-i18n="emptySub">Оригинал и перевод будут рядом, чтобы их можно было сверить.</p>
         </div>
 
         <div id="resultBox" class="hidden space-y-4">
@@ -526,10 +579,57 @@
       </section>
     </div>
 
-    <footer class="text-center text-sm text-base-content/50 py-4" data-i18n="footer">
-      TilTap — local speech-to-text & translation
+    <!-- Служебный вход живёт в подвале: обычному человеку он не нужен, а на
+         виду он выглядит дверью, в которую полагается зайти. -->
+    <footer class="app-foot">
+      <span data-i18n="footer">TilTap</span>
+      <a href="/web/admin.html" class="staff-link" data-i18n="staffLogin">Вход для сотрудников</a>
     </footer>
   </div>
+
+  <!-- Список форматов. Раньше здесь был alert: он блокирует страницу, не
+       поддаётся оформлению и на телефоне выглядит системной ошибкой. -->
+  <dialog id="formatsDialog" class="sheet">
+    <div class="sheet-head">
+      <h2 id="fmtTitle" data-i18n="fmtTitle">Что можно прислать</h2>
+      <button type="button" class="icon-x" id="fmtClose" data-i18n-title="close" title="Закрыть">✕</button>
+    </div>
+
+    <div class="sheet-body">
+      <section class="fmt-group">
+        <h3 data-i18n="fmtAudio">Звук и видео</h3>
+        <p data-i18n="fmtAudioNote">Речь становится текстом с отметками времени.</p>
+        <div class="chips">
+          <span class="chip">MP3</span><span class="chip">WAV</span><span class="chip">OGG</span>
+          <span class="chip">M4A</span><span class="chip">MP4</span><span class="chip">MOV</span>
+          <span class="chip">MKV</span>
+        </div>
+      </section>
+
+      <section class="fmt-group">
+        <h3 data-i18n="fmtDocs">Документы</h3>
+        <p data-i18n="fmtDocsNote">Текст достаётся и переводится.</p>
+        <div class="chips">
+          <span class="chip">TXT</span><span class="chip">DOCX</span><span class="chip">PDF</span>
+          <span class="chip">PPTX</span><span class="chip">XLSX</span><span class="chip">ODT</span>
+          <span class="chip">RTF</span><span class="chip">HTML</span><span class="chip">MD</span>
+        </div>
+      </section>
+
+      <section class="fmt-group">
+        <h3 data-i18n="fmtTables">Таблицы и субтитры</h3>
+        <p data-i18n="fmtTablesNote">Возвращаются в своём формате: столбцы и тайм-коды на месте.</p>
+        <div class="chips">
+          <span class="chip">CSV</span><span class="chip">TSV</span>
+          <span class="chip">SRT</span><span class="chip">VTT</span>
+        </div>
+      </section>
+
+      <p class="sheet-note" data-i18n="fmtOld">
+        Старые .doc, .xls и .ppt пересохраните в новом формате. PDF из сканов не читается.
+      </p>
+    </div>
+  </dialog>
 
   <script>
     // ===================== i18n =====================
@@ -556,6 +656,21 @@
         entryText: "Text",
         dropHere: "Drop the file here",
         formatsLink: "Supported formats",
+        staffLogin: "Staff sign-in",
+        fmtTitle: "What you can send",
+        fmtAudio: "Audio and video",
+        fmtDocs: "Documents",
+        fmtTables: "Tables and subtitles",
+        fmtAudioNote: "Speech becomes text with timestamps.",
+        fmtDocsNote: "The text is extracted and translated.",
+        fmtTablesNote: "Returned in their own format, columns and timings intact.",
+        fmtOld: "Save older .doc, .xls and .ppt files in the newer format first. A PDF with no text layer cannot be read.",
+        close: "Close",
+        emptyTitle: "The result will appear here",
+        emptySub: "The original and the translation sit side by side so you can compare them.",
+        waitDefault: "Processing runs on the server. You can leave this tab open.",
+        waitTajik: "Tajik runs on the processor and takes longer than the other languages. You can leave this tab open.",
+        clearTitle: "Remove",
         translateTextButton: "Translate",
         startBtn: "Start",
         progressStarting: "Starting...",
@@ -624,6 +739,21 @@
         entryText: "Текст",
         dropHere: "Отпустите файл здесь",
         formatsLink: "Какие форматы",
+        staffLogin: "Вход для сотрудников",
+        fmtTitle: "Что можно прислать",
+        fmtAudio: "Звук и видео",
+        fmtDocs: "Документы",
+        fmtTables: "Таблицы и субтитры",
+        fmtAudioNote: "Речь становится текстом с отметками времени.",
+        fmtDocsNote: "Текст достаётся и переводится.",
+        fmtTablesNote: "Возвращаются в своём формате: столбцы и тайм-коды на месте.",
+        fmtOld: "Старые .doc, .xls и .ppt пересохраните в новом формате. PDF из сканов не читается.",
+        close: "Закрыть",
+        emptyTitle: "Результат появится здесь",
+        emptySub: "Оригинал и перевод будут рядом, чтобы их можно было сверить.",
+        waitDefault: "Обработка идёт на сервере. Вкладку можно не закрывать.",
+        waitTajik: "Таджикский считается на процессоре и идёт дольше остальных языков. Вкладку можно не закрывать.",
+        clearTitle: "Убрать",
         entryPaste: "Текст или ссылка",
         pasteHint: "Или просто вставьте из буфера в любом месте страницы",
         translateTextButton: "Перевести",
@@ -694,6 +824,21 @@
         entryText: "Текст",
         dropHere: "Файлды бул жерге таштаңыз",
         formatsLink: "Кайсы форматтар",
+        staffLogin: "Кызматкерлер үчүн кирүү",
+        fmtTitle: "Эмне жөнөтсө болот",
+        fmtAudio: "Үн жана видео",
+        fmtDocs: "Документтер",
+        fmtTables: "Таблицалар жана субтитрлер",
+        fmtAudioNote: "Сөз убакыт белгилери бар текстке айланат.",
+        fmtDocsNote: "Текст чыгарылып, которулат.",
+        fmtTablesNote: "Өз форматында кайтып келишет: тилкелер жана тайм-коддор ордунда.",
+        fmtOld: "Эски .doc, .xls жана .ppt файлдарын жаңы форматта кайра сактаңыз. Сканерленген PDF окулбайт.",
+        close: "Жабуу",
+        emptyTitle: "Натыйжа бул жерде пайда болот",
+        emptySub: "Түп нускасы менен котормосу салыштырып текшерилиши үчүн жанаша жайгаштырылат.",
+        waitDefault: "Иштетүү серверде жүрүп жатат. Өтмөктү жаппай эле койсоңуз болот.",
+        waitTajik: "Тажик тили процессордо иштетилет жана башка тилдерге караганда көбүрөөк убакытты талап кылат. Өтмөктү жаппай эле койсо болот.",
+        clearTitle: "Алып салуу",
         entryPaste: "Текст же шилтеме",
         pasteHint: "Же беттин каалаган жеринде буфердн чаптаңыз",
         translateTextButton: "Которуу",
@@ -764,6 +909,21 @@
         entryText: "Матн",
         dropHere: "Файлро ин ҷо раҳо кунед",
         formatsLink: "Кадом форматҳо",
+        staffLogin: "Вуруд барои кормандон",
+        fmtTitle: "Чӣ фиристодан мумкин аст",
+        fmtAudio: "Садо ва видео",
+        fmtDocs: "Ҳуҷҷатҳо",
+        fmtTables: "Ҷадвалҳо ва субтитрҳо",
+        fmtAudioNote: "Гуфтор ба матн бо нишонаҳои вақт табдил меёбад.",
+        fmtDocsNote: "Матн гирифта шуда, тарҷума карда мешавад.",
+        fmtTablesNote: "Онҳо дар формати худ бармегарданд: сутунҳо ва тайм-кодҳо дар ҷойи худ ҳастанд.",
+        fmtOld: "Файлҳои кӯҳнаи .doc, .xls ва .ppt-ро дар формати нав аз нав захира кунед. PDF-и аз сканҳо эҷодшуда хонда намешавад.",
+        close: "Бастан fad?",
+        emptyTitle: "Натиҷа дар ин ҷо пайдо мешавад",
+        emptySub: "Асл ва тарҷума паҳлуи ҳам хоҳанд буд, то онҳоро муқоиса кардан мумкин бошад.",
+        waitDefault: "Коркард дар сервер анҷом меёбад. Варақаро пӯшидан шарт нест.",
+        waitTajik: "Забони тоҷикӣ тавассути протсессор ҳисоб карда мешавад ва нисбат ба забонҳои дигар вақти бештар мегирад. Варақаро пӯшидан лозим нест.",
+        clearTitle: "Хориҷ кардан",
         entryPaste: "Матн ё пайванд",
         pasteHint: "Ё дар ҳар ҷои саҳифа аз ҳофиза гузоред",
         translateTextButton: "Тарҷума",
@@ -834,6 +994,21 @@
         entryText: "Matn",
         dropHere: "Faylni shu yerga tashlang",
         formatsLink: "Qaysi formatlar",
+        staffLogin: "Xodimlar uchun kirish",
+        fmtTitle: "Nimani yuborish mumkin",
+        fmtAudio: "Ovoz va video",
+        fmtDocs: "Hujjatlar",
+        fmtTables: "Jadvallar va subtitrlar",
+        fmtAudioNote: "Nutq vaqt belgilari bilan matnga aylanadi.",
+        fmtDocsNote: "Matn olinadi va tarjima qilinadi.",
+        fmtTablesNote: "Oʻz formatida qaytadi: ustunlar va vaqt kodlari oʻz joyida.",
+        fmtOld: "Eski .doc, .xls va .ppt fayllarini yangi formatda qayta saqlang. Skanerlangan PDF oʻqilmaydi.",
+        close: "Yopish",
+        emptyTitle: "Natija shu yerda paydo boʻladi",
+        emptySub: "Asl nusxa va tarjima ularni solishtirish mumkin boʻlishi uchun yonma-yon boʻladi.",
+        waitDefault: "Qayta ishlash serverda amalga oshirilmoqda. Ichki oynani yopmasangiz ham boʻladi.",
+        waitTajik: "Tojik tili protsessorda hisoblanadi va boshqa tillarga qaraganda uzoqroq davom etadi. Vkladkani yopmaslik mumkin.",
+        clearTitle: "Olib tashlash",
         entryPaste: "Matn yoki havola",
         pasteHint: "Yoki sahifaning istalgan joyiga clipboarddan qoʻying",
         translateTextButton: "Tarjima",
@@ -902,7 +1077,9 @@
       uz: "Oʻzbekcha",
     };
 
-    let currentUiLang = localStorage.getItem("tiltab_ui_lang") || "en";
+    // Запасной язык русский, а не английский: тот же выбор сделан на лендинге,
+    // и при первом заходе страницы обязаны совпасть.
+    let currentUiLang = localStorage.getItem("tiltab_ui_lang") || "ru";
 
     function t(key, vars = {}) {
       const dict = I18N[currentUiLang] || I18N.en;
@@ -1878,14 +2055,23 @@
 
       translateText.addEventListener("input", refresh);
 
-      document.getElementById("formatsBtn").addEventListener("click", () => {
-        alert(
-          "Аудио и видео: MP3, WAV, OGG, M4A, MP4, MOV, MKV.\n" +
-          "Документы: TXT, DOCX, PDF, PPTX, XLSX, ODT, RTF, HTML, MD.\n" +
-          "Таблицы и субтитры: CSV, TSV, SRT, VTT (вернутся в своём формате).\n\n" +
-          "Старые .doc, .xls и .ppt пересохраните в новом формате.\n" +
-          "PDF из сканов пока не читаем: в них нет текстового слоя."
-        );
+      // Список форматов: нативный dialog вместо alert. Он не блокирует
+      // страницу, закрывается по Esc и по щелчку мимо, поддаётся оформлению и
+      // сам возвращает фокус на кнопку, с которой был открыт.
+      const formatsDialog = document.getElementById("formatsDialog");
+      const formatsBtn = document.getElementById("formatsBtn");
+
+      formatsBtn.addEventListener("click", () => formatsDialog.showModal());
+      document.getElementById("fmtClose").addEventListener("click", () => formatsDialog.close());
+
+      // Щелчок по затемнению приходит на сам dialog: его прямоугольник это
+      // весь экран, а содержимое лежит внутри.
+      formatsDialog.addEventListener("click", (e) => {
+        if (e.target !== formatsDialog) return;
+        const box = formatsDialog.getBoundingClientRect();
+        const outside = e.clientX < box.left || e.clientX > box.right ||
+                        e.clientY < box.top || e.clientY > box.bottom;
+        if (outside) formatsDialog.close();
       });
 
       // --- Смена направления перевода ------------------------------------
@@ -1909,8 +2095,8 @@
         const isAudio = !!currentFile || looksLikeLink(translateText.value.trim());
         if (!isAudio) { waitNote.textContent = ""; return; }
         waitNote.textContent = sourceLang.value === "tg"
-          ? "Таджикский считается на процессоре и идёт дольше остальных языков. Вкладку можно не закрывать."
-          : "Обработка идёт на сервере. Вкладку можно не закрывать.";
+          ? t("waitTajik")
+          : t("waitDefault");
       }
 
       sourceLang.addEventListener("change", () => { syncSwapState(); updateWaitNote(); });
