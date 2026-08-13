@@ -81,6 +81,8 @@
           <button role="tab" class="tab" data-tab="web-jobs">STT Jobs <span class="badge badge-sm badge-ghost ms-1" id="count-web-jobs">0</span></button>
           <button role="tab" class="tab" data-tab="feedback">Feedback <span class="badge badge-sm badge-ghost ms-1" id="count-feedback">0</span></button>
           <button role="tab" class="tab" data-tab="live">Live <span class="badge badge-sm badge-ghost ms-1" id="count-live">0</span></button>
+          <button role="tab" class="tab" data-tab="broadcast">Рассылка</button>
+          <button role="tab" class="tab" data-tab="logs">Логи</button>
         </div>
         <div id="listContainer" class="mt-4">
           <div class="text-center text-base-content/60 py-12">Click "Refresh" to load translations.</div>
@@ -189,6 +191,127 @@
 
     let liveInterval = null;
 
+
+    // ----- Рассылка -------------------------------------------------------
+    function escapeHtmlAdmin(t) {
+      return String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    async function loadBroadcast() {
+      const res = await apiFetch("/api/admin/broadcast");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Не удалось загрузить");
+
+      const history = (data.history || []).map((b) => `
+        <tr>
+          <td class="text-xs whitespace-nowrap">${new Date(b.created_at).toLocaleString("ru")}</td>
+          <td class="text-xs">${escapeHtmlAdmin(String(b.text).slice(0, 90))}</td>
+          <td class="text-xs whitespace-nowrap">${b.sent} из ${b.total}${b.blocked ? ` · ${b.blocked} заблокировали` : ""}${b.failed ? ` · ${b.failed} ошибок` : ""}</td>
+        </tr>`).join("") || '<tr><td colspan="3" class="text-xs opacity-60">Рассылок ещё не было</td></tr>';
+
+      listContainer.innerHTML = `
+        <div class="card bg-base-100 shadow-sm mb-4">
+          <div class="card-body gap-3">
+            <h2 class="card-title text-lg">Сообщение всем пользователям бота</h2>
+            <p class="text-sm opacity-70">Получателей: <b>${data.recipients}</b>. Отправку нельзя отменить — сначала проверьте на себе.</p>
+            <textarea id="bcText" class="textarea textarea-bordered w-full" rows="6" placeholder="Текст сообщения. Поддерживается HTML: &lt;b&gt;жирный&lt;/b&gt;, &lt;i&gt;курсив&lt;/i&gt;"></textarea>
+            <div class="flex flex-wrap gap-2">
+              <button class="btn btn-sm" id="bcTest">Отправить себе</button>
+              <button class="btn btn-sm btn-error" id="bcSend">Отправить всем (${data.recipients})</button>
+            </div>
+            <div id="bcResult" class="text-sm"></div>
+          </div>
+        </div>
+        <div class="card bg-base-100 shadow-sm">
+          <div class="card-body">
+            <h3 class="font-semibold mb-2">Что уже отправляли</h3>
+            <div class="overflow-x-auto"><table class="table table-sm"><tbody>${history}</tbody></table></div>
+          </div>
+        </div>`;
+
+      const say = (html) => { document.getElementById("bcResult").innerHTML = html; };
+
+      async function send(testOnly) {
+        const text = document.getElementById("bcText").value.trim();
+        if (!text) { say('<span class="text-error">Сначала напишите текст</span>'); return; }
+        if (!testOnly) {
+          const ok = confirm(`Отправить это сообщение ${data.recipients} пользователям?
+
+Отменить будет нельзя.`);
+          if (!ok) return;
+        }
+        say("Отправляю…");
+        const res = await apiFetch("/api/admin/broadcast", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, testOnly }),
+        });
+        const r = await res.json();
+        if (!res.ok) { say(`<span class="text-error">${escapeHtmlAdmin(r.error || "Ошибка")}</span>`); return; }
+        say(`<span class="text-success">Доставлено ${r.sent} из ${r.total}</span>` +
+            (r.blocked ? ` · ${r.blocked} заблокировали бота` : "") +
+            (r.failed ? ` · <span class="text-error">${r.failed} ошибок</span>` : ""));
+        if (!testOnly) setTimeout(() => loadTab("broadcast"), 1200);
+      }
+
+      document.getElementById("bcTest").onclick = () => send(true);
+      document.getElementById("bcSend").onclick = () => send(false);
+    }
+
+    // ----- Логи -----------------------------------------------------------
+    async function loadLogs(service, level, search) {
+      const params = new URLSearchParams({
+        service: service || "tiltab-backend",
+        level: level || "all",
+        lines: "300",
+      });
+      if (search) params.set("search", search);
+
+      const res = await apiFetch("/api/admin/logs?" + params);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Не удалось прочитать журнал");
+
+      const colour = (l) => l === "error" ? "text-error" : l === "warn" ? "text-warning" : "opacity-80";
+      const rows = data.entries.map((e) => `
+        <tr class="align-top">
+          <td class="text-xs whitespace-nowrap opacity-60">${e.time ? new Date(e.time).toLocaleTimeString("ru") : ""}</td>
+          <td class="text-xs whitespace-nowrap ${colour(e.level)}">${escapeHtmlAdmin(e.level)}</td>
+          <td class="text-xs font-mono">${escapeHtmlAdmin(e.message)}</td>
+        </tr>`).join("") || '<tr><td colspan="3" class="text-xs opacity-60">Записей нет</td></tr>';
+
+      const opts = (data.services || []).map((s) =>
+        `<option value="${s}" ${s === data.service ? "selected" : ""}>${s}</option>`).join("");
+
+      listContainer.innerHTML = `
+        <div class="card bg-base-100 shadow-sm">
+          <div class="card-body gap-3">
+            <div class="flex flex-wrap gap-2 items-end">
+              <select id="logService" class="select select-bordered select-sm">${opts}</select>
+              <select id="logLevel" class="select select-bordered select-sm">
+                <option value="all" ${level === "all" || !level ? "selected" : ""}>Все</option>
+                <option value="warn" ${level === "warn" ? "selected" : ""}>Предупреждения и ошибки</option>
+                <option value="error" ${level === "error" ? "selected" : ""}>Только ошибки</option>
+              </select>
+              <input id="logSearch" class="input input-bordered input-sm" placeholder="Поиск по тексту" value="${escapeHtmlAdmin(search || "")}">
+              <button class="btn btn-sm" id="logReload">Обновить</button>
+            </div>
+            <div class="overflow-x-auto max-h-[70vh] overflow-y-auto">
+              <table class="table table-xs"><tbody>${rows}</tbody></table>
+            </div>
+          </div>
+        </div>`;
+
+      const reload = () => loadLogs(
+        document.getElementById("logService").value,
+        document.getElementById("logLevel").value,
+        document.getElementById("logSearch").value.trim()
+      );
+      document.getElementById("logReload").onclick = reload;
+      document.getElementById("logService").onchange = reload;
+      document.getElementById("logLevel").onchange = reload;
+      document.getElementById("logSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") reload(); });
+    }
+
     async function loadTab(tab) {
       currentTab = tab;
       stopLivePolling();
@@ -198,6 +321,14 @@
       listContainer.innerHTML = '<div class="text-center text-base-content/60 py-12">Loading...</div>';
 
       try {
+        if (tab === "broadcast") {
+          await loadBroadcast();
+          return;
+        }
+        if (tab === "logs") {
+          await loadLogs("tiltab-backend", "all", "");
+          return;
+        }
         if (tab === "live") {
           await loadLiveProcesses();
           startLivePolling();

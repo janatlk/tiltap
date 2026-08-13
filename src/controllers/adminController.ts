@@ -1,3 +1,5 @@
+import { sendBroadcast, countRecipients, listBroadcasts } from "../services/broadcastService";
+import { readLogs, isKnownService, availableServices } from "../services/logService";
 import type { Request, Response } from "express";
 import { logger } from "../utils/logger";
 import { config } from "../config";
@@ -623,6 +625,75 @@ export async function setFeedbackStatus(req: Request, res: Response): Promise<vo
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error("Failed to set feedback status", { id, error: message });
+    res.status(500).json({ error: message });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Рассылка пользователям бота
+// ---------------------------------------------------------------------------
+
+export async function getBroadcastInfo(_req: Request, res: Response): Promise<void> {
+  const [recipients, history] = await Promise.all([countRecipients(), listBroadcasts(10)]);
+  res.json({ recipients, history });
+}
+
+export async function postBroadcast(req: Request, res: Response): Promise<void> {
+  const { text, dryRun, testOnly } = req.body as {
+    text?: string;
+    dryRun?: boolean;
+    testOnly?: boolean;
+  };
+
+  if (!text || !text.trim()) {
+    res.status(400).json({ error: "Пустое сообщение" });
+    return;
+  }
+  if (text.length > 3500) {
+    res.status(400).json({ error: "Слишком длинное сообщение (максимум 3500 символов)" });
+    return;
+  }
+
+  try {
+    const result = await sendBroadcast({
+      text,
+      dryRun: dryRun === true,
+      testOnly: testOnly === true,
+      author: "admin",
+    });
+    res.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("Broadcast failed", { error: message });
+    res.status(500).json({ error: message });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Журнал
+// ---------------------------------------------------------------------------
+
+export async function getLogs(req: Request, res: Response): Promise<void> {
+  const service = String(req.query.service || "tiltab-backend");
+  if (!isKnownService(service)) {
+    res.status(400).json({ error: "Неизвестный сервис", available: availableServices() });
+    return;
+  }
+
+  const levelRaw = String(req.query.level || "all");
+  const level = levelRaw === "error" || levelRaw === "warn" ? levelRaw : "all";
+
+  try {
+    const entries = await readLogs({
+      service,
+      lines: Number(req.query.lines) || 200,
+      level,
+      search: req.query.search ? String(req.query.search) : undefined,
+    });
+    res.json({ service, entries, services: availableServices() });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("Failed to read logs", { error: message, service });
     res.status(500).json({ error: message });
   }
 }

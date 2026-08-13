@@ -23,6 +23,7 @@ import {
   replyToFeedbackEntry,
   setFeedbackStatus,
 } from "../controllers/adminController";
+import { getBroadcastInfo, postBroadcast, getLogs } from "../controllers/adminController";
 
 const router = Router();
 
@@ -58,5 +59,10 @@ router.post("/glossary/preview", previewGlossaryMatches);
 // Problem reports: answer the user, mark resolved or defer.
 router.post("/feedback/:id/reply", replyToFeedbackEntry);
 router.post("/feedback/:id/status", setFeedbackStatus);
+
+// Рассылка всем пользователям бота и журнал сервисов.
+router.get("/broadcast", getBroadcastInfo);
+router.post("/broadcast", postBroadcast);
+router.get("/logs", getLogs);
 
 export default router;
