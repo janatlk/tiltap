@@ -2031,6 +2031,9 @@ async function handleCallbackQuery(callbackQuery: {
     return;
   }
 
+  // Кнопки "перевести текст" в меню больше нет, но в старых сообщениях у людей
+  // она осталась и нажимается до сих пор. Обработчик живёт ради них: удалить
+  // его значит превратить их старые чаты в набор кнопок, ведущих в никуда.
   if (data === "action:translate_text") {
     await startTranslateTextFlow(chatId, prefs);
     return;

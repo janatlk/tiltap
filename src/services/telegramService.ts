@@ -1143,7 +1143,9 @@ export async function answerCallbackQuery(
 export function createMainKeyboard(lang: SupportedLanguage): { inline_keyboard: InlineKeyboardButton[][] } {
   return {
     inline_keyboard: [
-      [{ text: t("translateTextButton", lang), callback_data: "action:translate_text" }],
+      // Кнопки "перевести текст" здесь больше нет: текст, присланный в чат,
+      // берётся в перевод сам. Кнопка требовала объявить намерение до того, как
+      // его можно просто высказать.
       [
         { text: t("settingsMenu", lang).split("\n")[0], callback_data: "action:settings" },
         { text: t("helpButton", lang), callback_data: "action:help" },
