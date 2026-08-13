@@ -1,5 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { authenticate, passwordConfigured } from "../services/adminAuthService";
+import { currentAnnotator } from "../services/datasetAuthService";
+import { isSuperAdmin } from "../services/datasetPermissions";
 
 /**
  * Gate every admin route in one place.
@@ -12,6 +14,20 @@ import { authenticate, passwordConfigured } from "../services/adminAuthService";
 export async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
   const result = await authenticate(req);
   if (result.ok) {
+    next();
+    return;
+  }
+
+  // Учётки разметки годятся и здесь, но только роль супер-админа. Одна система
+  // аккаунтов на все закрытые страницы означает одно место, где человека
+  // заводят, и одно место, где его отключают: пока их было две, отзыв доступа
+  // в одной оставлял вторую открытой.
+  //
+  // Прежний вход по паролю и машинный токен остаются рабочими намеренно. Это
+  // единственный путь внутрь, если с учётками разметки что-то случится, а
+  // терять доступ к своему серверу из-за ошибки в правах нельзя.
+  const annotator = await currentAnnotator(req);
+  if (annotator && isSuperAdmin(annotator)) {
     next();
     return;
   }

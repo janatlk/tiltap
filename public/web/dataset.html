@@ -38,13 +38,18 @@
   </div>
 </main>
 
+<script src="/web/guard.js"></script>
 <script src="/web/dataset-common.js"></script>
 <script>
-function nextUrl() {
+function nextUrl(role) {
   const next = new URLSearchParams(location.search).get("next");
   // Открытый редирект: без проверки сюда можно было бы подставить чужой адрес
   // и увести человека сразу после ввода пароля.
-  return next && next.startsWith("/web/") ? next : "/web/dataset-tasks.html";
+  if (next && next.startsWith("/web/")) return next;
+  // Каждому своя начальная страница: супер-админ работает в админке, остальные
+  // в разметке. Общая посадочная страница заставляла бы половину людей делать
+  // лишний переход при каждом входе.
+  return window.TilTapGuard.homeFor(role);
 }
 
 $("loginBtn").onclick = async () => {
@@ -52,14 +57,14 @@ $("loginBtn").onclick = async () => {
   const btn = $("loginBtn");
   btn.disabled = true;
   try {
-    await api("/api/dataset/login", {
+    const result = await api("/api/dataset/login", {
       method: "POST",
       body: JSON.stringify({
         username: $("loginUser").value.trim(),
         password: $("loginPass").value,
       }),
     });
-    location.href = nextUrl();
+    location.href = nextUrl(result.annotator && result.annotator.role);
   } catch (err) {
     showError($("loginError"), err.message);
     btn.disabled = false;
@@ -73,7 +78,7 @@ $("loginBtn").onclick = async () => {
 (async () => {
   const session = await fetchSession();
   if (session.authenticated) {
-    location.href = nextUrl();
+    location.href = nextUrl(session.annotator && session.annotator.role);
     return;
   }
   mountChrome({ minimal: true });
