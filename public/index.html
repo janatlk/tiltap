@@ -180,7 +180,12 @@ a { color: inherit; }
              text-transform: uppercase; margin-top: 0.125rem; }
 .lang-glyphs { margin-top: 1rem; font-size: 1.5rem; color: var(--accent);
                letter-spacing: 0.06em; line-height: 1.35; min-height: 2rem; }
-@media (max-width: 900px) { .lang-grid { grid-template-columns: repeat(2, 1fr); } }
+/* Языков пять, а колонки две: без этого последняя ячейка остаётся пустым
+   серым прямоугольником, который читается как незагрузившийся блок. */
+@media (max-width: 900px) {
+  .lang-grid { grid-template-columns: repeat(2, 1fr); }
+  .lang-cell:last-child { grid-column: 1 / -1; }
+}
 @media (max-width: 520px) { .lang-grid { grid-template-columns: 1fr; } }
 
 /* --- Секции --------------------------------------------------------------- */
@@ -490,6 +495,87 @@ var I18N = {
     ctaTitle: "Try it on your own material",
     ctaText: "No sign-up needed.",
     footApp: "Open the app"
+  },
+
+  // Переведено самим TilTap с русского. Машинный перевод на витрине
+  // переводческого сервиса это заявление о качестве: если он плох, это
+  // видно сразу и чинить надо не страницу.
+  ky: {
+    navFormats: "Форматтар",
+    navBot: "Бот",
+    heroTitle: "Беш тилге котормо",
+    heroLede: "Кыргызча, тажикче, өзбекче, орусча, англисче. Текст, документтер, аудио жана видео.",
+    ctaOpen: "TilTapты ачуу",
+    ctaBot: "Telegramдагы бот",
+    formatsTitle: "Эмнени жөнөтсө болот",
+    g1Title: "Үн жана видео",
+    g1Text: "Сүйлөө убакыт белгилери коюлган текстке айланат. YouTube, TikTok же Instagram шилтемесин жөнөтсөңүз болот.",
+    g2Title: "Документтер",
+    g2Text: "Текст алынат жана которулат.",
+    g3Title: "Таблицалар жана субтитрлер",
+    g3Text: "Өз форматына кайтып жатышат: тилкелер жана тайм-коддор ордунда.",
+    limitsTitle: "Эмнени алдын ала билүү керек",
+    l1Title: "Ызы-чуу",
+    l1Text: "Үн жазмасы канчалык начар болсо, чечмелөөдөгү каталар ошончолук көп болот.",
+    l2Title: "Сүйлөгөндөр",
+    l2Text: "Репликалар бөлүнбөйт: диалог бир бүтүн текст түрүндө келет.",
+    l3Title: "Сканерленген документтер",
+    l3Text: "Тексттик катмары жок PDF окулбайт.",
+    ctaTitle: "Өз материалыңызда текшериңиз",
+    ctaText: "Катталуу талап кылынбайт.",
+    footApp: "Иш экраны"
+  },
+
+  tg: {
+    navFormats: "Форматҳо",
+    navBot: "Бот",
+    heroTitle: "Тарҷума барои панҷ забон",
+    heroLede: "Қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ, англисӣ. Матн, ҳуҷҷатҳо, аудио ва видео.",
+    ctaOpen: "Кушодани TilTap",
+    ctaBot: "Бот дар Telegram",
+    formatsTitle: "Чиро фиристодан мумкин аст",
+    g1Title: "Садо ва видео",
+    g1Text: "Сухан ба матн бо нишонаҳои вақт табдил меёбад. Метавонед пайвандеро ба YouTube, TikTok ё Instagram фиристед.",
+    g2Title: "Ҳуҷҷатҳо",
+    g2Text: "Матн гирифта ва тарҷума карда мешавад.",
+    g3Title: "Ҷадвалҳо ва субтитрҳо",
+    g3Text: "Ба формати худ бармегарданд: сутунҳо ва тайм-кодҳо дар ҷойи худанд.",
+    limitsTitle: "Чиро пешакӣ донистан лозим аст",
+    l1Title: "Садо",
+    l1Text: "Чӣ қадаре ки сабт бадтар бошад, ҳамон қадар хатогиҳо дар рамзкушоӣ бештар мешаванд.",
+    l2Title: "Гӯяндагон",
+    l2Text: "Репликаҳо ҷудо карда намешаванд: диалог ҳамчун матни пайваста хоҳад омад.",
+    l3Title: "Сканҳо",
+    l3Text: "PDF-и бе қабати матнӣ хонда намешавад.",
+    ctaTitle: "Дар маводи худ санҷед",
+    ctaText: "Бақайдгирӣ лозим нест.",
+    footApp: "Экрани корӣ"
+  },
+
+  uz: {
+    navFormats: "Formatlar",
+    navBot: "Бот",
+    heroTitle: "Besh til uchun tarjima",
+    heroLede: "Qirgʻiz tili, tojik tili, oʻzbek tili, rus tili, ingliz tili. Matn, hujjatlar, audio va video.",
+    ctaOpen: "TilTapʼni ochish",
+    ctaBot: "Telegramdagi bot",
+    formatsTitle: "Nimani yuborish mumkin",
+    g1Title: "Ovoz va video",
+    g1Text: "Nutq vaqt belgilari bilan matnga aylanadi. YouTube, TikTok yoki Instagram havolasini yuborish mumkin.",
+    g2Title: "Hujjatlar",
+    g2Text: "Matn olinadi va tarjima qilinadi.",
+    g3Title: "Jadvallar va subtitrlar",
+    g3Text: "Oʻz formatida qaytariladi: ustunlar va vaqt kodlari oʻz joyida.",
+    limitsTitle: "Oldindan nimalarni bilish kerak",
+    l1Title: "Shovqin",
+    l1Text: "Yozuv qanchalik yomon boʻlsa, transkripsiyadagi xatolar shunchalik koʻp boʻladi.",
+    l2Title: "Soʻzlovchilar",
+    l2Text: "Replikalar ajratilmaydi: dialog yaxlit matn koʻrinishida keladi.",
+    l3Title: "Skanlar",
+    l3Text: "Matn qatlami boʻlmagan PDF oʻqilmaydi.",
+    ctaTitle: "Oʻz materialingizda tekshirib koʻring",
+    ctaText: "Roʻyxatdan oʻtish kerak emas.",
+    footApp: "Ishchi ekran"
   }
 };
 
