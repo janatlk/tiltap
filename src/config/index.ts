@@ -107,22 +107,28 @@ const envSchema = z.object({
     .string()
     .optional()
     .or(z.literal(""))
-    .default("gpt-5.5,gpt-5.6-terra")
+    .default("gpt-5.6-luna,gpt-5.6-terra")
     .transform((val) =>
       val
         ?.split(",")
         .map((s) => s.trim())
         .filter(Boolean) ?? []
     ),
-  TILTAB_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("gpt-4o-mini"),
-  // Kyrgyz, Tajik and Uzbek are low-resource: the mini model produces malformed
-  // word forms and Russian/Turkic hybrids, so route them to a stronger model.
-  // Cost is negligible either way (~$0.0001 vs ~$0.0016 per translation).
+  TILTAB_TRANSLATION_MODEL: z.string().optional().or(z.literal("")).default("gpt-5.6-luna"),
+  // Раньше здесь стоял gpt-4o, а на остальных языках gpt-4o-mini. Замеры на
+  // реальных текстах из базы показали, что обе проигрывают gpt-5.6-luna:
+  // gpt-4o выдавал узбекскую кириллицу там, где нужна латиница, а mini на
+  // таджикском возвращал исходник непереведённым. При этом luna в восемь раз
+  // дешевле gpt-4o ($0.20/$1.20 против $2.50/$10.00 за 1M токенов).
+  //
+  // Разделение на "дешёвую" и "сильную" модель осталось на случай, если для
+  // редких языков понадобится gpt-5.6-terra: она чуть точнее в обращениях
+  // ("эже" сохраняет, luna переводит как "сестра"), но втрое дороже.
   TILTAB_TRANSLATION_MODEL_LOWRESOURCE: z
     .string()
     .optional()
     .or(z.literal(""))
-    .default("gpt-4o"),
+    .default("gpt-5.6-luna"),
   TILTAB_LOWRESOURCE_LANGUAGES: z
     .string()
     .optional()

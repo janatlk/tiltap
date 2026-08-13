@@ -503,7 +503,19 @@ function applyModelParams(payload: Record<string, unknown>, model: string, maxTo
   }
   // temperature не задаём вовсе: любое значение, кроме единицы, отвергается,
   // а единица — и есть умолчание.
-  if (maxTokens && maxTokens > 0) payload.max_completion_tokens = maxTokens;
+  //
+  // Бюджет у этих моделей общий на рассуждения и на ответ. Наш прежний расчёт
+  // покрывал только ответ, рассуждения съедали его целиком, и перевод приходил
+  // обрезанным — то есть модель выглядела хуже, чем она есть. Утраиваем запас:
+  // неиспользованные токены не оплачиваются.
+  if (maxTokens && maxTokens > 0) payload.max_completion_tokens = maxTokens * 3 + 1024;
+
+  // reasoning_effort намеренно не отправляется. Допустимые значения разнятся
+  // от модели к модели: gpt-5/mini/nano принимают "minimal" и отвергают "none",
+  // gpt-5.1 и новее — наоборот. Сопоставление версий с допустимыми значениями
+  // устареет с выходом следующей модели, а ошибка в нём означает 400 и полный
+  // отказ перевода. Без параметра все проверенные модели и так тратят на
+  // размышления ноль токенов.
 }
 
 async function callTranslationProvider(
@@ -556,10 +568,21 @@ function logTranslationCost(provider: string, model: string, promptTokens: numbe
     "gpt-4o": { prompt: 2.5, completion: 10.0 },
     "gpt-4.1-mini": { prompt: 0.4, completion: 1.6 },
     "gpt-4.1": { prompt: 2.0, completion: 8.0 },
+    "gpt-5.4": { prompt: 2.5, completion: 15.0 },
+    "gpt-5.5": { prompt: 5.0, completion: 30.0 },
+    "gpt-5.6-sol": { prompt: 5.0, completion: 30.0 },
+    "gpt-5.6-terra": { prompt: 2.0, completion: 12.0 },
+    "gpt-5.6-luna": { prompt: 0.2, completion: 1.2 },
     "llama-3.3-70b-versatile": { prompt: 0.59, completion: 0.79 },
   };
-  const price = prices[model] ?? { prompt: 0, completion: 0 };
-  const costUsd = (promptTokens * price.prompt + completionTokens * price.completion) / 1_000_000;
+  const price = prices[model];
+  if (!price) {
+    // Молчаливый ноль в отчёте о расходах опаснее отсутствия отчёта: он
+    // выглядит как "бесплатно" и прячет модель, за которую мы платим.
+    logger.warn("No price known for translation model; cost will be reported as zero", { model });
+  }
+  const rate = price ?? { prompt: 0, completion: 0 };
+  const costUsd = (promptTokens * rate.prompt + completionTokens * rate.completion) / 1_000_000;
   logger.info("Translation cost", { provider, model, promptTokens, completionTokens, costUsd: Math.round(costUsd * 1e6) / 1e6 });
   return costUsd;
 }
