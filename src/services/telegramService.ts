@@ -37,13 +37,19 @@ export const LANGUAGE_LABELS: Record<SupportedLanguage, string> = {
   uz_cyrl: "Ўзбекча (Кирил)",
 };
 
-export const LANGUAGE_FLAGS: Record<SupportedLanguage, string> = {
-  ky: "🇰🇬",
-  tg: "🇹🇯",
-  uz: "🇺🇿",
-  en: "🇬🇧",
-  ru: "🇷🇺",
-  uz_cyrl: "🇺🇿",
+/**
+ * Код языка перед названием. Раньше здесь стояли флаги, но флаг обозначает
+ * страну, а не язык: у узбекской кириллицы и латиницы флаг один, кыргызский
+ * звучит не только в Кыргызстане, а английский пришлось бы делить между
+ * британским и американским. Код однозначен и никого не задевает.
+ */
+export const LANGUAGE_CODES: Record<SupportedLanguage, string> = {
+  ky: "KY",
+  tg: "TG",
+  uz: "UZ",
+  en: "EN",
+  ru: "RU",
+  uz_cyrl: "UZ",
 };
 
 export const INTERFACE_LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
@@ -60,11 +66,11 @@ export const INTERFACE_LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
 // ---------------------------------------------------------------------------
 const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> = {
   welcome: {
-    ky: "<b>TilTap</b>ке кош келиңиз!\n\nМен аудио, видео жана төмөнкү шилтемелердеги сүйлөмдү текстке айлантам:\n• YouTube\n• TikTok\n• Instagram Reels\n\nТөмөнкү тилдерди колдойм:\n• Кыргызча\n• Тоҷикӣ\n• Ўзбекча\n• Русча\n• Англисче\n\nМындан тышкары, даяр текстти сиз тандаган тилге которуп берем.\n\nЖөн гана мага аудио, видео, үн кат же шилтеме жибериңиз.",
-    tg: "Хуш омадед ба <b>TilTap</b>!\n\nМан аудио, видео ва пайвандҳои зеринро ба матн табдил медиҳам:\n• YouTube\n• TikTok\n• Instagram Reels\n\nЗабонҳои зеринро дастгирӣ мекунам:\n• Қирғизӣ\n• Тоҷикӣ\n• Ўзбекӣ\n• Русӣ\n• Англисӣ\n\nҲамчунин, натиҷаи тайёрро ба забони интихобкардаатон тарҷума мекунам.\n\nФақат ба ман аудио, видео, паёми овозӣ ё пайванд фиристед.",
-    uz: "<b>TilTap</b>ga xush kelibsiz!\n\nMen audio, video va quyidagi havolalardagi nutqni matnga aylantiraman:\n• YouTube\n• TikTok\n• Instagram Reels\n\nQuyidagi tillarni qo‘llab-quvvatlayman:\n• Qirg‘iz tili\n• Tojik tili\n• O‘zbek tili\n• Rus tili\n• Ingliz tili\n\nShuningdek, tayyor natijani siz tanlagan tilga tarjima qilib beraman.\n\nShunchaki menga audio, video, ovozli xabar yoki havola yuboring — men uni matn ko‘rinishiga aylantiraman.",
-    en: "Welcome to <b>TilTap</b>!\n\nI turn speech from audio, video, and the following links into text:\n• YouTube\n• TikTok\n• Instagram Reels\n\nI support these languages:\n• Kyrgyz\n• Tajik\n• Uzbek\n• Russian\n• English\n\nI can also translate the result into the language you choose.\n\nJust send me audio, video, a voice message, or a link.",
-    ru: "Добро пожаловать в <b>TilTap</b>!\n\nЯ превращаю речь из аудио, видео и следующих ссылок в текст:\n• YouTube\n• TikTok\n• Instagram Reels\n\nПоддерживаю следующие языки:\n• Кыргызский\n• Таджикский\n• Узбекский\n• Русский\n• Английский\n\nА ещё переведу готовый результат на выбранный вами язык.\n\nПросто отправьте мне аудио, видео, голосовое сообщение или ссылку.",
+    ky: "⚠️ <b>Бот сынак режиминде иштеп жатат.</b> Каталар болушу мүмкүн — байкасаңыз, билдириңиз.\n\n<b>TilTap</b>ке кош келиңиз!\n\nМен аудио, видео жана төмөнкү шилтемелердеги сүйлөмдү текстке айлантам:\n• YouTube\n• TikTok\n• Instagram Reels\n\nТөмөнкү тилдерди колдойм:\n• Кыргызча\n• Тоҷикӣ\n• Ўзбекча\n• Русча\n• Англисче\n\nМындан тышкары, даяр текстти сиз тандаган тилге которуп берем.\n\nЖөн гана мага аудио, видео, үн кат же шилтеме жибериңиз.",
+    tg: "⚠️ <b>Бот дар ҳолати озмоишӣ кор мекунад.</b> Хатоҳо имконпазиранд — агар бинед, хабар диҳед.\n\nХуш омадед ба <b>TilTap</b>!\n\nМан аудио, видео ва пайвандҳои зеринро ба матн табдил медиҳам:\n• YouTube\n• TikTok\n• Instagram Reels\n\nЗабонҳои зеринро дастгирӣ мекунам:\n• Қирғизӣ\n• Тоҷикӣ\n• Ўзбекӣ\n• Русӣ\n• Англисӣ\n\nҲамчунин, натиҷаи тайёрро ба забони интихобкардаатон тарҷума мекунам.\n\nФақат ба ман аудио, видео, паёми овозӣ ё пайванд фиристед.",
+    uz: "⚠️ <b>Bot sinov rejimida ishlamoqda.</b> Xatolar bo'lishi mumkin — ko'rsangiz, xabar bering.\n\n<b>TilTap</b>ga xush kelibsiz!\n\nMen audio, video va quyidagi havolalardagi nutqni matnga aylantiraman:\n• YouTube\n• TikTok\n• Instagram Reels\n\nQuyidagi tillarni qo‘llab-quvvatlayman:\n• Qirg‘iz tili\n• Tojik tili\n• O‘zbek tili\n• Rus tili\n• Ingliz tili\n\nShuningdek, tayyor natijani siz tanlagan tilga tarjima qilib beraman.\n\nShunchaki menga audio, video, ovozli xabar yoki havola yuboring — men uni matn ko‘rinishiga aylantiraman.",
+    en: "⚠️ <b>The bot is in test mode.</b> Mistakes are possible — please report any you notice.\n\nWelcome to <b>TilTap</b>!\n\nI turn speech from audio, video, and the following links into text:\n• YouTube\n• TikTok\n• Instagram Reels\n\nI support these languages:\n• Kyrgyz\n• Tajik\n• Uzbek\n• Russian\n• English\n\nI can also translate the result into the language you choose.\n\nJust send me audio, video, a voice message, or a link.",
+    ru: "⚠️ <b>Бот работает в тестовом режиме.</b> Возможны ошибки — если заметите, сообщите.\n\nДобро пожаловать в <b>TilTap</b>!\n\nЯ превращаю речь из аудио, видео и следующих ссылок в текст:\n• YouTube\n• TikTok\n• Instagram Reels\n\nПоддерживаю следующие языки:\n• Кыргызский\n• Таджикский\n• Узбекский\n• Русский\n• Английский\n\nА ещё переведу готовый результат на выбранный вами язык.\n\nПросто отправьте мне аудио, видео, голосовое сообщение или ссылку.",
   },
   help: {
     ky: "<b>Жардам</b>\n\n<b>Файл жиберүү:</b> аудио, видео, үн каттуу же документ жибериңиз. Бот тилди сурайт, андан кийин иштей баштайт.\n\n<b>Шилтемелер:</b> YouTube, TikTok, Instagram Reels шилтемелерин түз эле жибериңиз.\n\n<b>Тил орнотуулар:</b> «Орнотуулар» менен интерфейстин тилин жана которуу үчүн демейки тилди тандаңыз.\n\n<b>Командаалар:</b>\n/start — негизки меню\n/help — бул жардам\n/settings — тил орнотуулар\n/stop — активдүү процессти токтотуу",
@@ -194,7 +200,7 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     ru: "В очереди: {position}-й. Примерно {minutes} мин.",
   },
   stageTranscribe: {
-    ky: "Распознаоо жатам...",
+    ky: "Текстке айландырып жатам...",
     tg: "Транскрипция мекунам...",
     uz: "Transkripsiya qilinmoqda...",
     en: "Transcribing...",
@@ -222,7 +228,7 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     ru: "Загрузка аудио с YouTube...",
   },
   testRecognizing: {
-    ky: "Сүйлөмдү распознаоо жатам...",
+    ky: "Сүйлөмдү таанып жатам...",
     tg: "Транскрипцияи сухан...",
     uz: "Nutqni transkripsiya qilish...",
     en: "Recognizing speech...",
@@ -1142,7 +1148,7 @@ export function createInterfaceLanguageKeyboard(
   backAction = "action:settings"
 ): { inline_keyboard: InlineKeyboardButton[][] } {
   const buttons = INTERFACE_LANGUAGES.map((lang) => ({
-    text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
+    text: `${LANGUAGE_CODES[lang]} ${LANGUAGE_LABELS[lang]}`,
     callback_data: `ui_lang:${lang}`,
   }));
   return {
@@ -1156,7 +1162,7 @@ export function createSourceLanguageKeyboard(
   backAction = "action:settings"
 ): { inline_keyboard: InlineKeyboardButton[][] } {
   const buttons = SOURCE_LANGUAGES.map((lang) => ({
-    text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
+    text: `${LANGUAGE_CODES[lang]} ${LANGUAGE_LABELS[lang]}`,
     callback_data: `source:${lang}:${action}`,
   }));
   return {
@@ -1170,7 +1176,7 @@ export function createTargetLanguageKeyboard(
   backAction = "action:settings"
 ): { inline_keyboard: InlineKeyboardButton[][] } {
   const buttons = SUPPORTED_LANGUAGES.map((lang) => ({
-    text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
+    text: `${LANGUAGE_CODES[lang]} ${LANGUAGE_LABELS[lang]}`,
     callback_data: `target:${lang}:${action}`,
   }));
   return {
@@ -1185,7 +1191,7 @@ export function createTargetLanguageKeyboard(
 
 /**
  * The two language buttons used to be asymmetric: one read "Language in
- * recording" and the other just "🇷🇺 Русский". Naming a language without
+ * recording" and the other just "RU Русский". Naming a language without
  * saying what it is for left people guessing which of the two settings the
  * button changed. Both now name the setting and show its current value, one per
  * row so the longer text is not truncated.
@@ -1199,10 +1205,10 @@ export function createConfirmationKeyboard(
   const targetValue =
     targetLanguage === "none"
       ? t("noDefaultTarget", lang)
-      : `${LANGUAGE_FLAGS[targetLanguage]} ${LANGUAGE_LABELS[targetLanguage]}`;
+      : `${LANGUAGE_CODES[targetLanguage]} ${LANGUAGE_LABELS[targetLanguage]}`;
 
   const sourceValue = sourceLanguage
-    ? `${LANGUAGE_FLAGS[sourceLanguage]} ${LANGUAGE_LABELS[sourceLanguage]}`
+    ? `${LANGUAGE_CODES[sourceLanguage]} ${LANGUAGE_LABELS[sourceLanguage]}`
     : null;
 
   const sourceText = sourceValue
@@ -1226,7 +1232,7 @@ export function createConfirmationKeyboard(
 
 export function createTestLanguageKeyboard(): { inline_keyboard: InlineKeyboardButton[][] } {
   const buttons = SUPPORTED_LANGUAGES.map((lang) => ({
-    text: `${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}`,
+    text: `${LANGUAGE_CODES[lang]} ${LANGUAGE_LABELS[lang]}`,
     callback_data: `test_lang:${lang}`,
   }));
   return {

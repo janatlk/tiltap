@@ -62,7 +62,7 @@ import {
   type PendingTranslateText,
   type UserPreferences,
   LANGUAGE_LABELS,
-  LANGUAGE_FLAGS,
+  LANGUAGE_CODES,
   TEXT_FILE_THRESHOLD,
 } from "../services/telegramService";
 import {
@@ -353,11 +353,11 @@ async function editMainMenu(chatId: number, messageId: number, prefs: UserPrefer
 
 function buildSettingsMenuText(prefs: UserPreferences): string {
   const lang = prefs.interfaceLanguage;
-  const sourceLabel = `${LANGUAGE_FLAGS[prefs.sourceLanguage]} ${LANGUAGE_LABELS[prefs.sourceLanguage]}`;
-  const targetLabel = prefs.targetLanguage === "none" ? t("noDefaultTarget", lang) : `${LANGUAGE_FLAGS[prefs.targetLanguage]} ${LANGUAGE_LABELS[prefs.targetLanguage]}`;
+  const sourceLabel = `${LANGUAGE_CODES[prefs.sourceLanguage]} ${LANGUAGE_LABELS[prefs.sourceLanguage]}`;
+  const targetLabel = prefs.targetLanguage === "none" ? t("noDefaultTarget", lang) : `${LANGUAGE_CODES[prefs.targetLanguage]} ${LANGUAGE_LABELS[prefs.targetLanguage]}`;
 
   return `${t("settingsMenu", lang)}\n\n` +
-    `${t("settingsInterfaceLanguage", lang)}: ${LANGUAGE_FLAGS[lang]} ${LANGUAGE_LABELS[lang]}\n` +
+    `${t("settingsInterfaceLanguage", lang)}: ${LANGUAGE_CODES[lang]} ${LANGUAGE_LABELS[lang]}\n` +
     `${t("settingsSourceLanguage", lang)}: ${sourceLabel}\n` +
     `${t("settingsTargetLanguage", lang)}: ${targetLabel}`;
 }
@@ -515,10 +515,10 @@ async function handleMediaLink(chatId: number, url: string, prefs: UserPreferenc
 }
 
 function buildConfirmationText(lang: SupportedLanguage, sourceLang: SupportedLanguage, targetLang: SupportedLanguage | "none", title?: string): string {
-  const sourceLabel = `${LANGUAGE_FLAGS[sourceLang]} ${LANGUAGE_LABELS[sourceLang]}`;
+  const sourceLabel = `${LANGUAGE_CODES[sourceLang]} ${LANGUAGE_LABELS[sourceLang]}`;
   const targetLabel = targetLang === "none"
     ? t("noDefaultTarget", lang)
-    : `${LANGUAGE_FLAGS[targetLang]} ${LANGUAGE_LABELS[targetLang]}`;
+    : `${LANGUAGE_CODES[targetLang]} ${LANGUAGE_LABELS[targetLang]}`;
 
   const confirmText = t(targetLang === "none" ? "confirmStartNoTranslation" : "confirmStart", lang, { source: sourceLabel, target: targetLabel });
   if (title) {
