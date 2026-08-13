@@ -1,0 +1,151 @@
+/* ============================================================================
+   TilTap: единый набор токенов оформления.
+
+   Файл общий для лендинга (/) и рабочей страницы (/web/). Держать его один
+   важнее, чем удобно: как только цвета и радиусы разъезжаются по двум местам,
+   правка в одном оставляет второе в старом виде, и продукт выглядит собранным
+   из кусков.
+
+   Цветов ровно один акцент. Тёмная тема задаёт те же переменные, а не другие,
+   поэтому всё, что построено на токенах, переживает смену темы без правок.
+   ========================================================================= */
+
+:root {
+  /* Поверхности и текст. Ни чистого чёрного, ни чистого белого: на пределе
+     шкалы пропадает ощущение глубины, всё становится плоской наклейкой. */
+  --paper:        oklch(0.985 0.002 106);
+  --paper-sunk:   oklch(0.962 0.003 106);
+  --paper-raised: oklch(1 0 0);
+  --ink:          oklch(0.21 0.012 265);
+  --ink-soft:     oklch(0.47 0.011 265);
+  --ink-faint:    oklch(0.63 0.010 265);
+  --rule:         oklch(0.90 0.004 265);
+  --rule-strong:  oklch(0.83 0.006 265);
+
+  /* Единственный акцент. Глубокий зелёный выбран не по вкусу, а по работе:
+     он не спорит с красным у ошибок и янтарным у предупреждений, которые в
+     приложении уже заняты смыслом. */
+  --accent:        oklch(0.50 0.088 158);
+  --accent-hover:  oklch(0.44 0.090 158);
+  --accent-quiet:  oklch(0.94 0.020 158);
+  --accent-ink:    oklch(0.985 0.004 158);
+
+  /* Состояния. Держим здесь же, чтобы приложение не заводило собственные. */
+  --danger:  oklch(0.55 0.19 27);
+  --warn:    oklch(0.72 0.15 75);
+  --ok:      oklch(0.55 0.12 155);
+
+  /* Одна шкала скруглений на весь продукт: поверхности мягкие, всё
+     нажимаемое скруглено полностью. Правило простое, и потому его видно. */
+  --r-surface: 14px;
+  --r-field:   10px;
+  --r-press:   999px;
+
+  --shadow-soft:  0 1px 2px oklch(0.21 0.012 265 / 0.05),
+                  0 8px 24px oklch(0.21 0.012 265 / 0.06);
+  --shadow-lift:  0 2px 4px oklch(0.21 0.012 265 / 0.06),
+                  0 18px 48px oklch(0.21 0.012 265 / 0.10);
+
+  --font-ui: "Onest", "Golos Text", ui-sans-serif, system-ui, "Segoe UI",
+             "Noto Sans", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "Consolas", monospace;
+
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Тёмная тема по системной настройке. Отдельный [data-theme] ниже нужен,
+   чтобы ручной переключатель мог победить систему в обе стороны.
+
+   [data-frame-theme] ставит снаружи лендинг, когда открывает рабочий экран в
+   рамке предпросмотра: страница-хозяин навязывает рамке свою тему, иначе
+   внутри светлой страницы оказывается тёмное приложение. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-frame-theme="light"]) {
+    --paper:        oklch(0.175 0.008 265);
+    --paper-sunk:   oklch(0.145 0.008 265);
+    --paper-raised: oklch(0.215 0.009 265);
+    --ink:          oklch(0.955 0.003 265);
+    --ink-soft:     oklch(0.76 0.008 265);
+    --ink-faint:    oklch(0.60 0.009 265);
+    --rule:         oklch(0.30 0.010 265);
+    --rule-strong:  oklch(0.38 0.012 265);
+
+    --accent:       oklch(0.72 0.115 158);
+    --accent-hover: oklch(0.79 0.115 158);
+    --accent-quiet: oklch(0.28 0.040 158);
+    --accent-ink:   oklch(0.16 0.020 158);
+
+    --danger: oklch(0.68 0.17 27);
+    --warn:   oklch(0.80 0.14 75);
+    --ok:     oklch(0.74 0.13 155);
+
+    --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.30), 0 8px 24px oklch(0 0 0 / 0.36);
+    --shadow-lift: 0 2px 4px oklch(0 0 0 / 0.34), 0 18px 48px oklch(0 0 0 / 0.46);
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:        oklch(0.175 0.008 265);
+  --paper-sunk:   oklch(0.145 0.008 265);
+  --paper-raised: oklch(0.215 0.009 265);
+  --ink:          oklch(0.955 0.003 265);
+  --ink-soft:     oklch(0.76 0.008 265);
+  --ink-faint:    oklch(0.60 0.009 265);
+  --rule:         oklch(0.30 0.010 265);
+  --rule-strong:  oklch(0.38 0.012 265);
+
+  --accent:       oklch(0.72 0.115 158);
+  --accent-hover: oklch(0.79 0.115 158);
+  --accent-quiet: oklch(0.28 0.040 158);
+  --accent-ink:   oklch(0.16 0.020 158);
+
+  --danger: oklch(0.68 0.17 27);
+  --warn:   oklch(0.80 0.14 75);
+  --ok:     oklch(0.74 0.13 155);
+
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.30), 0 8px 24px oklch(0 0 0 / 0.36);
+  --shadow-lift: 0 2px 4px oklch(0 0 0 / 0.34), 0 18px 48px oklch(0 0 0 / 0.46);
+}
+
+/* Рабочая страница построена на daisyUI. Переопределяем её переменные теми же
+   токенами: разметку приложения при этом трогать не нужно вовсе, а значит
+   редизайн не может уронить логику, которая к этой разметке привязана. */
+[data-theme="tiltap"] {
+  color-scheme: light;
+
+  --color-base-100: var(--paper-raised);
+  --color-base-200: var(--paper);
+  --color-base-300: var(--paper-sunk);
+  --color-base-content: var(--ink);
+
+  --color-primary: var(--accent);
+  --color-primary-content: var(--accent-ink);
+  --color-secondary: var(--ink);
+  --color-secondary-content: var(--paper-raised);
+  --color-accent: var(--accent);
+  --color-accent-content: var(--accent-ink);
+  --color-neutral: var(--ink);
+  --color-neutral-content: var(--paper-raised);
+
+  --color-info: oklch(0.55 0.10 240);
+  --color-info-content: oklch(0.98 0.01 240);
+  --color-success: var(--ok);
+  --color-success-content: oklch(0.98 0.01 155);
+  --color-warning: var(--warn);
+  --color-warning-content: oklch(0.24 0.05 75);
+  --color-error: var(--danger);
+  --color-error-content: oklch(0.98 0.01 27);
+
+  --radius-selector: var(--r-press);
+  --radius-field: var(--r-field);
+  --radius-box: var(--r-surface);
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="tiltap"] { color-scheme: dark; }
+}

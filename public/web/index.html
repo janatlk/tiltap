@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="business">
+<html lang="en" data-theme="tiltap">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +7,12 @@
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Шрифт обязан покрывать расширенную кириллицу: без этого ө, ү, ң и ҳ, ҷ, ӯ
+       подставятся системными и строка распадётся на два разных начертания. -->
+  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/web/brand.css">
   <style>
     .dropzone {
       border: 2px dashed color-mix(in oklab, var(--color-base-content) 20%, transparent); background: color-mix(in oklab, var(--color-base-content) 3%, transparent);
@@ -41,13 +47,220 @@
       font-size: 1.1em;
       margin-right: 0.3em;
     }
+
+    /* =====================================================================
+       Оформление поверх daisyUI.
+
+       Разметка страницы не менялась: к её идентификаторам и классам привязан
+       весь рабочий код, а проверить его локально нечем. Поэтому внешний вид
+       задаётся стилями и токенами из brand.css, а поведение остаётся тем же.
+       ================================================================== */
+
+    body { font-family: var(--font-ui); background: var(--paper); }
+
+    h1, h2, h3, .card-title { letter-spacing: -0.022em; }
+
+    .app-bar {
+      display: flex; align-items: center; gap: 1rem;
+      padding-bottom: 1.25rem; border-bottom: 1px solid var(--rule);
+    }
+    .app-brand {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-weight: 800; font-size: 1rem; letter-spacing: -0.03em;
+      text-decoration: none; color: var(--ink);
+    }
+    .app-brand-mark {
+      width: 24px; height: 24px; border-radius: 8px; flex: none;
+      background: var(--accent); color: var(--accent-ink);
+      display: grid; place-items: center; font-size: .75rem; font-weight: 800;
+    }
+    .app-bar-side { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
+
+    /* Карточки держатся на границе, а не на тени: на странице их несколько
+       подряд, и плавающие друг над другом плашки создают глубину, которой
+       в этом экране нет. */
+    .card {
+      border: 1px solid var(--rule);
+      box-shadow: none;
+      background: var(--paper-raised);
+    }
+
+    .dropzone {
+      border-width: 1.5px;
+      border-color: var(--rule-strong);
+      background: var(--paper-sunk);
+      opacity: 1;
+      color: var(--ink-soft);
+      transition: border-color .2s var(--ease), background-color .2s var(--ease);
+    }
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--accent);
+      background: var(--accent-quiet);
+      color: var(--ink);
+    }
+
+    .btn { font-weight: 600; }
+    .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .btn:active { transform: translateY(1px); }
+
+    .tabs-lift .tab { font-weight: 600; }
+
+    .select:focus, .input:focus, .textarea:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    .text-box { font-size: .9375rem; }
+
+    /* На телефоне поля со шрифтом меньше 16px заставляют iOS приближать экран
+       при фокусе, и человек оказывается на увеличенной странице, из которой
+       сам не выберется. */
+    @media (max-width: 640px) {
+      .input, .select, .textarea { font-size: 16px; }
+      .app-bar { flex-wrap: wrap; }
+    }
+
+    /* Ширину задаём сами, а не классом Tailwind: он собирается в браузере из
+       CDN, и раскладка страницы не должна зависеть от того, дошла сборка или
+       нет. */
+    .shell { width: min(100% - 1rem, 1180px); margin-inline: auto; }
+
+    /* --- Рабочее пространство ------------------------------------------- */
+    .workspace {
+      display: grid; gap: 1.25rem;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: start;
+    }
+    /* Ниже 1024px панели встают друг под друга: две колонки на планшете
+       сжимают обе до нечитаемой ширины. */
+    @media (max-width: 1024px) { .workspace { grid-template-columns: minmax(0, 1fr); } }
+
+    .pane {
+      background: var(--paper-raised);
+      border: 1px solid var(--rule);
+      border-radius: var(--r-surface);
+      padding: 1.25rem;
+    }
+    .pane-result { position: sticky; top: 1.25rem; }
+    @media (max-width: 1024px) { .pane-result { position: static; } }
+
+    /* --- Один вход вместо трёх вкладок ---------------------------------- */
+    .composer { position: relative; }
+    .composer-input {
+      width: 100%; resize: vertical; min-height: 9.5rem;
+      font-family: inherit; font-size: 0.9375rem; line-height: 1.65;
+      padding: 0.875rem 1rem;
+      color: var(--ink); background: var(--paper-sunk);
+      border: 1px solid var(--rule); border-radius: var(--r-field);
+    }
+    .composer-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+    .composer-file { border: 1px solid var(--rule); border-radius: var(--r-field);
+                     background: var(--paper-sunk); padding: 0.875rem; }
+    .file-card { display: flex; align-items: center; gap: 0.75rem; }
+    .file-ext {
+      flex: none; font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 700;
+      padding: 0.3125rem 0.5rem; border-radius: 6px;
+      background: var(--accent-quiet); color: var(--accent);
+    }
+    .file-name { flex: 1; min-width: 0; font-size: 0.875rem;
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Подсветка появляется только когда файл действительно тащат: постоянная
+       пунктирная рамка вокруг поля ввода читается как ошибка вёрстки. */
+    .dropzone {
+      position: absolute; inset: 0; display: none; place-items: center;
+      border: 2px dashed var(--accent); border-radius: var(--r-field);
+      background: color-mix(in oklab, var(--accent) 12%, var(--paper-raised));
+      color: var(--ink); font-weight: 600; padding: 0;
+      /* Перенос обрабатывает поле ввода целиком. Подсветка не должна ловить
+         события сама, иначе при заходе курсора на неё срабатывает dragleave
+         поля и она гаснет прямо под курсором. */
+      pointer-events: none;
+    }
+    .dropzone.dragover { display: grid; }
+
+    .composer-bar {
+      display: flex; align-items: center; gap: 0.625rem; flex-wrap: wrap;
+      margin-top: 0.75rem;
+    }
+    .kind-chip {
+      font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 700;
+      letter-spacing: 0.04em; padding: 0.3125rem 0.625rem;
+      border-radius: var(--r-press); border: 1px solid var(--rule-strong);
+      color: var(--ink-soft);
+    }
+    .kind-chip:empty { display: none; }
+    .kind-chip[data-kind="youtube"] { border-color: var(--accent); color: var(--accent); }
+    .kind-chip[data-kind="file"] { border-color: var(--accent); color: var(--accent); }
+
+    .link-quiet {
+      margin-left: auto; background: none; border: 0; cursor: pointer;
+      font: inherit; font-size: 0.8125rem; color: var(--ink-faint);
+      text-decoration: underline; text-underline-offset: 3px;
+    }
+    .link-quiet:hover { color: var(--ink); }
+
+    /* --- Языки: пара со сменой направления ------------------------------- */
+    .langrow {
+      display: grid; grid-template-columns: 1fr auto 1fr;
+      gap: 0.625rem; align-items: end; margin: 1.25rem 0;
+    }
+    .langrow-field { min-width: 0; }
+    .swap-btn {
+      width: 38px; height: 38px; margin-bottom: 0.25rem; flex: none;
+      display: grid; place-items: center; cursor: pointer;
+      border-radius: var(--r-press); border: 1px solid var(--rule-strong);
+      background: var(--paper-raised); color: var(--ink-soft);
+      transition: color .18s var(--ease), border-color .18s var(--ease);
+    }
+    .swap-btn:hover { color: var(--accent); border-color: var(--accent); }
+    .swap-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .swap-btn svg { width: 16px; height: 16px; }
+    .swap-btn[disabled] { opacity: .4; cursor: not-allowed; }
+
+    .wait-note { font-size: 0.8125rem; color: var(--ink-faint); margin: 0; }
+
+    /* --- Пустое состояние правой панели ---------------------------------- */
+    .empty-state {
+      display: grid; place-items: center; gap: 0.5rem; text-align: center;
+      padding: 3.5rem 1.25rem; color: var(--ink-faint);
+    }
+    .empty-state svg { width: 34px; height: 34px; opacity: .55; }
+    .empty-state p { margin: 0; font-size: 0.9375rem; color: var(--ink-soft); }
+    .empty-state .empty-sub { font-size: 0.8125rem; color: var(--ink-faint); max-width: 32ch; }
+
+    .sr-only {
+      position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
+
+    /* На телефоне поля со шрифтом меньше 16px заставляют iOS приближать экран
+       при фокусе, и человек оказывается на увеличенной странице, из которой
+       сам не выберется. */
+    @media (max-width: 640px) {
+      .input, .select, .textarea, .composer-input { font-size: 16px; }
+      .app-bar { flex-wrap: wrap; }
+      .pane { padding: 1rem; }
+      .langrow { grid-template-columns: 1fr; }
+      .swap-btn { justify-self: start; margin: 0; transform: rotate(90deg); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .btn:active { transform: none; }
+    }
   </style>
 </head>
 <body class="min-h-screen bg-base-200 py-8 px-4">
-  <div class="max-w-3xl mx-auto space-y-6">
+  <div class="shell space-y-6">
 
-    <header class="text-center space-y-2">
-      <div class="flex justify-end">
+    <header class="space-y-5">
+      <div class="app-bar">
+        <a class="app-brand" href="/">
+          <span class="app-brand-mark" aria-hidden="true">T</span>
+          TilTap
+        </a>
+        <div class="app-bar-side">
         <div class="dropdown dropdown-end">
           <div tabindex="0" role="button" class="btn btn-sm btn-ghost" id="langSwitcherBtn" data-i18n-title="uiLanguageHeader">
             <span aria-hidden="true">🌐</span>
@@ -64,16 +277,62 @@
             <li><a data-ui-lang="uz"><span class="lang-flag">🇺🇿</span>Oʻzbekcha</a></li>
           </ul>
         </div>
+        </div>
       </div>
-      <h1 class="text-3xl font-bold tracking-tight" data-i18n="title">TilTap Web</h1>
-      <p class="text-base-content/70" data-i18n="subtitle">Transcribe audio, video, and links from YouTube, TikTok, and Instagram. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.</p>
-      <a href="/web/admin.html" class="link link-primary text-sm" data-i18n="adminLink">Admin panel</a>
+      <div class="space-y-2">
+        <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight" data-i18n="title">TilTap Web</h1>
+        <p class="text-base-content/70 max-w-2xl" data-i18n="subtitle">Transcribe audio, video, and links from YouTube, TikTok, and Instagram. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.</p>
+        <a href="/web/admin.html" class="link link-primary text-sm" data-i18n="adminLink">Admin panel</a>
+      </div>
     </header>
 
-    <div class="card bg-base-100 shadow-sm">
-      <div class="card-body">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div class="form-control">
+    <!-- =====================================================================
+         Рабочее пространство: слева материал, справа результат.
+
+         Прежняя страница спрашивала языки до того, как человек дал материал, и
+         заставляла его самого отнести свой файл к одной из трёх вкладок. Здесь
+         вход один, а его тип определяется по содержимому: ровно так же, как это
+         уже сделано в боте.
+         ================================================================== -->
+    <div class="workspace">
+
+      <section class="pane">
+        <div class="composer" id="composer">
+          <textarea id="translateText" class="composer-input"
+                    rows="7" data-i18n-placeholder="translateTextPlaceholder"
+                    placeholder="Вставьте текст или ссылку, либо перетащите файл..."></textarea>
+
+          <!-- Выбранный файл занимает место поля ввода: два состояния сразу
+               заставляли бы гадать, что именно уйдёт на обработку. -->
+          <div id="composerFile" class="composer-file hidden">
+            <div class="file-card">
+              <span class="file-ext" id="fileExt">FILE</span>
+              <span class="file-name" id="fileName"></span>
+              <button type="button" class="btn btn-xs btn-ghost" id="clearFileBtn" aria-label="Убрать файл">✕</button>
+            </div>
+            <audio id="fileAudio" controls class="hidden w-full mt-3"></audio>
+          </div>
+
+          <div id="youtubePreview" class="hidden mt-3 aspect-video">
+            <iframe id="youtubeIframe" class="w-full h-full rounded-box" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          </div>
+
+          <div class="dropzone" id="dropzone"><span id="dropzoneLabel">Отпустите файл здесь</span></div>
+        </div>
+
+        <div class="composer-bar">
+          <button type="button" class="btn btn-sm btn-outline" id="pickFileBtn">
+            <span id="pickFileLabel">Выбрать файл</span>
+          </button>
+          <input type="file" id="fileInput" class="hidden"
+                 accept="audio/*,video/*,.txt,.md,.csv,.tsv,.srt,.vtt,.docx,.pptx,.xlsx,.odt,.pdf,.rtf,.html,.htm">
+          <span class="kind-chip" id="kindChip" aria-live="polite"></span>
+          <button type="button" class="link-quiet" id="formatsBtn">Какие форматы</button>
+        </div>
+
+        <!-- Языки спрашиваем после материала, а не до него. -->
+        <div class="langrow">
+          <div class="form-control langrow-field">
             <label class="label" for="sourceLang"><span class="label-text" data-i18n="sourceLangLabel">Transcription language</span></label>
             <select id="sourceLang" class="select select-bordered w-full">
               <option value="auto" data-i18n="autoDetect">Auto detect</option>
@@ -84,7 +343,12 @@
               <option value="en">English</option>
             </select>
           </div>
-          <div class="form-control">
+
+          <button type="button" class="swap-btn" id="swapLangBtn" aria-label="Поменять языки местами">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v13M7 4L4 7M7 4l3 3M17 20V7M17 20l3-3M17 20l-3-3"/></svg>
+          </button>
+
+          <div class="form-control langrow-field">
             <label class="label" for="targetLang"><span class="label-text" data-i18n="targetLangLabel">Translate to</span></label>
             <select id="targetLang" class="select select-bordered w-full">
               <option value="none" data-i18n="noTranslation">No translation</option>
@@ -96,60 +360,42 @@
             </select>
           </div>
         </div>
-      </div>
-    </div>
-
-    <div class="card bg-base-100 shadow-sm">
-      <div class="card-body space-y-4">
-        <div role="tablist" class="tabs tabs-lift">
-          <button role="tab" class="tab tab-active" data-tab="file" data-i18n="tabUpload">Upload file</button>
-          <button role="tab" class="tab" data-tab="youtube" data-i18n="tabYouTube">Video link</button>
-          <button role="tab" class="tab" data-tab="text" data-i18n="tabTranslate">Translate text</button>
-        </div>
-
-        <div id="panel-file">
-          <div class="dropzone" id="dropzone">
-            <div class="text-lg font-medium" data-i18n="dropzoneText">Drag & drop audio/video here or click to browse</div>
-            <input type="file" id="fileInput" accept="audio/*,video/*,.txt,.md,.csv,.tsv,.srt,.vtt,.docx,.pptx,.xlsx,.odt,.pdf,.rtf,.html,.htm">
-            <div class="mt-3 text-sm opacity-80" id="fileName"></div>
-            <div class="mt-3 text-xs opacity-60 leading-relaxed">
-              <div><b>Аудио и видео:</b> MP3, WAV, OGG, M4A, MP4, MOV, MKV — распознаю речь.</div>
-              <div><b>Документы:</b> TXT, DOCX, PDF, PPTX, XLSX, ODT, RTF, HTML, MD — переведу.</div>
-              <div><b>Таблицы и субтитры:</b> CSV, TSV, SRT, VTT — вернутся в своём формате.</div>
-              <div class="mt-1">Старые .doc, .xls, .ppt пересохраните в новом формате. PDF из сканов пока не читаю.</div>
-            </div>
-          </div>
-          <audio id="fileAudio" controls class="hidden w-full mt-3"></audio>
-        </div>
-
-        <div id="panel-youtube" style="display:none;">
-          <div class="form-control">
-            <label class="label" for="youtubeUrl"><span class="label-text" data-i18n="youtubeLabel">Video link (YouTube, TikTok, Instagram)</span></label>
-            <input type="text" id="youtubeUrl" class="input input-bordered w-full" placeholder="https://www.youtube.com/watch?v=... , tiktok.com/... , instagram.com/reel/...">
-          </div>
-          <div id="youtubePreview" class="hidden mt-3 aspect-video">
-            <iframe id="youtubeIframe" class="w-full h-full rounded-box" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-          </div>
-        </div>
-
-        <div id="panel-text" style="display:none;">
-          <div class="form-control">
-            <label class="label" for="translateText"><span class="label-text" data-i18n="translateTextLabel">Text to translate</span></label>
-            <textarea id="translateText" class="textarea textarea-bordered w-full" rows="6" data-i18n-placeholder="translateTextPlaceholder" placeholder="Enter text to translate..."></textarea>
-          </div>
-        </div>
 
         <button class="btn btn-primary btn-block" id="startBtn" data-i18n="startBtn">Start</button>
 
-        <div id="progressWrap" class="hidden space-y-2">
+        <div id="progressWrap" class="hidden space-y-2 mt-4">
           <progress class="progress progress-primary w-full" id="progressBar" value="0" max="100"></progress>
           <div class="flex justify-between text-sm text-base-content/70">
             <span id="progressLabel" data-i18n="progressStarting">Starting...</span>
             <span id="progressPercent">0%</span>
           </div>
+          <!-- Долгое ожидание надо назвать словами: молчащая полоса читается
+               как зависание, и человек уходит перезагружать страницу. -->
+          <p class="wait-note" id="waitNote"></p>
         </div>
 
-        <div id="errorBox" class="alert alert-error hidden" role="alert"></div>
+        <div id="errorBox" class="alert alert-error hidden mt-4" role="alert"></div>
+
+        <!-- Режим обработки. Движок читает его через .tab-active, поэтому
+             переключатель остаётся в разметке, но человеку он больше не
+             показывается: тип материала теперь определяется сам. -->
+        <div role="tablist" class="tabs tabs-lift sr-only" aria-hidden="true">
+          <button role="tab" class="tab tab-active" data-tab="file" tabindex="-1"></button>
+          <button role="tab" class="tab" data-tab="youtube" tabindex="-1"></button>
+          <button role="tab" class="tab" data-tab="text" tabindex="-1"></button>
+        </div>
+        <div id="panel-file" class="hidden"></div>
+        <div id="panel-youtube" class="hidden"></div>
+        <div id="panel-text" class="hidden"></div>
+        <input type="text" id="youtubeUrl" class="sr-only" tabindex="-1" aria-hidden="true">
+      </section>
+
+      <section class="pane pane-result">
+        <div id="resultEmpty" class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 11h16M4 16h9"/></svg>
+          <p id="emptyTitle">Результат появится здесь</p>
+          <p class="empty-sub" id="emptySub">Оригинал и перевод будут рядом, чтобы их можно было сверить.</p>
+        </div>
 
         <div id="resultBox" class="hidden space-y-4">
           <div class="flex flex-wrap justify-between items-center gap-3">
@@ -202,7 +448,7 @@
             <div id="feedbackThanks" class="hidden text-sm text-success" data-i18n="fbThanks">Thanks for the feedback!</div>
           </div>
         </div>
-      </div>
+      </section>
     </div>
 
     <footer class="text-center text-sm text-base-content/50 py-4" data-i18n="footer">
@@ -228,7 +474,7 @@
         dropzoneText: "Drag & drop audio/video here or click to browse",
         youtubeLabel: "Video link (YouTube, TikTok, Instagram)",
         translateTextLabel: "Text to translate",
-        translateTextPlaceholder: "Enter text to translate...",
+        translateTextPlaceholder: "Paste text or a video link, or drop a file here...",
         translateTextButton: "Translate",
         startBtn: "Start",
         progressStarting: "Starting...",
@@ -292,7 +538,7 @@
         dropzoneText: "Перетащите аудио/видео сюда или нажмите для выбора",
         youtubeLabel: "Ссылка на видео (YouTube, TikTok, Instagram)",
         translateTextLabel: "Текст для перевода",
-        translateTextPlaceholder: "Введите текст для перевода...",
+        translateTextPlaceholder: "Вставьте текст или ссылку на видео, либо перетащите файл...",
         translateTextButton: "Перевести",
         startBtn: "Начать",
         progressStarting: "Запуск...",
@@ -1294,6 +1540,190 @@
       }
       showFeedbackThanks();
     });
+
+    // =====================================================================
+    // Умный ввод.
+    //
+    // Раньше человек сам относил свой материал к одной из трёх вкладок. Тип
+    // определяется по содержимому надёжнее, чем угадывается человеком, и в
+    // боте это решение уже принято. Здесь тот же принцип: скрытый
+    // переключатель режимов остаётся, но щёлкает по нему код.
+    // =====================================================================
+    (function () {
+      const composer = document.getElementById("composer");
+      const composerFile = document.getElementById("composerFile");
+      const fileExt = document.getElementById("fileExt");
+      const kindChip = document.getElementById("kindChip");
+      const pickFileBtn = document.getElementById("pickFileBtn");
+      const clearFileBtn = document.getElementById("clearFileBtn");
+      const swapBtn = document.getElementById("swapLangBtn");
+      const waitNote = document.getElementById("waitNote");
+      const resultEmpty = document.getElementById("resultEmpty");
+      const resultBoxEl = document.getElementById("resultBox");
+      const tabFor = {};
+      document.querySelectorAll("[role='tablist'] .tab").forEach((el) => {
+        tabFor[el.dataset.tab] = el;
+      });
+
+      function looksLikeLink(value) {
+        const s = value.trim();
+        if (/\s/.test(s)) return false;              // ссылка не бывает с пробелами
+        return /^(https?:\/\/|www\.)\S+$/i.test(s) ||
+               /^[\w-]+\.(com|net|org|be|ru|kg|tj|uz|io|tv)\/\S*$/i.test(s);
+      }
+
+      // Значение скрытого поля со ссылкой всегда меняем через это место и
+      // всегда с событием: к нему привязан предпросмотр видео, и присвоение
+      // напрямую оставляло на экране ролик от уже стёртой ссылки.
+      function setLinkValue(value) {
+        if (youtubeUrl.value === value) return;
+        youtubeUrl.value = value;
+        youtubeUrl.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+
+      // Режим переключаем щелчком по скрытой вкладке: у неё уже есть весь
+      // обработчик с подписями и панелями, и дублировать его значило бы
+      // завести второй источник правды о том, что сейчас происходит.
+      function setMode(kind) {
+        const tab = tabFor[kind];
+        if (tab && !tab.classList.contains("tab-active")) tab.click();
+      }
+
+      function refresh() {
+        const raw = translateText.value;
+        const trimmed = raw.trim();
+
+        if (currentFile) {
+          setMode("file");
+          const ext = (currentFile.name.split(".").pop() || "file").toUpperCase();
+          fileExt.textContent = ext.slice(0, 5);
+          kindChip.textContent = ext;
+          kindChip.dataset.kind = "file";
+        } else if (looksLikeLink(trimmed)) {
+          setMode("youtube");
+          setLinkValue(trimmed);
+          let host = trimmed;
+          try { host = new URL(/^https?:/i.test(trimmed) ? trimmed : "https://" + trimmed).hostname.replace(/^www\./, ""); } catch (e) {}
+          kindChip.textContent = host;
+          kindChip.dataset.kind = "youtube";
+        } else if (trimmed.length > 0) {
+          setMode("text");
+          youtubeUrl.value = "";
+          // Для текста метка не нужна: поле ввода и так говорит само за себя.
+          // Метка существует, чтобы подтвердить распознанное, а не считать
+          // знаки, которые человек и не просил считать.
+          kindChip.textContent = "";
+          delete kindChip.dataset.kind;
+        } else {
+          // Пустой ввод возвращаем в текстовый режим, иначе после стёртой
+          // ссылки страница осталась бы настроена на скачивание видео.
+          setMode("text");
+          setLinkValue("");
+          kindChip.textContent = "";
+          delete kindChip.dataset.kind;
+        }
+
+        // Нечего обрабатывать: кнопка выключена. Так человек видит, чего не
+        // хватает, вместо того чтобы нажать и получить ошибку.
+        startBtn.disabled = !currentFile && trimmed.length === 0;
+
+        updateWaitNote();
+      }
+
+      function showFile(on) {
+        composerFile.classList.toggle("hidden", !on);
+        translateText.classList.toggle("hidden", on);
+      }
+
+      // Перетаскивание слушаем на всём поле ввода, а не на подсветке: сама
+      // подсветка появляется только во время переноса и до этого события до
+      // неё просто не доходят.
+      let dragDepth = 0;
+      composer.addEventListener("dragenter", (e) => {
+        e.preventDefault();
+        dragDepth += 1;
+        dropzone.classList.add("dragover");
+      });
+      composer.addEventListener("dragover", (e) => e.preventDefault());
+      composer.addEventListener("dragleave", () => {
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) dropzone.classList.remove("dragover");
+      });
+      composer.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dragDepth = 0;
+        dropzone.classList.remove("dragover");
+        if (e.dataTransfer.files.length) {
+          setFile(e.dataTransfer.files[0]);
+          showFile(true);
+          refresh();
+        }
+      });
+
+      pickFileBtn.addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", () => {
+        if (fileInput.files.length) { showFile(true); refresh(); }
+      });
+
+      clearFileBtn.addEventListener("click", () => {
+        currentFile = null;
+        fileInput.value = "";
+        fileName.textContent = "";
+        fileAudio.classList.add("hidden");
+        fileAudio.removeAttribute("src");
+        showFile(false);
+        translateText.focus();
+        refresh();
+      });
+
+      translateText.addEventListener("input", refresh);
+
+      document.getElementById("formatsBtn").addEventListener("click", () => {
+        alert(
+          "Аудио и видео: MP3, WAV, OGG, M4A, MP4, MOV, MKV.\n" +
+          "Документы: TXT, DOCX, PDF, PPTX, XLSX, ODT, RTF, HTML, MD.\n" +
+          "Таблицы и субтитры: CSV, TSV, SRT, VTT (вернутся в своём формате).\n\n" +
+          "Старые .doc, .xls и .ppt пересохраните в новом формате.\n" +
+          "PDF из сканов пока не читаем: в них нет текстового слоя."
+        );
+      });
+
+      // --- Смена направления перевода ------------------------------------
+      function syncSwapState() {
+        swapBtn.disabled = sourceLang.value === "auto" || targetLang.value === "none";
+      }
+      swapBtn.addEventListener("click", () => {
+        if (swapBtn.disabled) return;
+        const from = sourceLang.value;
+        sourceLang.value = targetLang.value;
+        targetLang.value = from;
+        syncSwapState();
+        updateWaitNote();
+      });
+
+      // --- Честное ожидание ----------------------------------------------
+      // Таджикский считается на процессоре и идёт заметно дольше остальных.
+      // Молчащая полоса прогресса в этот момент читается как зависание.
+      function updateWaitNote() {
+        if (!waitNote) return;
+        const isAudio = !!currentFile || looksLikeLink(translateText.value.trim());
+        if (!isAudio) { waitNote.textContent = ""; return; }
+        waitNote.textContent = sourceLang.value === "tg"
+          ? "Таджикский считается на процессоре и идёт дольше остальных языков. Вкладку можно не закрывать."
+          : "Обработка идёт на сервере. Вкладку можно не закрывать.";
+      }
+
+      sourceLang.addEventListener("change", () => { syncSwapState(); updateWaitNote(); });
+      targetLang.addEventListener("change", syncSwapState);
+
+      // --- Пустое состояние правой панели ---------------------------------
+      new MutationObserver(() => {
+        resultEmpty.classList.toggle("hidden", !resultBoxEl.classList.contains("hidden"));
+      }).observe(resultBoxEl, { attributes: true, attributeFilter: ["class"] });
+
+      syncSwapState();
+      refresh();
+    })();
 
     // Apply i18n on load
     applyI18n();
