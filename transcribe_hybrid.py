@@ -640,6 +640,16 @@ def transcribe_vosk_chunked(wav_path: str, model_path: str, chunk_seconds: float
 # ---------------------------------------------------------------------------
 # Whisper transcription (faster-whisper)
 # ---------------------------------------------------------------------------
+def _whisper_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            pass
+    return default
+
+
 def _whisper_beam_size(conservative: bool) -> int:
     env = os.environ.get("TILTAB_WHISPER_BEAM_SIZE", "").strip()
     if env:
@@ -712,7 +722,46 @@ def transcribe_whisper(
     if vad_parameters:
         transcribe_kwargs["vad_parameters"] = vad_parameters
 
-    segments_iter, info = model.transcribe(wav_path, **transcribe_kwargs)
+    # Батчинг: faster-whisper режет аудио по VAD и прогоняет куски пачкой.
+    #
+    # Замерено на 120 с таджикской речи (medium int8, 8 vCPU): 94.8 с против
+    # 59.6 с, и — что важнее скорости — 269 распознанных слов против 162.
+    # Обычный путь терял часть речи, включая начало записи. Именно на это
+    # жаловались лингвисты ("некоторые моменты вообще пропадают").
+    #
+    # beam_size здесь трогать нельзя: с beam=1 батчинг срывается в повтор
+    # ("ҳои пуштагиаҳои пуштагиа...") и выдаёт мусор при формально лучшей
+    # скорости. Проверено там же.
+    # По умолчанию выключено: с боевым набором аргументов (word_timestamps,
+    # initial_prompt, best_of) пакетный путь выдал одно слово на 120 секундах
+    # речи, хотя в изолированном замере на тех же данных работал. Пока не
+    # выяснено, какой именно параметр он не переносит, включать нельзя.
+    use_batching = os.environ.get("TILTAB_WHISPER_BATCHED", "false").lower() in ("1", "true", "on")
+    batch_size = _whisper_int_env("TILTAB_WHISPER_BATCH_SIZE", 8)
+
+    segments_iter = None
+    if use_batching:
+        try:
+            from faster_whisper import BatchedInferencePipeline
+
+            pipeline = BatchedInferencePipeline(model=model)
+            # У пакетного пути свой VAD, и часть параметров ему не передаётся.
+            batched_kwargs = {
+                k: v for k, v in transcribe_kwargs.items()
+                if k not in ("condition_on_previous_text", "vad_filter")
+            }
+            segments_iter, info = pipeline.transcribe(
+                wav_path, batch_size=batch_size, **batched_kwargs
+            )
+        except Exception as e:  # noqa: BLE001
+            # Пакетный путь новее обычного; если он не заработал, лучше
+            # распознать медленно, чем не распознать вовсе.
+            print(f"[whisper] batched pipeline unavailable, falling back: {e}",
+                  file=sys.stderr, flush=True)
+            segments_iter = None
+
+    if segments_iter is None:
+        segments_iter, info = model.transcribe(wav_path, **transcribe_kwargs)
 
     _emit(5, progress_label)
 
