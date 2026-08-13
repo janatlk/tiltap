@@ -173,14 +173,17 @@
 
 .brand { display: flex; align-items: center; gap: 0.5625rem; font-weight: 800;
          font-size: 1.0625rem; letter-spacing: -0.03em; text-decoration: none;
-         color: var(--ink); }
+         color: var(--ink);
+         /* Всё свободное место отдаём сюда: тогда правая группа прижата к
+            краю независимо от того, есть ли между ними ссылки. */
+         margin-right: auto; }
 .brand-mark {
   width: 26px; height: 26px; border-radius: 8px; flex: none;
   background: var(--accent); color: var(--accent-ink);
   display: grid; place-items: center; font-size: 0.8125rem; font-weight: 800;
 }
 
-.nav-links { display: flex; gap: 1.625rem; margin-left: auto; font-size: 0.9375rem;
+.nav-links { display: flex; gap: 1.625rem; font-size: 0.9375rem;
              color: var(--ink-soft); }
 .nav-links a, .nav-links button {
   background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
@@ -188,7 +191,7 @@
 }
 .nav-links a:hover, .nav-links button:hover { color: var(--ink); }
 .nav-side { display: flex; align-items: center; gap: 0.625rem; }
-@media (max-width: 940px) { .nav-links { display: none; } .nav-side { margin-left: auto; } }
+@media (max-width: 940px) { .nav-links { display: none; } }
 
 /* --- Выбор языка интерфейса ---------------------------------------------- */
 .langpick { position: relative; }

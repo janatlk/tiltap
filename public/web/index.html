@@ -352,11 +352,6 @@
           TilTap
         </a>
 
-        <nav class="nav-links" aria-label="TilTap">
-          <button type="button" id="navFormatsBtn" data-i18n="navFormats">Форматы</button>
-          <a href="https://t.me/tiltapbot" data-i18n="navBot">Бот</a>
-        </nav>
-
         <div class="nav-side">
           <div class="langpick">
             <button class="langpick-btn" id="langBtn" type="button" aria-haspopup="true" aria-expanded="false">
@@ -583,6 +578,7 @@
          виду он выглядит дверью, в которую полагается зайти. -->
     <footer class="app-foot">
       <span data-i18n="footer">TilTap</span>
+      <a href="https://t.me/tiltapbot" data-i18n="navBot">Бот</a>
       <a href="/web/admin.html" class="staff-link" data-i18n="staffLogin">Вход для сотрудников</a>
     </footer>
   </div>
@@ -1207,6 +1203,16 @@
         el.title = t(el.dataset.i18nTitle);
       });
 
+      // Названия языков в обоих списках. Значения при этом не трогаем: выбор
+      // человека не должен слетать от смены языка интерфейса.
+      SUPPORTED_LANGS = LANG_NAMES_BY_UI[currentUiLang] || LANG_NAMES_BY_UI.ru;
+      ["sourceLang", "targetLang"].forEach((id) => {
+        document.querySelectorAll("#" + id + " option").forEach((opt) => {
+          const name = SUPPORTED_LANGS[opt.value];
+          if (name) opt.textContent = name;
+        });
+      });
+
       // Подпись кнопки и отметка выбранного пункта
       document.getElementById("langCurrent").textContent = UI_LANG_NAMES[currentUiLang];
       document.querySelectorAll("#langMenu button[data-lang]").forEach((b) => {
@@ -1246,17 +1252,20 @@
 
     // ===================== App =====================
     const API = "";
-    // Самоназвания, а не перевод: "Кыргызча" одинаково узнаётся при любом
-    // языке интерфейса, и список не приходится переводить пять раз. Раньше
-    // здесь стояли английские названия, и они оставались английскими даже на
-    // русском интерфейсе.
-    const SUPPORTED_LANGS = {
-      ky: "Кыргызча",
-      tg: "Тоҷикӣ",
-      uz: "Oʻzbekcha",
-      ru: "Русский",
-      en: "English",
+    // Названия языков зависят от языка интерфейса: список, где половина
+    // подписей на чужом языке, заставляет человека узнавать свой язык по
+    // форме слова, а не читать его.
+    const LANG_NAMES_BY_UI = {
+      ru: { ky: "Кыргызский", tg: "Таджикский", uz: "Узбекский", ru: "Русский", en: "Английский" },
+      en: { ky: "Kyrgyz", tg: "Tajik", uz: "Uzbek", ru: "Russian", en: "English" },
+      ky: { ky: "Кыргызча", tg: "Тажикче", uz: "Өзбекче", ru: "Орусча", en: "Англисче" },
+      tg: { ky: "Қирғизӣ", tg: "Тоҷикӣ", uz: "Ӯзбекӣ", ru: "Русӣ", en: "Англисӣ" },
+      uz: { ky: "Qirgʻizcha", tg: "Tojikcha", uz: "Oʻzbekcha", ru: "Ruscha", en: "Inglizcha" },
+      uz_cyrl: { ky: "Қирғизча", tg: "Тожикча", uz: "Ўзбекча", ru: "Русча", en: "Инглизча" },
     };
+
+    // Читается везде, где раньше стоял SUPPORTED_LANGS.
+    let SUPPORTED_LANGS = LANG_NAMES_BY_UI.ru;
 
     const dropzone = document.getElementById("dropzone");
     const fileInput = document.getElementById("fileInput");
