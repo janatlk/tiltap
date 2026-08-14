@@ -732,6 +732,7 @@ async function translateWithOpenAI(
     const r = await translateChunkWithOpenAI(chunk, targetName, sourceName, model, openaiKey, glossary);
     parts.push(r.text);
     costUsd += r.costUsd;
+    req.onChunk?.(parts.length, chunks.length);
   }
   const translatedText = parts.join("\n\n");
 

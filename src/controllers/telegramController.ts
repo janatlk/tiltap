@@ -455,6 +455,21 @@ async function startTranslateTextFlow(
 
 
 /**
+ * Пропускает вызов не чаще раза в intervalMs. Первый проходит сразу, чтобы
+ * человек не ждал начала движения; последний может потеряться, и это здесь
+ * не важно — итог всё равно приходит отдельным сообщением.
+ */
+function throttled<T extends unknown[]>(fn: (...args: T) => void, intervalMs: number): (...args: T) => void {
+  let last = 0;
+  return (...args: T): void => {
+    const now = Date.now();
+    if (now - last < intervalMs) return;
+    last = now;
+    fn(...args);
+  };
+}
+
+/**
  * Документ на перевод. Вопросы о языке те же, что и для набранного текста,
  * поэтому идём общим путём — меняется только то, что переводим.
  */
@@ -500,9 +515,12 @@ async function processDocumentTranslation(
       filename,
       sourceLang,
       targetLang,
-      onProgress: (label) => {
+      // Перевод отчитывается о каждой пачке, а Telegram считает правки
+      // сообщений и при частых бьёт лимитом. Раз в три секунды человеку
+      // достаточно, чтобы видеть движение.
+      onProgress: throttled((label) => {
         void editMessageText(chatId, statusMessageId, label).catch(() => {});
-      },
+      }, 3000),
     });
 
     const note = result.structured

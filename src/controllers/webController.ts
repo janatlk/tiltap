@@ -470,7 +470,13 @@ async function processDocumentJob(
       filename,
       sourceLang: sourceLang && sourceLang !== "auto" ? sourceLang : undefined,
       targetLang,
-      onProgress: (label) => setJobProgress(job, { percent: 45, label }),
+      // Чтение файла занимает первые 10%, перевод — остальное. Пока доля
+      // перевода неизвестна (файл ещё разбирается), держим полосу на 10.
+      onProgress: (label, fraction) =>
+        setJobProgress(job, {
+          percent: typeof fraction === "number" ? 10 + Math.round(fraction * 88) : 10,
+          label,
+        }),
     });
 
     const result: TranscriptionResult = {

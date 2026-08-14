@@ -94,32 +94,49 @@ async function runExtractor(path: string, filename: string): Promise<ExtractResu
 async function translateUnits(
   units: string[],
   sourceLang: string | undefined,
-  targetLang: string
+  targetLang: string,
+  onProgress?: (fraction: number) => void
 ): Promise<{ translated: string[]; costUsd: number }> {
   const translated: string[] = [];
   let costUsd = 0;
 
+  // Считаем в символах, а не в единицах: неструктурированный файл приходит
+  // одной единицей на весь текст, и по единицам прогресс был бы 0 или 100.
+  // Внутри перевода он режется на куски, и вот они дают настоящее движение.
+  const totalChars = units.reduce((sum, u) => sum + u.length, 0) || 1;
+  let charsDone = 0;
+
   for (let i = 0; i < units.length; i += UNITS_PER_BATCH) {
     const batch = units.slice(i, i + UNITS_PER_BATCH);
     const joined = batch.join(UNIT_SEPARATOR);
-    const result = await translateText({ text: joined, sourceLang, targetLang });
+    const batchChars = batch.reduce((sum, u) => sum + u.length, 0);
+    const result = await translateText({
+      text: joined,
+      sourceLang,
+      targetLang,
+      onChunk: (done, total) => {
+        onProgress?.((charsDone + (batchChars * done) / total) / totalChars);
+      },
+    });
+    charsDone += batchChars;
     costUsd += result.costUsd ?? 0;
 
     const parts = result.translatedText.split(/\n?@@@-*@@@\n?/);
     if (parts.length === batch.length) {
       translated.push(...parts.map((p) => p.trim()));
-      continue;
+    } else {
+      logger.warn("Batch translation lost its separators; falling back to one-by-one", {
+        expected: batch.length,
+        got: parts.length,
+      });
+      for (const unit of batch) {
+        const single = await translateText({ text: unit, sourceLang, targetLang });
+        costUsd += single.costUsd ?? 0;
+        translated.push(single.translatedText.trim());
+      }
     }
 
-    logger.warn("Batch translation lost its separators; falling back to one-by-one", {
-      expected: batch.length,
-      got: parts.length,
-    });
-    for (const unit of batch) {
-      const single = await translateText({ text: unit, sourceLang, targetLang });
-      costUsd += single.costUsd ?? 0;
-      translated.push(single.translatedText.trim());
-    }
+    onProgress?.(charsDone / totalChars);
   }
 
   return { translated, costUsd };
@@ -174,7 +191,11 @@ export async function translateDocument(options: {
   filename: string;
   sourceLang?: string;
   targetLang: string;
-  onProgress?: (label: string) => void;
+  /**
+   * fraction — доля переведённого от 0 до 1, если она уже известна. На чтении
+   * файла её нет: сколько там окажется текста, до разбора не знает никто.
+   */
+  onProgress?: (label: string, fraction?: number) => void;
 }): Promise<DocumentTranslation> {
   const suffix = options.filename.includes(".") ? `.${options.filename.split(".").pop()}` : "";
   const tmpPath = join(tmpdir(), `tiltab_doc_${Date.now()}_${randomBytes(6).toString("hex")}${suffix}`);
@@ -201,8 +222,19 @@ export async function translateDocument(options: {
       );
     }
 
-    options.onProgress?.(`Перевожу (${chars.toLocaleString("ru")} символов)...`);
-    const { translated, costUsd } = await translateUnits(units, options.sourceLang, options.targetLang);
+    // Документ переводится пачками, поэтому доля готового известна честно.
+    // Раньше сюда уходила одна строка на весь перевод, и полоса стояла на
+    // месте до самого конца — на длинном файле это выглядит как зависание.
+    options.onProgress?.(`Перевожу (${chars.toLocaleString("ru")} символов)...`, 0);
+    const { translated, costUsd } = await translateUnits(
+      units,
+      options.sourceLang,
+      options.targetLang,
+      (fraction) => {
+        const percent = Math.min(99, Math.round(fraction * 100));
+        options.onProgress?.(`Перевожу (${percent}% из ${chars.toLocaleString("ru")} символов)...`, fraction);
+      }
+    );
 
     const structured = extracted.structured === true;
     let text: string;
