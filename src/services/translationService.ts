@@ -348,6 +348,14 @@ function buildSystemPrompt(targetName: string, sourceName?: string): string {
   return (
     `Translate the SOURCE text ${sourceHint}. ` +
     "Rules: translate every sentence and word; preserve sentence structure and repetitions; " +
+    // Утверждение и отрицание переворачивались на самом заметном месте:
+    // "трудности временны, а победа вечна" выходило наоборот. Полярность
+    // стоит назвать отдельно — она меняет смысл на противоположный, и
+    // читатель не может догадаться, что это ошибка.
+    "keep every negation and affirmation exactly as in the source, never invert polarity; " +
+    // Пустые строки несут структуру расшифровки; без этого правила модель
+    // возвращает всё одним полотном.
+    "keep blank lines between paragraphs; " +
     "keep names, numbers, and dates accurate; use established target-language forms for names when they exist; " +
     "do not add, omit, infer, reframe, or explain. " +
     // Sources reach us from speech recognition and from users pasting text, so

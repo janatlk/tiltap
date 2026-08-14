@@ -19,6 +19,7 @@ import { sendAdminAlert } from "../services/alertService";
 import { isQueueFull, beginJob, endJob, MAX_QUEUED_PER_USER } from "../services/concurrencyGate";
 import { isSupportedDocument, translateDocument } from "../services/documentService";
 import { normalizeLanguageCode } from "../utils/languageCodes";
+import { paragraphsFromSegments, paragraphsFromSentences } from "../utils/paragraphs";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
@@ -569,8 +570,14 @@ async function finalizeTranscription(
   }
 
   setJobProgress(job, { percent: 95, label: "Finalizing..." });
-  const cleanup = await cleanupTranscription(result.text, result.language);
-  const cleanedText = cleanup.cleanedText;
+
+  // Абзацы расставляем до вычитки, чтобы разрывы дошли и до перевода: он
+  // режет текст по пустым строкам и сохраняет их в ответе. Расшифровка без
+  // единого разрыва — отдельная претензия лингвиста, читать её невозможно.
+  const structured = paragraphsFromSegments(result.segments) || result.text;
+  const cleanup = await cleanupTranscription(structured, result.language);
+  // Вычитка иногда склеивает абзацы обратно; тогда делим по предложениям.
+  const cleanedText = paragraphsFromSentences(cleanup.cleanedText);
   const cleanupWarning = cleanup.warning;
 
   const quality = detectTranscriptionIssues(cleanedText, result.language, result.segments);
