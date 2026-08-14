@@ -890,6 +890,13 @@ function buildReviewPayload(
   const prompt =
     `Review a translation from ${sourceName} to ${targetName}. ` +
     `You may fix only: untranslated fragments, inconsistent names/terms, invented names, or awkward phrasing. ` +
+    // Два дефекта из разбора лингвиста проверяющий пропускал, потому что его
+    // не просили о них думать: перевёрнутое отрицание и целые предложения,
+    // не доехавшие до перевода. Оба меняют смысл молча — читатель их не
+    // распознаёт, в отличие от корявой фразы.
+    `Also check two things explicitly and fix them: (1) every negation and affirmation matches the source, ` +
+    `nothing is inverted; (2) every sentence of the source is present in the translation, nothing is skipped. ` +
+    `Report either as an issue when you find it. ` +
     `Preserve meaning exactly; do not add, remove, reframe, or explain. ` +
     `If the translation is already accurate and natural, return corrected identical to the Translation, issues=[], warning=null. ` +
     `Return warning only when a concrete problem remains that a user should know about. ` +
