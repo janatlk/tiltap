@@ -341,6 +341,12 @@
     @media (prefers-reduced-motion: reduce) {
       .btn:active { transform: none; }
     }
+
+    /* Скрытие идёт последним и потому побеждает.
+       Tailwind отдаёт .hidden внутри слоя, а правила этой страницы написаны
+       вне слоёв — любое display здесь перебивало его молча. Так пустое
+       состояние оставалось на виду поверх готового результата. */
+    .hidden { display: none; }
   </style>
 </head>
 <body class="min-h-screen">
