@@ -499,6 +499,10 @@
 
         <div id="errorBox" class="alert alert-error hidden mt-4" role="alert"></div>
 
+        <!-- Сообщение о возврате к заданию: тон спокойный, потому что ничего
+             плохого не случилось — работа шла всё это время. -->
+        <div id="restoredNotice" class="alert alert-info hidden mt-4" role="status"></div>
+
         <!-- Режим обработки. Движок читает его через .tab-active, поэтому
              переключатель остаётся в разметке, но человеку он больше не
              показывается: тип материала теперь определяется сам. -->
@@ -719,6 +723,8 @@
         errorInvalidUrl: "Unsupported link. Use YouTube, TikTok, or Instagram.",
         errorTimeout: "The link check timed out. Please try again.",
         errorJobFailed: "Job failed",
+        errorJobInterrupted: "The job did not survive a server restart. Please start it again.",
+        restoredNotice: "Returned to your last job — it kept running after you closed the tab.",
         retryButton: "Try again",
         uiLanguageHeader: "Interface language",
         progressQueued: "In queue: position {position}. About {minutes} min.",
@@ -811,6 +817,8 @@
         errorInvalidUrl: "Ссылка не поддерживается. Подойдут YouTube, TikTok или Instagram.",
         errorTimeout: "Проверка ссылки превысила время ожидания. Попробуйте снова.",
         errorJobFailed: "Ошибка задания",
+        errorJobInterrupted: "Задание не пережило перезапуск сервера. Запустите его заново.",
+        restoredNotice: "Вернулись к последнему заданию — оно продолжало работать после закрытия вкладки.",
         retryButton: "Попробовать снова",
         uiLanguageHeader: "Язык интерфейса",
         progressQueued: "В очереди: {position}-й. Примерно {minutes} мин.",
@@ -903,6 +911,8 @@
         errorInvalidUrl: "Шилтеме колдоого алынбайт. YouTube, TikTok же Instagram колдонуңуз.",
         errorTimeout: "Шилтемени текшерүү убактысы бүттү. Кайра аракет кылыңыз.",
         errorJobFailed: "Тапшырма ката",
+        errorJobInterrupted: "Тапшырма сервердин кайра иштетилишине туруштук бере алган жок. Аны кайрадан иштетиңиз.",
+        restoredNotice: "Акыркы тапшырмаңызга кайттык — вкладканы жапканыңыздан кийин да ал иштеп турган.",
         retryButton: "Кайра аракет кылуу",
         uiLanguageHeader: "Интерфейс тили",
         progressQueued: "Кезекте: {position}-орун. Болжол менен {minutes} мүнөт.",
@@ -995,6 +1005,8 @@
         errorInvalidUrl: "Пайванд дастгирӣ намешавад. YouTube, TikTok ё Instagram-ро истифода баред.",
         errorTimeout: "Тафтиши пайванд аз вақт гузашт. Аз нав кӯшиш кунед.",
         errorJobFailed: "Хатои кор",
+        errorJobInterrupted: "Вазифа пас аз бозоғозии сервер нигоҳ дошта нашуд. Онро аз нав оғоз кунед.",
+        restoredNotice: "Ба вазифаи охирин баргаштем — он пас аз бастани лавҳа ҳам кор карданро идома дод.",
         retryButton: "Аз нав кӯшиш кунед",
         uiLanguageHeader: "Забони интерфейс",
         progressQueued: "Дар навбат: ҷои {position}. Тахминан {minutes} дақиқа.",
@@ -1087,6 +1099,8 @@
         errorInvalidUrl: "Havola qo'llab-quvvatlanmaydi. YouTube, TikTok yoki Instagram ishlating.",
         errorTimeout: "Havolani tekshirish vaqti tugadi. Qayta urinib ko'ring.",
         errorJobFailed: "Vazifa xatosi",
+        errorJobInterrupted: "Vazifa server qayta ishga tushirilgandan soʻng saqlanib qolmadi. Uni qaytadan ishga tushiring.",
+        restoredNotice: "Soʻnggi vazifaga qaytildi — varaq yopilgandan keyin ham u ishlashda davom etdi.",
         retryButton: "Qayta urinish",
         uiLanguageHeader: "Interfeys tili",
         progressQueued: "Navbatda: {position}-o'rin. Taxminan {minutes} daqiqa.",
@@ -1180,6 +1194,8 @@
         errorInvalidUrl: "Ҳавола қўллаб-қувватланмайди. ЁуТубе, ТикТок ёки Инстаграм ишлатинг.",
         errorTimeout: "Ҳаволани текшириш вақти тугади. Қайта уриниб кўринг.",
         errorJobFailed: "Вазифа хатоси",
+        errorJobInterrupted: "Вазифа сервер қайта ишга туширилгандан сўнг сақланиб қолмади. Уни қайтадан ишга туширинг.",
+        restoredNotice: "Сўнгги вазифага қайтилди — варақ ёпилгандан кейин ҳам у ишлашда давом этди.",
         retryButton: "Қайта уриниш",
         uiLanguageHeader: "Интерфейс тили",
         progressQueued: "Навбатда: {поситион}-ўрин. Тахминан {минутес} дақиқа.",
@@ -1757,6 +1773,7 @@
 
         currentJobId = data.jobId;
         currentRequestNumber = data.requestNumber || null;
+        rememberJob(currentJobId, currentRequestNumber);
         listenProgress(currentJobId);
       } catch (err) {
         showError(err.message);
@@ -1789,6 +1806,13 @@
       startBtn.disabled = false;
     }
 
+    // Сервер шлёт признак, а не готовую фразу: перевод сообщения принадлежит
+    // странице, где известен выбранный язык интерфейса.
+    function mapJobError(error) {
+      if (error === "job_interrupted") return t("errorJobInterrupted");
+      return error || t("errorJobFailed");
+    }
+
     function listenProgress(jobId) {
       const es = new EventSource(API + "/api/web/jobs/" + jobId + "/progress");
       es.onmessage = (e) => {
@@ -1796,10 +1820,12 @@
         if (job.progress) updateProgress(job.progress);
         if (job.status === "completed") {
           es.close();
+          forgetJob();
           renderResult(job);
         } else if (job.status === "failed") {
           es.close();
-          showError(job.error || t("errorJobFailed"));
+          forgetJob();
+          showError(mapJobError(job.error));
         }
       };
       es.onerror = () => {
@@ -1817,10 +1843,12 @@
           if (job.progress) updateProgress(job.progress);
           if (job.status === "completed") {
             clearInterval(interval);
+            forgetJob();
             renderResult(job);
           } else if (job.status === "failed") {
             clearInterval(interval);
-            showError(job.error || t("errorJobFailed"));
+            forgetJob();
+            showError(mapJobError(job.error));
           }
         } catch (err) {
           clearInterval(interval);
@@ -1890,6 +1918,77 @@
     loadLanguagePrefs();
 
     startBtn.addEventListener("click", startJob);
+
+    // ---- Восстановление задания -------------------------------------------
+    // Расшифровка идёт на сервере и закрытую вкладку переживает, а вот номер
+    // задания жил только в памяти страницы — закрыл, и текст было не достать.
+    // Теперь номер лежит в браузере, и страница сама возвращается к работе.
+    const ACTIVE_JOB_KEY = "tiltab_active_job";
+
+    function rememberJob(jobId, requestNumber) {
+      try {
+        localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({
+          jobId: jobId,
+          requestNumber: requestNumber || null,
+          startedAt: Date.now(),
+        }));
+      } catch (e) { /* приватный режим — переживём без восстановления */ }
+    }
+
+    function forgetJob() {
+      try { localStorage.removeItem(ACTIVE_JOB_KEY); } catch (e) { /* ignore */ }
+    }
+
+    async function restoreJob() {
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(ACTIVE_JOB_KEY) || "null"); } catch (e) { /* ignore */ }
+      if (!saved || !saved.jobId) return;
+
+      // Сутки — предел, после которого предлагать возврат бессмысленно:
+      // человек давно ушёл, а задание успело уйти из базы вместе с чисткой.
+      if (Date.now() - (saved.startedAt || 0) > 24 * 60 * 60 * 1000) {
+        forgetJob();
+        return;
+      }
+
+      let job;
+      try {
+        const res = await fetch(API + "/api/web/jobs/" + saved.jobId);
+        if (!res.ok) { forgetJob(); return; }
+        job = await res.json();
+      } catch (e) {
+        return; // сети нет — молчим, попробуем в следующий раз
+      }
+
+      if (job.status === "failed") { forgetJob(); return; }
+
+      currentJobId = saved.jobId;
+      currentRequestNumber = job.requestNumber || saved.requestNumber || null;
+
+      if (job.status === "completed") {
+        resetUI();
+        renderResult(job);
+        showRestoredNotice();
+        forgetJob();
+        return;
+      }
+
+      // Задание ещё идёт: возвращаем полосу прогресса и подписку.
+      resetUI();
+      if (job.progress) updateProgress(job.progress);
+      showRestoredNotice();
+      listenProgress(saved.jobId);
+    }
+
+    function showRestoredNotice() {
+      const note = document.getElementById("restoredNotice");
+      if (!note) return;
+      note.textContent = t("restoredNotice");
+      note.classList.remove("hidden");
+      setTimeout(() => note.classList.add("hidden"), 8000);
+    }
+
+    restoreJob();
 
     function formatTime(seconds) {
       const m = Math.floor(seconds / 60);

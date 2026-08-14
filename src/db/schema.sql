@@ -172,6 +172,11 @@ CREATE TABLE IF NOT EXISTS web_jobs (
   completed_at TIMESTAMP WITH TIME ZONE
 );
 
+-- Перевод хранится рядом с расшифровкой: если человек закрыл вкладку, вернуть
+-- ему надо то, за чем он приходил, а приходят сюда за переводом.
+ALTER TABLE web_jobs ADD COLUMN IF NOT EXISTS translated_text TEXT;
+ALTER TABLE web_jobs ADD COLUMN IF NOT EXISTS translated_lang VARCHAR(10);
+
 CREATE INDEX IF NOT EXISTS idx_web_jobs_created_at ON web_jobs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_web_jobs_status ON web_jobs(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_web_jobs_request_number ON web_jobs(request_number);

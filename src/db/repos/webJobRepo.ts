@@ -12,6 +12,8 @@ export interface WebJobEntry {
   source_type: string | null;
   filename: string | null;
   full_text: string | null;
+  translated_text: string | null;
+  translated_lang: string | null;
   segments_json: unknown;
   provider: string | null;
   model: string | null;
@@ -52,7 +54,7 @@ export async function createWebJob(payload: {
 
 export async function updateWebJob(
   jobId: string,
-  updates: Partial<Pick<WebJobEntry, "status" | "full_text" | "segments_json" | "provider" | "model" | "gpu" | "error_message" | "progress_percent" | "progress_label" | "completed_at">>
+  updates: Partial<Pick<WebJobEntry, "status" | "full_text" | "translated_text" | "translated_lang" | "segments_json" | "provider" | "model" | "gpu" | "error_message" | "progress_percent" | "progress_label" | "completed_at">>
 ): Promise<void> {
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -65,6 +67,14 @@ export async function updateWebJob(
   if (updates.full_text !== undefined) {
     fields.push(`full_text = $${idx++}`);
     values.push(updates.full_text);
+  }
+  if (updates.translated_text !== undefined) {
+    fields.push(`translated_text = $${idx++}`);
+    values.push(updates.translated_text);
+  }
+  if (updates.translated_lang !== undefined) {
+    fields.push(`translated_lang = $${idx++}`);
+    values.push(updates.translated_lang);
   }
   if (updates.segments_json !== undefined) {
     fields.push(`segments_json = $${idx++}`);

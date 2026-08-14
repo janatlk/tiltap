@@ -284,9 +284,59 @@ export async function handleWebTranslate(req: Request, res: Response): Promise<v
   }
 }
 
+/**
+ * Задание, поднятое из базы, в том же виде, в каком его отдаёт память.
+ * Браузеру не нужно знать, откуда пришёл ответ, — иначе пришлось бы держать
+ * две ветки отрисовки результата вместо одной.
+ */
+function restoredJobResponse(entry: webJobRepo.WebJobEntry): Record<string, unknown> {
+  const segments = Array.isArray(entry.segments_json) ? entry.segments_json : [];
+  const done = entry.status === "completed";
+
+  // Незавершённые задания из памяти не выселяются, поэтому раз задания там нет,
+  // а в базе оно "выполняется" — процесс не пережил перезапуск сервера. Честнее
+  // сказать это сразу, чем оставить браузер опрашивать задание, которого нет.
+  const orphaned = entry.status === "pending" || entry.status === "running";
+
+  return {
+    id: entry.job_id,
+    type: entry.type,
+    status: orphaned ? "failed" : entry.status,
+    requestNumber: entry.request_number,
+    progress: { percent: entry.progress_percent ?? 0, label: entry.progress_label ?? "" },
+    result: done
+      ? {
+          text: entry.full_text ?? "",
+          language: entry.source_lang ?? "auto",
+          segments,
+          provider: entry.provider ?? undefined,
+          model: entry.model ?? undefined,
+          gpu: entry.gpu ?? undefined,
+        }
+      : undefined,
+    cleanedText: entry.full_text ?? undefined,
+    translatedText: entry.translated_text ?? undefined,
+    translatedLang: entry.translated_lang ?? undefined,
+    error: orphaned ? "job_interrupted" : entry.error_message ?? undefined,
+    restored: true,
+  };
+}
+
 export async function handleWebJobStatus(req: Request, res: Response): Promise<void> {
-  const job = getJob(String(req.params.jobId));
+  const jobId = String(req.params.jobId);
+  const job = getJob(jobId);
   if (!job) {
+    // Задания живут в памяти полчаса после завершения, а расшифровка лежит в
+    // базе постоянно. Без этого запасного пути закрытая вкладка означала
+    // потерю текста: идентификатор у браузера ещё есть, а спросить уже некого.
+    const stored = await webJobRepo.getWebJobById(jobId).catch((err) => {
+      logger.error("Failed to load web job from storage", { error: err instanceof Error ? err.message : String(err), jobId });
+      return null;
+    });
+    if (stored) {
+      res.status(200).json(restoredJobResponse(stored));
+      return;
+    }
     res.status(404).json({ error: "Job not found" });
     return;
   }
@@ -444,6 +494,8 @@ async function processDocumentJob(
     webJobRepo.updateWebJob(job.id, {
       status: "completed",
       full_text: doc.text,
+      translated_text: doc.text,
+      translated_lang: targetLang,
       segments_json: [],
       provider: "document",
       model: doc.format,
@@ -566,6 +618,8 @@ async function finalizeTranscription(
   webJobRepo.updateWebJob(job.id, {
     status: "completed",
     full_text: cleanedText,
+    translated_text: translatedText ?? null,
+    translated_lang: translatedText ? targetLanguage ?? null : null,
     segments_json: result.segments,
     provider: result.provider,
     model: result.model,
