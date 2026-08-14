@@ -2213,7 +2213,10 @@
       // файл. Когда человек уже принёс запись, поле для набора текста ему не
       // нужно и только отнимает место.
       function setState(state) {
-        entryChoice.classList.toggle("hidden", state !== "choose");
+        // Оба входа остаются на виду всё время, пока материал не выбран.
+        // Пока они пропадали при первом набранном символе, кнопка файла
+        // исчезала вместе с ними, и вернуться к ней было нечем.
+        entryChoice.classList.toggle("hidden", state === "file" || state === "link");
         composer.classList.toggle("is-text", state === "text");
         composerFile.classList.toggle("hidden", state !== "file");
         linkCard.classList.toggle("hidden", state !== "link");
