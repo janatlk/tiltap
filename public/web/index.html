@@ -232,18 +232,6 @@
     .kind-chip[data-kind="youtube"] { border-color: var(--accent); color: var(--accent); }
     .kind-chip[data-kind="file"] { border-color: var(--accent); color: var(--accent); }
 
-    /* Прикрепить файл можно в любую минуту, а не только с пустого экрана:
-       выбрав текст, человек прежде терял единственную кнопку файла и
-       возвращался к ней только через перезагрузку страницы. */
-    .attach-btn {
-      display: inline-flex; align-items: center; gap: 0.375rem;
-      background: none; cursor: pointer; font: inherit; font-size: 0.8125rem;
-      color: var(--ink-soft); padding: 0.3125rem 0.625rem;
-      border: 1px solid var(--rule-strong); border-radius: var(--r-press);
-    }
-    .attach-btn svg { width: 15px; height: 15px; }
-    .attach-btn:hover { color: var(--ink); border-color: var(--ink-faint); }
-
     .link-quiet {
       margin-left: auto; background: none; border: 0; cursor: pointer;
       font: inherit; font-size: 0.8125rem; color: var(--ink-faint);
@@ -467,10 +455,6 @@
         <div class="composer-bar">
           <input type="file" id="fileInput" class="hidden"
                  accept="audio/*,video/*,.txt,.md,.csv,.tsv,.srt,.vtt,.docx,.pptx,.xlsx,.odt,.pdf,.rtf,.html,.htm">
-          <button type="button" class="attach-btn" id="attachBtn">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7-7l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l8-8"/></svg>
-            <span data-i18n="attachFile">Прикрепить файл</span>
-          </button>
           <span class="kind-chip" id="kindChip" aria-live="polite"></span>
           <button type="button" class="link-quiet" id="formatsBtn" data-i18n="formatsLink">Какие форматы</button>
         </div>
@@ -676,7 +660,6 @@
         translateTextLabel: "Text to translate",
         translateTextPlaceholder: "Paste text or a video link, or drop a file here...",
         entryFile: "File",
-        attachFile: "Attach file",
         entryPaste: "Text or link",
         pasteHint: "Or just paste from the clipboard anywhere on the page",
         entryText: "Text",
@@ -771,7 +754,6 @@
         translateTextLabel: "Текст для перевода",
         translateTextPlaceholder: "Вставьте текст или ссылку на видео, либо перетащите файл...",
         entryFile: "Файл",
-        attachFile: "Прикрепить файл",
         entryText: "Текст",
         dropHere: "Отпустите файл здесь",
         formatsLink: "Какие форматы",
@@ -866,7 +848,6 @@
         translateTextLabel: "Которула турган текст",
         translateTextPlaceholder: "Которула турган текстти киргизиңиз...",
         entryFile: "Файл",
-        attachFile: "Файлды тиркөө",
         entryText: "Текст",
         dropHere: "Файлды бул жерге таштаңыз",
         formatsLink: "Кайсы форматтар",
@@ -961,7 +942,6 @@
         translateTextLabel: "Матни тарҷума",
         translateTextPlaceholder: "Матни тарҷумаашро ворид кунед...",
         entryFile: "Файл",
-        attachFile: "Файлро замима кардан",
         entryText: "Матн",
         dropHere: "Файлро ин ҷо раҳо кунед",
         formatsLink: "Кадом форматҳо",
@@ -1056,7 +1036,6 @@
         translateTextLabel: "Tarjima qilinadigan matn",
         translateTextPlaceholder: "Tarjima qilinadigan matnni kiriting...",
         entryFile: "Fayl",
-        attachFile: "Faylni biriktirish",
         entryText: "Matn",
         dropHere: "Faylni shu yerga tashlang",
         formatsLink: "Qaysi formatlar",
@@ -1152,7 +1131,6 @@
         translateTextLabel: "Таржима қилинадиган матн",
         translateTextPlaceholder: "Таржима қилинадиган матнни киритинг...",
         entryFile: "Файл",
-        attachFile: "Файлни бириктириш",
         entryText: "Матн",
         dropHere: "Файлни шу ерга ташланг",
         formatsLink: "Қайси форматлар",
@@ -2196,7 +2174,6 @@
       const linkName = document.getElementById("linkName");
       const fileExt = document.getElementById("fileExt");
       const kindChip = document.getElementById("kindChip");
-      const attachBtn = document.getElementById("attachBtn");
       const clearFileBtn = document.getElementById("clearFileBtn");
       const clearLinkBtn = document.getElementById("clearLinkBtn");
       const swapBtn = document.getElementById("swapLangBtn");
@@ -2237,10 +2214,6 @@
       // нужно и только отнимает место.
       function setState(state) {
         entryChoice.classList.toggle("hidden", state !== "choose");
-        // На пустом экране файл предлагает крупная кнопка выбора, а карточка
-        // выбранного файла и так умеет заменить его. В остальное время
-        // прикрепить файл больше нечем — оттуда кнопка и нужна.
-        attachBtn.classList.toggle("hidden", state === "choose" || state === "file");
         composer.classList.toggle("is-text", state === "text");
         composerFile.classList.toggle("hidden", state !== "file");
         linkCard.classList.toggle("hidden", state !== "link");
@@ -2307,7 +2280,6 @@
       let textOpened = false;
 
       document.getElementById("entryFile").addEventListener("click", () => fileInput.click());
-      attachBtn.addEventListener("click", () => fileInput.click());
       function openText() {
         textOpened = true;
         setState("text");
