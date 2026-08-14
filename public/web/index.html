@@ -1519,6 +1519,19 @@
     const QUEUE_ESTIMATE_SEC = 45;
 
     function updateProgress(progress) {
+      // Отрицательная доля означает "работа идёт, но сколько её осталось,
+      // неизвестно". Так отвечает резидентный распознаватель: он занят одним
+      // неделимым вызовом и сообщить о ходе не может. Полоса становится
+      // бегущей, а процент прячется: замерший ноль читается как поломка, а
+      // выдуманное число это просто ложь с точностью до процента.
+      const unknown = typeof progress.percent === "number" && progress.percent < 0;
+      if (unknown) {
+        progressBar.removeAttribute("value");
+        progressPercent.textContent = "";
+        progressLabel.textContent = stageLabel(progress.label);
+        return;
+      }
+
       const pct = Math.max(0, Math.min(100, progress.percent));
       progressBar.value = pct;
 

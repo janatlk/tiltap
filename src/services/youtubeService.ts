@@ -340,6 +340,13 @@ export async function transcribeMediaLink(
   // падала обратно в ноль, и человек считал, что всё началось заново. Отводим
   // каждому этапу свою часть полосы, и она движется только вперёд.
   const band = (from: number, to: number) => (p: TranscriptionProgress) => {
+    // Отрицательную долю проносим как есть: это не число на шкале, а признак
+    // того, что доли нет вовсе. Пересчитать её в диапазон значило бы получить
+    // осмысленное на вид число из отсутствия данных.
+    if (p.percent < 0) {
+      onProgress?.(p);
+      return;
+    }
     onProgress?.({ ...p, percent: from + (Math.max(0, Math.min(100, p.percent)) * (to - from)) / 100 });
   };
   const DOWNLOAD_SHARE_END = 35;

@@ -130,7 +130,9 @@ function setJobProgress(job: WebJob, progress: TranscriptionProgress): void {
   job.progress = progress;
   updateJob(job, {});
   webJobRepo.updateWebJob(job.id, {
-    progress_percent: Math.round(progress.percent),
+    // В журнал пишем неотрицательное: отметка "доля неизвестна" нужна только
+    // живой полосе, а в списке заданий "-1%" выглядело бы поломкой.
+    progress_percent: Math.max(0, Math.round(progress.percent)),
     progress_label: progress.label,
   }).catch((err) => {
     logger.error("Failed to persist web job progress", { error: err instanceof Error ? err.message : String(err), jobId: job.id });

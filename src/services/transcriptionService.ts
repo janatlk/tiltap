@@ -132,6 +132,11 @@ async function runTranscription(
   // below, which reloads the model but is otherwise identical.
   if (isGigaamServerEnabled() && normalizedLang && isGigaamServerLanguage(normalizedLang)) {
     try {
+      // Резидентный воркер отвечает одним куском: сообщить, сколько сделано,
+      // ему нечем. Раньше на этом месте полоса просто замирала на нуле, и
+      // работа выглядела зависанием. Отрицательная доля это признанное
+      // незнание: страница показывает бегущую полосу вместо ложного числа.
+      onProgress?.({ percent: -1, label: "Распознаю речь" });
       const result = await transcribeWithGigaamServer(audioBuffer, filename, normalizedLang, abortSignal);
       return normalizeTranscriptionResult(result);
     } catch (err) {
