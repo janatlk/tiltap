@@ -1863,20 +1863,31 @@ def run_transcription(input_file, ffmpeg_path, language, beta_model="", skip_pos
             output = transcribe_tajik(wav_path)
 
         elif language == "ru":
-            # Primary: GigaAM CTC (best local Russian per Sber benchmarks).
-            # Fallback: local multilingual Whisper large-v3-turbo.
-            output = gigaam_or_fallback(
-                wav_path,
-                "ru",
-                lambda: transcribe_whisper_with_vad(
+            # Основной: Whisper large-v3-turbo. Запасной: GigaAM CTC.
+            #
+            # Порядок был обратным, потому что на чистом русском GigaAM точнее
+            # по бенчмаркам Сбера. На нашем материале это перевесили две вещи:
+            # записи почти всегда смешанные, и английские вставки GigaAM пишет
+            # кириллицей ("гуд монин" вместо "good morning"), а знаков
+            # препинания и заглавных букв не ставит вовсе. Whisper отдаёт текст,
+            # который можно читать, и на самом русском не хуже.
+            #
+            # Цена: примерно вдвое дольше (2.5x против 4.7x реального времени
+            # на этом сервере). GigaAM остаётся запасным, поэтому отказ Whisper
+            # не оставляет русский без распознавания.
+            try:
+                output = transcribe_whisper_with_vad(
                     wav_path,
                     "ru",
                     local_whisper_model_path(),
                     progress_label="Русский распознаю",
                     initial_prompt=RUSSIAN_INITIAL_PROMPT,
-                ),
-                progress_label="Русский распознаю",
-            )
+                )
+            except Exception as exc:  # noqa: BLE001
+                log_diagnostic(whisper_failed=True, whisper_error=str(exc)[:500])
+                print(f"[whisper] ru failed, falling back to GigaAM: {exc}",
+                      file=sys.stderr, flush=True)
+                output = transcribe_gigaam(wav_path, "ru", progress_label="Русский распознаю")
 
         elif language == "uz":
             output = gigaam_or_fallback(
