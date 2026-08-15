@@ -616,6 +616,15 @@
       </section>
 
       <section class="fmt-group">
+        <h3 data-i18n="fmtLinks">Ссылки</h3>
+        <p data-i18n="fmtLinksNote">Звук скачивается по ссылке, речь становится текстом.</p>
+        <div class="chips">
+          <span class="chip">YouTube</span><span class="chip">TikTok</span>
+          <span class="chip">Instagram</span><span class="chip">Facebook</span>
+        </div>
+      </section>
+
+      <section class="fmt-group">
         <h3 data-i18n="fmtDocs">Документы</h3>
         <p data-i18n="fmtDocsNote">Текст достаётся и переводится.</p>
         <div class="chips">
@@ -645,7 +654,7 @@
     const I18N = {
       en: {
         title: "TilTap Web",
-        subtitle: "Transcribe audio, video, and links from YouTube, TikTok, and Instagram. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.",
+        subtitle: "Transcribe audio, video, and links from YouTube, TikTok, Instagram, and Facebook. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.",
         adminLink: "Admin panel",
         sourceLangLabel: "Transcription language",
         sourceLanguageLabel: "Source language",
@@ -656,7 +665,7 @@
         tabYouTube: "Video link",
         tabTranslate: "Translate text",
         dropzoneText: "Drag & drop audio/video here or click to browse",
-        youtubeLabel: "Video link (YouTube, TikTok, Instagram)",
+        youtubeLabel: "Video link (YouTube, TikTok, Instagram, Facebook)",
         translateTextLabel: "Text to translate",
         translateTextPlaceholder: "Paste text or a video link, or drop a file here...",
         entryFile: "File",
@@ -677,6 +686,8 @@
         fmtTitle: "What you can send",
         fmtAudio: "Audio and video",
         fmtDocs: "Documents",
+        fmtLinks: "Links",
+        fmtLinksNote: "The audio is downloaded from the link and the speech becomes text.",
         fmtTables: "Tables and subtitles",
         fmtAudioNote: "Speech becomes text with timestamps.",
         fmtDocsNote: "The text is extracted and translated.",
@@ -726,7 +737,7 @@
         errorSignInRequired: "This video requires a YouTube sign-in. The bot cannot download it. Try another video.",
         errorPrivate: "This is a private video. The bot cannot download it.",
         errorAgeRestricted: "This video is age-restricted. The bot cannot download it.",
-        errorInvalidUrl: "Unsupported link. Use YouTube, TikTok, or Instagram.",
+        errorInvalidUrl: "Unsupported link. Use YouTube, TikTok, Instagram, or Facebook.",
         errorTimeout: "The link check timed out. Please try again.",
         errorJobFailed: "Job failed",
         errorJobInterrupted: "The job did not survive a server restart. Please start it again.",
@@ -739,7 +750,7 @@
       },
       ru: {
         title: "TilTap Web",
-        subtitle: "Распознавайте аудио, видео и ссылки с YouTube, TikTok и Instagram. Переводите на кыргызский, таджикский, узбекский, русский или английский.",
+        subtitle: "Распознавайте аудио, видео и ссылки с YouTube, TikTok, Instagram и Facebook. Переводите на кыргызский, таджикский, узбекский, русский или английский.",
         adminLink: "Панель администратора",
         sourceLangLabel: "Язык распознавания",
         sourceLanguageLabel: "Язык оригинала",
@@ -750,7 +761,7 @@
         tabYouTube: "Ссылка на видео",
         tabTranslate: "Перевести текст",
         dropzoneText: "Перетащите аудио/видео сюда или нажмите для выбора",
-        youtubeLabel: "Ссылка на видео (YouTube, TikTok, Instagram)",
+        youtubeLabel: "Ссылка на видео (YouTube, TikTok, Instagram, Facebook)",
         translateTextLabel: "Текст для перевода",
         translateTextPlaceholder: "Вставьте текст или ссылку на видео, либо перетащите файл...",
         entryFile: "Файл",
@@ -769,6 +780,8 @@
         fmtTitle: "Что можно прислать",
         fmtAudio: "Звук и видео",
         fmtDocs: "Документы",
+        fmtLinks: "Ссылки",
+        fmtLinksNote: "Звук скачивается по ссылке, речь становится текстом.",
         fmtTables: "Таблицы и субтитры",
         fmtAudioNote: "Речь становится текстом с отметками времени.",
         fmtDocsNote: "Текст достаётся и переводится.",
@@ -820,7 +833,7 @@
         errorSignInRequired: "Видео требует входа в YouTube. Бот не может скачать его. Попробуйте другое видео.",
         errorPrivate: "Это приватное видео. Бот не может скачать его.",
         errorAgeRestricted: "Видео имеет возрастное ограничение. Бот не может скачать его.",
-        errorInvalidUrl: "Ссылка не поддерживается. Подойдут YouTube, TikTok или Instagram.",
+        errorInvalidUrl: "Ссылка не поддерживается. Подойдут YouTube, TikTok, Instagram или Facebook.",
         errorTimeout: "Проверка ссылки превысила время ожидания. Попробуйте снова.",
         errorJobFailed: "Ошибка задания",
         errorJobInterrupted: "Задание не пережило перезапуск сервера. Запустите его заново.",
@@ -833,7 +846,7 @@
       },
       ky: {
         title: "TilTap Web",
-        subtitle: "Аудио, видео жана YouTube, TikTok, Instagram шилтемелерин таанып, кыргызча, тоҷикча, ўзбекча, орусча же англисча которуңуз.",
+        subtitle: "Аудио, видео жана YouTube, TikTok, Instagram, Facebook шилтемелерин таанып, кыргызча, тоҷикча, ўзбекча, орусча же англисча которуңуз.",
         adminLink: "Админ панели",
         sourceLangLabel: "Таануу тили",
         sourceLanguageLabel: "Баштапкы тил",
@@ -844,7 +857,7 @@
         tabYouTube: "Видео шилтемеси",
         tabTranslate: "Текст которуу",
         dropzoneText: "Аудио/видеону бул жерге сүйрөп алып келиңиз же басып көрүңүз",
-        youtubeLabel: "Видео шилтемеси (YouTube, TikTok, Instagram)",
+        youtubeLabel: "Видео шилтемеси (YouTube, TikTok, Instagram, Facebook)",
         translateTextLabel: "Которула турган текст",
         translateTextPlaceholder: "Которула турган текстти киргизиңиз...",
         entryFile: "Файл",
@@ -863,6 +876,8 @@
         fmtTitle: "Эмне жөнөтсө болот",
         fmtAudio: "Үн жана видео",
         fmtDocs: "Документтер",
+        fmtLinks: "Шилтемелер",
+        fmtLinksNote: "Үн шилтеме аркылуу жүктөлүп алынат, сөз текстке айланат.",
         fmtTables: "Таблицалар жана субтитрлер",
         fmtAudioNote: "Сөз убакыт белгилери бар текстке айланат.",
         fmtDocsNote: "Текст чыгарылып, которулат.",
@@ -914,7 +929,7 @@
         errorSignInRequired: "Бул видео YouTube'га кирүүнү талап кылат. Бот аны жүктөй албайт. Башка видео аракет кылыңыз.",
         errorPrivate: "Бул жабык видео. Бот аны жүктөй албайт.",
         errorAgeRestricted: "Бул видео жаш чектөөсү бар. Бот аны жүктөй албайт.",
-        errorInvalidUrl: "Шилтеме колдоого алынбайт. YouTube, TikTok же Instagram колдонуңуз.",
+        errorInvalidUrl: "Шилтеме колдоого алынбайт. YouTube, TikTok, Instagram же Facebook колдонуңуз.",
         errorTimeout: "Шилтемени текшерүү убактысы бүттү. Кайра аракет кылыңыз.",
         errorJobFailed: "Тапшырма ката",
         errorJobInterrupted: "Тапшырма сервердин кайра иштетилишине туруштук бере алган жок. Аны кайрадан иштетиңиз.",
@@ -927,7 +942,7 @@
       },
       tg: {
         title: "TilTap Web",
-        subtitle: "Аудио, видео ва пайвандҳои YouTube, TikTok, Instagram-ро шинос кунед. Ба забони қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ё англисӣ тарҷума кунед.",
+        subtitle: "Аудио, видео ва пайвандҳои YouTube, TikTok, Instagram, Facebook-ро шинос кунед. Ба забони қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ё англисӣ тарҷума кунед.",
         adminLink: "Панели администратор",
         sourceLangLabel: "Забони шиносоӣ",
         sourceLanguageLabel: "Забони манбаъ",
@@ -938,7 +953,7 @@
         tabYouTube: "Пайванди видео",
         tabTranslate: "Тарҷумаи матн",
         dropzoneText: "Аудио/видео-ро ба ин ҷо кашида оред ё барои интихоб кардан пахш кунед",
-        youtubeLabel: "Пайванди видео (YouTube, TikTok, Instagram)",
+        youtubeLabel: "Пайванди видео (YouTube, TikTok, Instagram, Facebook)",
         translateTextLabel: "Матни тарҷума",
         translateTextPlaceholder: "Матни тарҷумаашро ворид кунед...",
         entryFile: "Файл",
@@ -957,6 +972,8 @@
         fmtTitle: "Чӣ фиристодан мумкин аст",
         fmtAudio: "Садо ва видео",
         fmtDocs: "Ҳуҷҷатҳо",
+        fmtLinks: "Пайвандҳо",
+        fmtLinksNote: "Овоз тавассути пайванд боргирӣ мешавад, сухан ба матн табдил меёбад.",
         fmtTables: "Ҷадвалҳо ва субтитрҳо",
         fmtAudioNote: "Гуфтор ба матн бо нишонаҳои вақт табдил меёбад.",
         fmtDocsNote: "Матн гирифта шуда, тарҷума карда мешавад.",
@@ -1008,7 +1025,7 @@
         errorSignInRequired: "Ин видео талаб мекунад, ки шумо ба YouTube ворид шавед. Бот онро боргузорӣ карда наметавонад. Видеои дигарро кӯшиш кунед.",
         errorPrivate: "Ин видеои хусусӣ аст. Бот онро боргузорӣ карда наметавонад.",
         errorAgeRestricted: "Ин видео дорои маҳдудияти синну сол аст. Бот онро боргузорӣ карда наметавонад.",
-        errorInvalidUrl: "Пайванд дастгирӣ намешавад. YouTube, TikTok ё Instagram-ро истифода баред.",
+        errorInvalidUrl: "Пайванд дастгирӣ намешавад. YouTube, TikTok, Instagram ё Facebook-ро истифода баред.",
         errorTimeout: "Тафтиши пайванд аз вақт гузашт. Аз нав кӯшиш кунед.",
         errorJobFailed: "Хатои кор",
         errorJobInterrupted: "Вазифа пас аз бозоғозии сервер нигоҳ дошта нашуд. Онро аз нав оғоз кунед.",
@@ -1021,7 +1038,7 @@
       },
       uz: {
         title: "TilTap Web",
-        subtitle: "Audio, video va YouTube, TikTok, Instagram havolalarini tanib oling. Qirgʻiz, tojik, oʻzbek, rus yoki ingliz tiliga tarjima qiling.",
+        subtitle: "Audio, video va YouTube, TikTok, Instagram, Facebook havolalarini tanib oling. Qirgʻiz, tojik, oʻzbek, rus yoki ingliz tiliga tarjima qiling.",
         adminLink: "Admin paneli",
         sourceLangLabel: "Tanish tili",
         sourceLanguageLabel: "Manba tili",
@@ -1032,7 +1049,7 @@
         tabYouTube: "Video havolasi",
         tabTranslate: "Matn tarjima",
         dropzoneText: "Audio/videoni bu yerga sudrab olib keling yoki ko'rish uchun bosing",
-        youtubeLabel: "Video havolasi (YouTube, TikTok, Instagram)",
+        youtubeLabel: "Video havolasi (YouTube, TikTok, Instagram, Facebook)",
         translateTextLabel: "Tarjima qilinadigan matn",
         translateTextPlaceholder: "Tarjima qilinadigan matnni kiriting...",
         entryFile: "Fayl",
@@ -1051,6 +1068,8 @@
         fmtTitle: "Nimani yuborish mumkin",
         fmtAudio: "Ovoz va video",
         fmtDocs: "Hujjatlar",
+        fmtLinks: "Havolalar",
+        fmtLinksNote: "Ovoz havola orqali yuklab olinadi, nutq matnga aylanadi.",
         fmtTables: "Jadvallar va subtitrlar",
         fmtAudioNote: "Nutq vaqt belgilari bilan matnga aylanadi.",
         fmtDocsNote: "Matn olinadi va tarjima qilinadi.",
@@ -1102,7 +1121,7 @@
         errorSignInRequired: "Bu video YouTube'ga kirishni talab qiladi. Bot uni yuklay olmaydi. Boshqa videoni sinab ko'ring.",
         errorPrivate: "Bu xususiy video. Bot uni yuklay olmaydi.",
         errorAgeRestricted: "Bu video yosh chegarasiga ega. Bot uni yuklay olmaydi.",
-        errorInvalidUrl: "Havola qo'llab-quvvatlanmaydi. YouTube, TikTok yoki Instagram ishlating.",
+        errorInvalidUrl: "Havola qo'llab-quvvatlanmaydi. YouTube, TikTok, Instagram yoki Facebook ishlating.",
         errorTimeout: "Havolani tekshirish vaqti tugadi. Qayta urinib ko'ring.",
         errorJobFailed: "Vazifa xatosi",
         errorJobInterrupted: "Vazifa server qayta ishga tushirilgandan soʻng saqlanib qolmadi. Uni qaytadan ishga tushiring.",
@@ -1146,6 +1165,8 @@
         fmtTitle: "Нимани юбориш мумкин",
         fmtAudio: "Овоз ва видео",
         fmtDocs: "Ҳужжатлар",
+        fmtLinks: "Ҳаволалар",
+        fmtLinksNote: "Овоз ҳавола орқали юклаб олинади, нутқ матнга айланади.",
         fmtTables: "Жадваллар ва субтитрлар",
         fmtAudioNote: "Нутқ вақт белгилари билан матнга айланади.",
         fmtDocsNote: "Матн олинади ва таржима қилинади.",

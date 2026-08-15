@@ -74,7 +74,7 @@ function buildDownMessage(result: CobaltHealthResult): string {
     : "";
   return (
     "🔴 <b>Скачивание не работает</b>\n\n" +
-    "Ни один движок не отдаёт медиа: ссылки (YouTube / TikTok / Instagram) " +
+    "Ни один движок не отдаёт медиа: ссылки (YouTube / TikTok / Instagram / Facebook) " +
     "сейчас не обрабатываются.\n\n" +
     "Проверено:\n" +
     details +
