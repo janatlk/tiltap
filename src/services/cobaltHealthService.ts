@@ -6,6 +6,9 @@ import { probeYtdlp } from "./youtubeService";
 
 const ALERT_KEY = "cobalt-all-down";
 
+/** Пауза перед повторной проверкой, когда первый обход не нашёл живых. */
+const RECHECK_DELAY_MS = 60000;
+
 let monitorTimer: ReturnType<typeof setInterval> | null = null;
 // Track state so we only alert on the healthy→down transition (and re-alert
 // per the throttle while it stays down), and send a recovery notice on down→healthy.
@@ -44,7 +47,15 @@ export async function checkCobaltHealth(): Promise<CobaltHealthResult> {
   let workingUrl: string | undefined;
 
   for (const url of urls) {
-    const result = await testCobaltApiUrl(url, config.COBALT_HEALTHCHECK_URL);
+    // Вторая попытка перед приговором. Наш инстанс отвечает то за 10 секунд,
+    // то за минуту, и один и тот же запрос к нему то проходит, то падает.
+    // Одиночная проба на таком инстансе — это подбрасывание монеты, и она уже
+    // объявляла "ни один движок не отдаёт медиа" в момент, когда скачивание
+    // работало.
+    let result = await testCobaltApiUrl(url, config.COBALT_HEALTHCHECK_URL);
+    if (!result.ok) {
+      result = await testCobaltApiUrl(url, config.COBALT_HEALTHCHECK_URL);
+    }
     probes.push({ url, ok: result.ok, error: result.error });
     if (result.ok && !workingUrl) workingUrl = url;
   }
@@ -115,11 +126,40 @@ async function runCheck(): Promise<void> {
     return;
   }
 
-  logger.error("All download engines down", {
+  // Перед тем как поднимать тревогу, проверяем ещё раз через минуту.
+  //
+  // "Ни один движок не отдаёт медиа" — сообщение, ради которого человек бросает
+  // дела. Оно уже приходило в минуту, когда скачивание работало: инстансы
+  // отвечают неровно, и полный обход может не застать ни одного живого.
+  // Минута задержки ничего не стоит на фоне получасового круга, а цена ложной
+  // тревоги — доверие ко всем следующим.
+  logger.warn("All download engines look down; re-checking before alerting", {
     probes: result.probes,
     fallback: result.fallback,
   });
-  await sendAdminAlert(ALERT_KEY, buildDownMessage(result), config.COBALT_ALERT_THROTTLE_HOURS);
+  await new Promise((resolve) => setTimeout(resolve, RECHECK_DELAY_MS));
+
+  let confirmation: CobaltHealthResult;
+  try {
+    confirmation = await checkCobaltHealth();
+  } catch (err) {
+    logger.error("Cobalt re-check crashed", { error: err instanceof Error ? err.message : String(err) });
+    confirmation = result;
+  }
+
+  if (confirmation.healthy) {
+    logger.info("Download engines answered on re-check; no alert sent", {
+      via: confirmation.workingUrl ?? "yt-dlp fallback",
+    });
+    lastState = "healthy";
+    return;
+  }
+
+  logger.error("All download engines down", {
+    probes: confirmation.probes,
+    fallback: confirmation.fallback,
+  });
+  await sendAdminAlert(ALERT_KEY, buildDownMessage(confirmation), config.COBALT_ALERT_THROTTLE_HOURS);
   lastState = "down";
 }
 
