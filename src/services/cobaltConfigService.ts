@@ -186,6 +186,19 @@ async function probeTunnel(tunnelUrl: string): Promise<number> {
   return received;
 }
 
+/**
+ * Сколько ждать ответа инстанса.
+ *
+ * Было 15 секунд, и наш собственный инстанс не укладывался: измеренные ответы
+ * занимают от 10 до 50 секунд — он ходит в YouTube через WARP, и это не
+ * быстро. Проверка обрывалась по таймауту и раз за разом объявляла мёртвым
+ * инстанс, который в это же время нормально отдавал файлы.
+ *
+ * Медленный ответ — не отказ. Настоящие отказы (пустой туннель, требование
+ * входа) проверка ловит по-прежнему, и им лишние секунды не помогут.
+ */
+const API_TIMEOUT_MS = 60000;
+
 export async function testCobaltApiUrl(apiUrl: string, testUrl?: string): Promise<CobaltTestResult> {
   const normalized = normalizeUrl(apiUrl);
   if (!normalized) {
@@ -199,7 +212,7 @@ export async function testCobaltApiUrl(apiUrl: string, testUrl?: string): Promis
       method: "POST",
       headers: cobaltHeaders(normalized),
       body: JSON.stringify({ url: target, downloadMode: "audio" }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(API_TIMEOUT_MS),
     });
     const data = await resp.json() as { status?: string; error?: { code?: string }; url?: string };
     const latencyMs = Date.now() - start;
