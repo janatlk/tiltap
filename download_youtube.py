@@ -82,8 +82,16 @@ def download(url: str, tmpdir: str):
         emit_progress(int(p * 0.8 + 5), label)
 
     def try_ytdlp(reason: str):
-        """Second engine, YouTube only. Returns None when it is not usable."""
-        if not (youtube_ytdlp.is_youtube(url) and youtube_ytdlp.available()):
+        """Второй движок. Возвращает None, когда он неприменим.
+
+        Кроме YouTube сюда попадает Facebook: Cobalt разбирает только ссылки
+        вида /watch/?v= и /reel/, а кнопка «Поделиться» сегодня даёт share/v/…
+        и адреса страниц. У yt-dlp есть и facebook, и facebook:reel, и разбор
+        коротких fb.watch — то есть ровно те виды, на которых Cobalt сдаётся.
+        """
+        if not (youtube_ytdlp.is_youtube(url) or youtube_ytdlp.is_facebook(url)):
+            return None
+        if not youtube_ytdlp.available(url):
             return None
         print(f"[download] Cobalt failed ({reason}); trying yt-dlp", file=sys.stderr, flush=True)
         try:

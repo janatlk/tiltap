@@ -43,15 +43,31 @@ function detectMissingDependency(stderr: string): boolean {
   );
 }
 
+/**
+ * Facebook раздаёт одно и то же видео под несколькими видами ссылок, и люди
+ * копируют ту, которую им дала кнопка «Поделиться».
+ *
+ * Cobalt разбирает только два вида — /watch/?v= и /reel/ — а самые ходовые
+ * сегодня share/v/… и /Страница/videos/… он не понимает вовсе (проверено
+ * прямыми запросами: отвечает fetch.empty). Пропускаем их всё равно: за
+ * Cobalt стоит yt-dlp, у которого есть и facebook, и facebook:reel, и
+ * разбор коротких ссылок fb.watch.
+ *
+ * Закрытое логином скачать нельзя ничем — ни у нас, ни у кого.
+ */
+const FACEBOOK_URL =
+  /^(https?:\/\/)?((www|m|web|mbasic)\.)?(facebook\.com|fb\.watch|fb\.com)\/.+/;
+
 export function isSupportedMediaUrl(url: string): boolean {
   return (
     /^(https?:\/\/)?(www\.|m\.)?(youtube\.com|youtu\.be)\/.+/.test(url) ||
     /^(https?:\/\/)?(www\.|m\.|vm\.|vt\.)?tiktok\.com\/.+/.test(url) ||
-    /^(https?:\/\/)?(www\.)?instagram\.com\/(reel|p|stories|tv)\/.+/.test(url)
+    /^(https?:\/\/)?(www\.)?instagram\.com\/(reel|p|stories|tv)\/.+/.test(url) ||
+    FACEBOOK_URL.test(url)
   );
 }
 
-export type MediaSourceId = "youtube" | "tiktok" | "instagram" | "link";
+export type MediaSourceId = "youtube" | "tiktok" | "instagram" | "facebook" | "link";
 
 /**
  * Which service a media link points at. We accept TikTok and Instagram as well
@@ -63,6 +79,7 @@ export function detectMediaSource(url: string): MediaSourceId {
   if (/^(https?:\/\/)?(www\.|m\.)?(youtube\.com|youtu\.be)\//.test(url)) return "youtube";
   if (/^(https?:\/\/)?(www\.|m\.|vm\.|vt\.)?tiktok\.com\//.test(url)) return "tiktok";
   if (/^(https?:\/\/)?(www\.)?instagram\.com\//.test(url)) return "instagram";
+  if (FACEBOOK_URL.test(url)) return "facebook";
   return "link";
 }
 
@@ -70,6 +87,7 @@ const MEDIA_SOURCE_NAMES: Record<MediaSourceId, string> = {
   youtube: "YouTube",
   tiktok: "TikTok",
   instagram: "Instagram",
+  facebook: "Facebook",
   link: "the link",
 };
 

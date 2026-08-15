@@ -44,9 +44,31 @@ def is_youtube(url: str) -> bool:
     return "youtube.com" in u or "youtu.be" in u
 
 
-def available() -> bool:
-    """yt-dlp path is only usable when the binary and cookies both exist."""
-    return bool(shutil.which(YTDLP_BIN)) and os.path.isfile(COOKIES)
+def is_facebook(url: str) -> bool:
+    u = url.lower()
+    return "facebook.com" in u or "fb.watch" in u or "fb.com" in u
+
+
+def needs_cookies(url: str) -> bool:
+    """Куки нужны только YouTube — он ими проверяет, что мы не робот.
+
+    Facebook отдаёт публичное видео без всякого входа, а наши куки принадлежат
+    ютубовскому аккаунту: слать их на чужой домен незачем.
+    """
+    return is_youtube(url)
+
+
+def available(url: str = "") -> bool:
+    """Годен ли путь через yt-dlp для этой ссылки.
+
+    Без ссылки отвечаем по строгому правилу (с куками): так продолжают работать
+    прежние вызовы, где речь всегда шла о YouTube.
+    """
+    if not shutil.which(YTDLP_BIN):
+        return False
+    if url and not needs_cookies(url):
+        return True
+    return os.path.isfile(COOKIES)
 
 
 def _build_cmd(url: str, out_template: str, max_bytes: int, cookies_path: str) -> list:
@@ -143,10 +165,10 @@ def download_audio(url: str, output_dir: str, progress_cb=None, max_bytes: int =
     Raises RuntimeError with yt-dlp's own message so the caller can decide
     whether to fall back to Cobalt.
     """
-    if not available():
+    if not available(url):
         raise RuntimeError(f"yt-dlp unavailable (bin={YTDLP_BIN}, cookies={COOKIES})")
 
-    session_copy = _disposable_cookies(output_dir)
+    session_copy = _disposable_cookies(output_dir) if needs_cookies(url) else ""
 
     out_template = os.path.join(output_dir, "yt_audio.%(ext)s")
     # stderr is merged into stdout on purpose: reading it only after the process
