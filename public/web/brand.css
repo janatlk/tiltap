@@ -60,7 +60,7 @@
    рамке предпросмотра: страница-хозяин навязывает рамке свою тему, иначе
    внутри светлой страницы оказывается тёмное приложение. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]):not([data-frame-theme="light"]) {
+  :root:not([data-theme="light"]):not([data-frame-theme="light"]):not([data-scheme="light"]) {
     --paper:        oklch(0.175 0.008 265);
     --paper-sunk:   oklch(0.145 0.008 265);
     --paper-raised: oklch(0.215 0.009 265);
@@ -147,8 +147,12 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  [data-theme="tiltap"] { color-scheme: dark; }
+  [data-theme="tiltap"]:not([data-scheme="light"]) { color-scheme: dark; }
 }
+
+/* [data-scheme] закрепляет тему за страницей, что бы ни стояло в системе.
+   Атрибут отдельный, потому что [data-theme] на рабочем экране уже занят:
+   там им выбирается набор переменных daisyUI, а не светлое или тёмное. */
 
 /* ===========================================================================
    Шапка. Одна на лендинг и на рабочий экран: две похожие, но разные шапки

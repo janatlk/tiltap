@@ -9,6 +9,7 @@ import { fetchTelegramFile } from "../services/fileDownloadService";
 import { transcribeAudio, formatSubtitles } from "../services/transcriptionService";
 
 import { cleanupTranscription, detectTranscriptionIssues } from "../services/cleanupService";
+import { paragraphsFromSegments, paragraphsFromSentences } from "../utils/paragraphs";
 import { assessResultConfidence, formatConfidenceLine } from "../services/transcriptQualityService";
 import { translateText } from "../services/translationService";
 import {
@@ -1130,8 +1131,12 @@ async function processAudio(
       return result;
     }
 
-    const cleanup = await cleanupTranscription(result.text, result.language);
-    const cleanedText = cleanup.cleanedText;
+    // Разрывы ставим до вычитки, чтобы они дошли и до перевода: он режет текст
+    // по пустым строкам и сохраняет их. Иначе расшифровка приходит одним
+    // полотном — в переписке это читать ещё тяжелее, чем на странице.
+    const structured = paragraphsFromSegments(result.segments) || result.text;
+    const cleanup = await cleanupTranscription(structured, result.language);
+    const cleanedText = paragraphsFromSentences(cleanup.cleanedText);
 
     // Quality check before sending to user
     const quality = detectTranscriptionIssues(cleanedText, result.language, result.segments);
@@ -1312,8 +1317,12 @@ async function downloadAndTranscribeYouTube(
       return;
     }
 
-    const cleanup = await cleanupTranscription(result.text, result.language);
-    const cleanedText = cleanup.cleanedText;
+    // Разрывы ставим до вычитки, чтобы они дошли и до перевода: он режет текст
+    // по пустым строкам и сохраняет их. Иначе расшифровка приходит одним
+    // полотном — в переписке это читать ещё тяжелее, чем на странице.
+    const structured = paragraphsFromSegments(result.segments) || result.text;
+    const cleanup = await cleanupTranscription(structured, result.language);
+    const cleanedText = paragraphsFromSentences(cleanup.cleanedText);
 
     let transcriptionId: number;
     try {
@@ -1671,8 +1680,12 @@ async function runAccuracyTest(chatId: number, language: string): Promise<void> 
       return;
     }
 
-    const cleanup = await cleanupTranscription(result.text, result.language);
-    const cleanedText = cleanup.cleanedText;
+    // Разрывы ставим до вычитки, чтобы они дошли и до перевода: он режет текст
+    // по пустым строкам и сохраняет их. Иначе расшифровка приходит одним
+    // полотном — в переписке это читать ещё тяжелее, чем на странице.
+    const structured = paragraphsFromSegments(result.segments) || result.text;
+    const cleanup = await cleanupTranscription(structured, result.language);
+    const cleanedText = paragraphsFromSentences(cleanup.cleanedText);
 
     let referenceText = await captionPromise;
     if (!referenceText || referenceText.trim().length < 10) {

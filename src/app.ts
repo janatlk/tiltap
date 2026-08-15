@@ -14,6 +14,8 @@ import betaTestRoutes from "./routes/betaTest";
 import datasetRoutes from "./routes/dataset";
 import { adminListAnnotators, adminCreateAnnotator } from "./controllers/datasetController";
 import { getProvidersHealth } from "./controllers/providersController";
+import { currentAnnotator } from "./services/datasetAuthService";
+import { isSuperAdmin } from "./services/datasetPermissions";
 import { isDbHealthy } from "./db";
 import { config } from "./config";
 
@@ -44,9 +46,47 @@ app.get("/health", async (_req, res) => {
 // Provider health & billing snapshot
 app.get("/health/providers", getProvidersHealth);
 
-// Static web UI. The admin HTML shell is public so the token never has to
-// appear in a URL; all admin API endpoints require the token via the
-// X-Admin-Token header and the UI prompts for it.
+// Закрытые страницы отдаются только вошедшим.
+//
+// Раньше сама разметка была публичной: считалось, что страница без данных не
+// опасна, ведь API всё равно спрашивает права. Это верно про утечку данных, но
+// не про всё остальное — посторонним видно устройство админки, названия полей
+// и действий, а поисковики такие страницы индексируют. Прятать нечего только
+// тогда, когда прятать нечего.
+//
+// Переброс на клиенте (guard.js) остаётся: он показывает человеку страницу
+// входа вместо голого отказа. Настоящая проверка теперь здесь.
+const SUPER_ADMIN_PAGES = new Set(["/admin.html", "/admin-beta-test.html"]);
+const DATASET_PAGES = new Set([
+  "/dataset-tasks.html",
+  "/dataset-task.html",
+  "/dataset-users.html",
+  "/dataset-export.html",
+]);
+
+app.use("/web", async (req: Request, res: Response, next: NextFunction) => {
+  const page = req.path.toLowerCase();
+  const needsSuperAdmin = SUPER_ADMIN_PAGES.has(page);
+  if (!needsSuperAdmin && !DATASET_PAGES.has(page)) {
+    next();
+    return;
+  }
+
+  const annotator = await currentAnnotator(req).catch(() => null);
+  const allowed = annotator !== null && (!needsSuperAdmin || isSuperAdmin(annotator));
+  if (allowed) {
+    next();
+    return;
+  }
+
+  // Ведём на вход и запоминаем, куда человек шёл: после входа он попадёт
+  // туда же, а не на общую страницу и заново искать нужное.
+  const next_ = encodeURIComponent(req.originalUrl);
+  res.redirect(302, `/web/dataset.html?next=${next_}`);
+});
+
+// Остальная разметка публична. Страница входа обязана быть открытой, иначе
+// войти неоткуда.
 app.use("/web", express.static(path.join(process.cwd(), "public/web")));
 app.use(express.static(path.join(process.cwd(), "public")));
 

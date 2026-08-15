@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="tiltap">
+<html lang="en" data-theme="tiltap" data-scheme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -229,7 +229,7 @@
       color: var(--ink-soft);
     }
     .kind-chip:empty { display: none; }
-    .kind-chip[data-kind="youtube"] { border-color: var(--accent); color: var(--accent); }
+    .kind-chip[data-kind="link"] { border-color: var(--accent); color: var(--accent); }
     .kind-chip[data-kind="file"] { border-color: var(--accent); color: var(--accent); }
 
     .link-quiet {
@@ -2250,7 +2250,9 @@
             linkName.textContent = trimmed;
           }
           kindChip.textContent = hostOf(trimmed);
-          kindChip.dataset.kind = "youtube";
+          // Метка называет площадку, а не «youtube» для всего подряд: ссылки
+          // приходят и с TikTok, и с Instagram, и с Facebook.
+          kindChip.dataset.kind = "link";
         } else if (trimmed.length > 0) {
           setMode("text");
           setState("text");
