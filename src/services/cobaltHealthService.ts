@@ -73,16 +73,26 @@ function buildDownMessage(result: CobaltHealthResult): string {
     ? `\n• ${result.fallback.url} — ${result.fallback.error ?? "fail"}`
     : "";
   return (
-    "🔴 <b>Скачивание не работает</b>\n\n" +
-    "Ни один движок не отдаёт медиа: ссылки (YouTube / TikTok / Instagram / Facebook) " +
-    "сейчас не обрабатываются.\n\n" +
+    // Раньше сообщение перечисляло все площадки, хотя проверка трогает только
+    // ролик с YouTube. Именно YouTube и режет чаще всего — по общему для
+    // многих адресу WARP, — а Facebook и TikTok в это же время скачиваются.
+    // Обещать полную остановку, когда встала одна площадка, значит приучить
+    // читать эти сообщения по диагонали.
+    "🔴 <b>YouTube не отдаёт медиа</b>\n\n" +
+    "Ни один движок не смог скачать проверочный ролик с YouTube. Ссылки с " +
+    "других площадок (TikTok, Instagram, Facebook) при этом могут работать.\n\n" +
     "Проверено:\n" +
     details +
     fallback +
     "\n\n<b>Что сделать:</b>\n" +
-    "1. Проверить свой инстанс: <code>docker logs cobalt2_api</code> — чаще всего " +
-    "истекли куки YouTube, нужен свежий экспорт.\n" +
-    "2. Запасной вариант — рабочий публичный инстанс: https://instances.cobalt.best, " +
+    "1. Чаще всего проходит само за полчаса: наш инстанс выходит через общий " +
+    "адрес WARP, и YouTube временами придерживает его. Пустой туннель " +
+    "(<code>tunnel returned no data</code>) — это именно тот случай.\n" +
+    "2. Если не проходит: обновить куки YouTube — свежий экспорт в " +
+    "<code>data/youtube_cookies.txt</code>, затем " +
+    "<code>python3 scripts/cookies_to_cobalt.py</code> и перезапуск " +
+    "<code>cobalt2_api</code>.\n" +
+    "3. Запасной вариант — рабочий публичный инстанс: https://instances.cobalt.best, " +
     "добавить в админке (Beta-test → Cobalt manager) и проверить кнопкой Test."
   );
 }
