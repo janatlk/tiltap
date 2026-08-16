@@ -24,6 +24,10 @@ from collections import Counter
 GARBAGE_THRESHOLD = float(os.environ.get("TILTAB_GARBAGE_THRESHOLD", "0.4"))
 FUZZY_MATCH_THRESHOLD = float(os.environ.get("TILTAB_NE_FUZZY_THRESHOLD", "0.80"))
 MAX_NE_DISTANCE_CHARS = int(os.environ.get("TILTAB_NE_MAX_DISTANCE", "4"))
+# Короче этого имена по созвучию не угадываем: на такой длине совпадают слова
+# без всякого родства. Точные совпадения с именами и их вариантами работают
+# по-прежнему, независимо от длины.
+MIN_FUZZY_MATCH_CHARS = int(os.environ.get("TILTAB_NE_MIN_FUZZY_CHARS", "5"))
 
 
 def _cleanup_aggressive() -> bool:
@@ -679,7 +683,10 @@ DEFAULT_TAJIK_ENTITIES = {
     "Нигора": [],
     "Саодат": [],
     # Tajik places
-    "Конибодом": ["Кони-бодом", "Кунбедон", "Кунабадан", "Кунй"],
+    # "Кунй" отсюда убран намеренно: по созвучию на него садилось обычное
+    # повелительное "кун" (делай), и призыв "оғоз кун" превращался в название
+    # города — "оғоз Конибодом". Лингвист нашёл это трижды в одном ролике.
+    "Конибодом": ["Кони-бодом", "Кунбедон", "Кунабадан"],
     "Санҷидзор": ["Санжитсар", "Синҷизор", "Санҷазор", "Санҷазорӣ"],
     "Суғд": ["Суғдиё"],
     "Дастикам": ["Дасти Кам", "дасткам"],
@@ -937,6 +944,18 @@ class NamedEntityFixer:
             return self._preserve_case(word, self.variant_to_canonical[lower])
         if lower in {c.lower() for c in self.canonical}:
             return word
+
+        # Догадка по созвучию — только для слов подлиннее.
+        #
+        # На трёх-четырёх буквах похожими оказываются слова без всякого родства:
+        # "кун" (делай) отличается от "Кунй" одной буквой, то есть совпадает на
+        # 86% — выше нашего порога. В таджикском такой длины почти сплошь
+        # служебные слова и повелительные формы, и каждая ошибка здесь не
+        # опечатка, а подмена смысла: человек читает название города там, где
+        # ему говорили "начни".
+        if len(stripped) < MIN_FUZZY_MATCH_CHARS:
+            return word
+
         best = None
         best_score = 0.0
         for candidate in self.search_pool:
