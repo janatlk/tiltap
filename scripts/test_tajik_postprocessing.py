@@ -97,8 +97,20 @@ def test_common_verbs_do_not_become_place_names():
         out, _score, _warning = postprocess_segment(inp, "tg")
         ok &= _assert_equal(out, expected, f"verb kept {inp}")
 
-    # Настоящие искажения имён по-прежнему чинятся: длина у них достаточная.
-    for inp, expected in [("Кунбедон", "Конибодом"), ("Ходжент", "Хуҷанд")]:
+    # "интизор" (ждёт) совпадало с вариантом имени "Синҷизор" ровно на пороге,
+    # и фраза "успех тебя ждёт" превращалась в "успех Санҷидзор".
+    for inp in ("интизор", "муваффақият интизор аст"):
+        out, _score, _warning = postprocess_segment(inp, "tg")
+        ok &= _assert_equal(out, inp, f"common word kept {inp}")
+
+    # Настоящие искажения имён по-прежнему чинятся — и по списку вариантов,
+    # и по созвучию, когда начало слова совпадает.
+    for inp, expected in [
+        ("Кунбедон", "Конибодом"),
+        ("Ходжент", "Хуҷанд"),
+        ("Конибодам", "Конибодом"),
+        ("Истаравшон", "Истаравшан"),
+    ]:
         out, _score, _warning = postprocess_segment(inp, "tg")
         ok &= _assert_equal(out, expected, f"entity still fixed {inp}")
     return ok

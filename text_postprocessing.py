@@ -22,7 +22,10 @@ from collections import Counter
 # Config / defaults
 # ---------------------------------------------------------------------------
 GARBAGE_THRESHOLD = float(os.environ.get("TILTAB_GARBAGE_THRESHOLD", "0.4"))
-FUZZY_MATCH_THRESHOLD = float(os.environ.get("TILTAB_NE_FUZZY_THRESHOLD", "0.80"))
+# 0.80 пропускал обычные слова: "интизор" (ждёт) совпадает с вариантом имени
+# "Синҷизор" ровно на 0.80, и в переводе появлялось "успех Санҷидзор ждёт".
+# Настоящие искажения имён набирают 0.83-0.90, поэтому порог поднят между ними.
+FUZZY_MATCH_THRESHOLD = float(os.environ.get("TILTAB_NE_FUZZY_THRESHOLD", "0.82"))
 MAX_NE_DISTANCE_CHARS = int(os.environ.get("TILTAB_NE_MAX_DISTANCE", "4"))
 # Короче этого имена по созвучию не угадываем: на такой длине совпадают слова
 # без всякого родства. Точные совпадения с именами и их вариантами работают
@@ -961,6 +964,12 @@ class NamedEntityFixer:
         for candidate in self.search_pool:
             candidate_lower = candidate.lower()
             if candidate_lower == lower:
+                continue
+            # Первая буква должна совпадать. Распознавание путает середину и
+            # окончание слова — "Конибодам" вместо "Конибодом", — но начало
+            # обычно слышно. Зато без этого условия под имя подгоняются слова,
+            # похожие только хвостом: "интизор" и "Синҷизор".
+            if candidate_lower[:1] != lower[:1]:
                 continue
             dist = abs(len(candidate) - len(stripped))
             if dist > MAX_NE_DISTANCE_CHARS:
