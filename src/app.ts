@@ -73,14 +73,23 @@ app.use("/web", async (req: Request, res: Response, next: NextFunction) => {
   }
 
   const annotator = await currentAnnotator(req).catch(() => null);
-  const allowed = annotator !== null && (!needsSuperAdmin || isSuperAdmin(annotator));
-  if (allowed) {
+  if (annotator && (!needsSuperAdmin || isSuperAdmin(annotator))) {
     next();
     return;
   }
 
-  // Ведём на вход и запоминаем, куда человек шёл: после входа он попадёт
-  // туда же, а не на общую страницу и заново искать нужное.
+  // Вошедшего, но без прав, ведём в разметку, а не на вход.
+  //
+  // Ссылка "Вход для сотрудников" у всех одна и ведёт в админку. Разметчик,
+  // нажав её, попадал на страницу входа с "next=/web/admin.html", входил,
+  // возвращался в админку, снова получал отказ — и так без конца. Круг рвётся
+  // здесь: человек уже вошёл, спрашивать пароль второй раз бессмысленно.
+  if (annotator) {
+    res.redirect(302, "/web/dataset-tasks.html");
+    return;
+  }
+
+  // Не вошёл вовсе: на вход, запомнив, куда он шёл.
   const next_ = encodeURIComponent(req.originalUrl);
   res.redirect(302, `/web/dataset.html?next=${next_}`);
 });

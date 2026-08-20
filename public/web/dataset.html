@@ -41,11 +41,24 @@
 <script src="/web/guard.js"></script>
 <script src="/web/dataset-common.js"></script>
 <script>
-function nextUrl(role) {
+// Страницы, куда пускают только супер-админа. Список повторяет серверный:
+// если вернуть сюда разметчика, сервер снова отправит его на вход, и человек
+// будет ходить по кругу, вводя пароль, который каждый раз принимается.
+const SUPER_ADMIN_ONLY = ["/web/admin.html", "/web/admin-beta-test.html"];
+
+function requestedPage(role) {
   const next = new URLSearchParams(location.search).get("next");
   // Открытый редирект: без проверки сюда можно было бы подставить чужой адрес
   // и увести человека сразу после ввода пароля.
-  if (next && next.startsWith("/web/")) return next;
+  if (!next || !next.startsWith("/web/")) return null;
+  const path = next.split("?")[0].toLowerCase();
+  if (SUPER_ADMIN_ONLY.indexOf(path) >= 0 && role !== "super_admin") return null;
+  return next;
+}
+
+function nextUrl(role) {
+  const next = requestedPage(role);
+  if (next) return next;
   // Каждому своя начальная страница: супер-админ работает в админке, остальные
   // в разметке. Общая посадочная страница заставляла бы половину людей делать
   // лишний переход при каждом входе.
@@ -78,7 +91,16 @@ $("loginBtn").onclick = async () => {
 (async () => {
   const session = await fetchSession();
   if (session.authenticated) {
-    location.href = nextUrl(session.annotator && session.annotator.role);
+    // Уже вошедшего отправляем туда, куда он шёл, а если он просто открыл
+    // датасет — в сам датасет.
+    //
+    // Раньше здесь стоял тот же выбор по роли, что и после ввода пароля, и
+    // супер-админа уносило в админку: открыть разметку он не мог вовсе, его
+    // возвращало туда, откуда он пришёл. Выбор по роли уместен сразу после
+    // входа, когда человек ещё не сказал, куда идёт; открыв эту страницу
+    // намеренно, он это уже сказал.
+    const role = session.annotator && session.annotator.role;
+    location.href = requestedPage(role) || "/web/dataset-tasks.html";
     return;
   }
   mountChrome({ minimal: true });
