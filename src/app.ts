@@ -14,6 +14,7 @@ import betaTestRoutes from "./routes/betaTest";
 import datasetRoutes from "./routes/dataset";
 import { adminListAnnotators, adminCreateAnnotator } from "./controllers/datasetController";
 import { getProvidersHealth } from "./controllers/providersController";
+import { handlePublicStats } from "./controllers/statsController";
 import { currentAnnotator } from "./services/datasetAuthService";
 import { isSuperAdmin } from "./services/datasetPermissions";
 import { isDbHealthy } from "./db";
@@ -45,6 +46,9 @@ app.get("/health", async (_req, res) => {
 
 // Provider health & billing snapshot
 app.get("/health/providers", getProvidersHealth);
+
+// Публичная сводка для страницы статистики. Только счётчики, без содержимого.
+app.get("/api/stats", handlePublicStats);
 
 // Закрытые страницы отдаются только вошедшим.
 //
