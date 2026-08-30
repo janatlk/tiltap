@@ -280,7 +280,13 @@ export async function handleWebTranslate(req: Request, res: Response): Promise<v
     const result = await translateText(body);
     res.status(200).json(result);
   } catch (err) {
-    logger.error("Web translate error", { error: err instanceof Error ? err.message : String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    // Просьба перевести на тот же язык — ошибка запроса, а не сбой сервиса.
+    if (message === "same_language") {
+      res.status(400).json({ error: "same_language" });
+      return;
+    }
+    logger.error("Web translate error", { error: message });
     res.status(500).json({ error: "Internal server error" });
   }
 }

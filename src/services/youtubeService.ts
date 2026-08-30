@@ -44,6 +44,18 @@ function detectMissingDependency(stderr: string): boolean {
 }
 
 /**
+ * Инстаграм раздаёт одно и то же видео под разными адресами, и кнопка
+ * "Поделиться" сейчас даёт /reels/ — во множественном числе.
+ *
+ * Прежний шаблон знал только /reel/, поэтому такая ссылка не считалась
+ * ссылкой на видео вовсе: она уходила в перевод как обычный текст, и человек
+ * получал обратно свой же адрес. Именно на это пришла жалоба "видео не
+ * переводит" — запрос 1704.
+ */
+const INSTAGRAM_URL =
+  /^(https?:\/\/)?(www\.)?instagram\.com\/(reels?|p|tv|stories|share)\/.+|^(https?:\/\/)?(www\.)?instagram\.com\/[^/]+\/(reels?|p)\/.+/;
+
+/**
  * Facebook раздаёт одно и то же видео под несколькими видами ссылок, и люди
  * копируют ту, которую им дала кнопка «Поделиться».
  *
@@ -62,7 +74,7 @@ export function isSupportedMediaUrl(url: string): boolean {
   return (
     /^(https?:\/\/)?(www\.|m\.)?(youtube\.com|youtu\.be)\/.+/.test(url) ||
     /^(https?:\/\/)?(www\.|m\.|vm\.|vt\.)?tiktok\.com\/.+/.test(url) ||
-    /^(https?:\/\/)?(www\.)?instagram\.com\/(reel|p|stories|tv)\/.+/.test(url) ||
+    INSTAGRAM_URL.test(url) ||
     FACEBOOK_URL.test(url)
   );
 }

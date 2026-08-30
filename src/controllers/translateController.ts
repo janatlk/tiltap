@@ -31,7 +31,12 @@ export async function handleTranslate(req: Request, res: Response): Promise<void
       durationMs: Date.now() - startTime,
     });
   } catch (err) {
-    logger.error("Translation error", { error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === "same_language") {
+      res.status(400).json({ error: "same_language" });
+      return;
+    }
+    logger.error("Translation error", { error: message, stack: err instanceof Error ? err.stack : undefined });
     res.status(500).json({ error: "Internal server error" });
   }
 }

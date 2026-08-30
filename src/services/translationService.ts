@@ -1044,6 +1044,18 @@ export async function confirmTranslation(payload: {
 
 async function doTranslate(translateReq: TranslateRequest): Promise<TranslateResponse> {
   const sourceLang = normalizeLanguageCodeOrKeep(translateReq.sourceLang) ?? "auto";
+
+  // Перевод на тот же язык — это не перевод.
+  //
+  // Пришла жалоба "с английского на кыргызский не перевёл, оставил на
+  // английском" (запрос 1599): язык цели там стоял английский, текст был
+  // английский, и модель честно вернула его как есть. Со стороны это выглядит
+  // как поломка, потому что ответ неотличим от отсутствия ответа. Отказ
+  // объясняет, что произошло, а тихий повтор исходника — нет.
+  if (sourceLang !== "auto" && sourceLang === translateReq.targetLang) {
+    throw new Error("same_language");
+  }
+
   const hash = createHash("sha256").update(translateReq.text).digest("hex");
   const cached = await translationRepo.getConfirmedTranslationCache(hash, translateReq.targetLang);
   if (cached) {
