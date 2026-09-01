@@ -41,8 +41,16 @@ async function start() {
     process.exit(1);
   }
 
-  app.listen(PORT, () => {
-    logger.info(`🚀 TilTap backend running on port ${PORT} in ${config.NODE_ENV} mode`);
+  // Слушаем только петлю: снаружи стоит nginx с шифрованием, и открытый порт
+  // рядом с ним — это дверь мимо замка. Кто знал адрес с портом, ходил бы по
+  // http как раньше, и HTTPS оставался бы украшением.
+  //
+  // Адрес можно переопределить через TILTAB_BIND_HOST — например, "0.0.0.0",
+  // если сервис поднимают без прокси перед ним.
+  const HOST = process.env.TILTAB_BIND_HOST || "127.0.0.1";
+
+  app.listen(PORT, HOST, () => {
+    logger.info(`🚀 TilTap backend running on ${HOST}:${PORT} in ${config.NODE_ENV} mode`);
     startCobaltHealthMonitor();
     // Список команд в меню бота — единственный способ найти /language
     // тому, кто не читает язык интерфейса.

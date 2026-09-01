@@ -62,9 +62,10 @@ interface Attempts {
 const attemptsByIp = new Map<string, Attempts>();
 
 function clientIp(req: Request): string {
-  // No reverse proxy in front yet, so socket address is the real client. Once
-  // one is added, trust proxy must be configured before believing X-Forwarded-For.
-  return req.socket.remoteAddress || "unknown";
+  // req.ip учитывает "trust proxy": за нашим прокси это адрес посетителя, без
+  // прокси — адрес сокета. Сокет напрямую брать нельзя: за прокси он у всех
+  // одинаковый, и счётчик неудачных попыток стал бы общим на всех.
+  return req.ip || req.socket.remoteAddress || "unknown";
 }
 
 export function loginLockRemainingMs(req: Request): number {
