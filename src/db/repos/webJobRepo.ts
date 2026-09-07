@@ -120,6 +120,29 @@ export async function updateWebJob(
   );
 }
 
+/**
+ * Помечает брошенные задания неудачными при запуске.
+ *
+ * Задания живут в памяти процесса. Если он перезапустился — а это и падение
+ * сервера, и обычное обновление, — ничего из отмеченного "выполняется" уже не
+ * выполняется. Строки оставались в этом состоянии навсегда: после аварии у
+ * хостинг-провайдера в базе нашлись задания месячной давности, всё ещё
+ * "скачивающие запись". Они попадали в сводку как обычная работа и никогда —
+ * как отказ, то есть тихо занижали долю ошибок.
+ */
+export async function failOrphanedJobs(): Promise<number> {
+  const rows = await query<{ job_id: string }>(
+    `UPDATE web_jobs
+        SET status = 'failed',
+            error_message = COALESCE(error_message, 'job_interrupted'),
+            completed_at = NOW(),
+            updated_at = NOW()
+      WHERE status IN ('pending', 'running')
+      RETURNING job_id`
+  );
+  return rows.length;
+}
+
 export async function getWebJobById(jobId: string): Promise<WebJobEntry | null> {
   return queryOne<WebJobEntry>(
     `SELECT * FROM web_jobs WHERE job_id = $1 LIMIT 1`,

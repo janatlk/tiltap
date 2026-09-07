@@ -14,6 +14,7 @@ import app from "./app";
 import { config } from "./config";
 import { logger } from "./utils/logger";
 import { migrate, isDbHealthy } from "./db";
+import { failOrphanedJobs } from "./db/repos/webJobRepo";
 import { initPendingActions } from "./services/telegramService";
 import { cleanupOldTempFiles } from "./utils/tempCleanup";
 import { startCobaltHealthMonitor } from "./services/cobaltHealthService";
@@ -36,6 +37,13 @@ async function start() {
     }
     await migrate();
     await initPendingActions();
+
+    // Ни одно задание не переживает перезапуск: они живут в памяти процесса.
+    // Оставлять их "выполняющимися" — врать и людям, и сводке.
+    const orphaned = await failOrphanedJobs();
+    if (orphaned > 0) {
+      logger.warn("Брошенные задания помечены неудачными", { count: orphaned });
+    }
   } catch (err) {
     logger.error("Failed to start server due to DB issue", { error: err instanceof Error ? err.message : String(err), stack: err instanceof Error ? err.stack : undefined });
     process.exit(1);
