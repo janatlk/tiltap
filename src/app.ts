@@ -9,7 +9,6 @@ import translateRoutes from "./routes/translate";
 import webRoutes from "./routes/web";
 import adminRoutes from "./routes/admin";
 import { requireAdmin } from "./middleware/requireAdmin";
-import { login, logout, session } from "./services/adminAuthService";
 import betaTestRoutes from "./routes/betaTest";
 import datasetRoutes from "./routes/dataset";
 import { adminListAnnotators, adminCreateAnnotator } from "./controllers/datasetController";
@@ -69,7 +68,7 @@ app.get("/api/stats", handlePublicStats);
 //
 // Переброс на клиенте (guard.js) остаётся: он показывает человеку страницу
 // входа вместо голого отказа. Настоящая проверка теперь здесь.
-const SUPER_ADMIN_PAGES = new Set(["/admin.html", "/admin-beta-test.html"]);
+const SUPER_ADMIN_PAGES = new Set(["/admin.html", "/admin-beta-test.html", "/admin-subtitles.html"]);
 const DATASET_PAGES = new Set([
   "/dataset-tasks.html",
   "/dataset-task.html",
@@ -119,11 +118,8 @@ app.use("/api/web", webRoutes);
 // Annotation workspace. Its own logins, deliberately not the admin password:
 // a linguist needs to fix transcripts, not to read the request log.
 app.use("/api/dataset", datasetRoutes);
-// Login endpoints sit in front of the gate, or nobody could ever log in.
-app.post("/api/admin/login", login);
-app.post("/api/admin/logout", logout);
-app.get("/api/admin/session", session);
-
+// Отдельного входа в админку нет: пускает учётка супер-админа разметки (или
+// машинный токен для скриптов). Второй пароль заставлял входить дважды.
 // Everything else under /api/admin requires a session or a machine token.
 app.use("/api/admin", requireAdmin);
 app.use("/api/admin", adminRoutes);

@@ -84,14 +84,7 @@
       </div>
     </div>
 
-    <div class="card bg-base-100 shadow-sm">
-      <div class="card-body">
-        <div class="form-control max-w-xl">
-          <label class="label" for="adminToken"><span class="label-text">Admin token <span class="text-xs opacity-60">(не нужен, если вошли по паролю)</span></span></label>
-          <input type="text" id="adminToken" class="input input-bordered w-full" placeholder="оставьте пустым — используется сессия">
-        </div>
-      </div>
-    </div>
+    <input type="hidden" id="adminToken">
 
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body space-y-4">
@@ -513,7 +506,7 @@
     }
 
     function getStoredToken() { return localStorage.getItem("tiltab_admin_token") || ""; }
-    adminToken.value = getStoredToken();
+    try { localStorage.removeItem("tiltab_admin_token"); } catch (e) {}
     adminToken.addEventListener("change", () => {
       localStorage.setItem("tiltab_admin_token", adminToken.value);
       loadCobaltConfig();

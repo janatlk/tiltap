@@ -26,32 +26,17 @@
       <h1 class="text-3xl font-bold tracking-tight">TilTap Admin</h1>
       <div class="flex gap-2">
         <a href="/web/admin-beta-test.html" class="btn btn-sm btn-ghost">Beta STT Test</a>
+        <a href="/web/admin-subtitles.html" class="btn btn-sm btn-ghost">Субтитры (разработка)</a>
         <a href="/web" class="btn btn-sm btn-ghost">Back to web UI</a>
       </div>
     </header>
 
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body">
-        <div class="flex flex-wrap gap-4 items-end" id="loginRow" style="display:none">
-          <div class="form-control flex-1 min-w-[200px]">
-            <label class="label" for="adminPassword"><span class="label-text">Пароль администратора</span></label>
-            <input type="password" id="adminPassword" class="input input-bordered w-full" placeholder="пароль" autocomplete="current-password">
-          </div>
-          <button id="pwLoginBtn" class="btn btn-primary">Войти</button>
-          <span class="text-sm" id="pwLoginNote"></span>
-        </div>
-
-        <div class="flex flex-wrap gap-4 items-end" id="tokenRow" style="display:none">
-          <div class="form-control flex-1 min-w-[200px]">
-            <label class="label" for="adminToken"><span class="label-text">Admin token <span class="text-error">*</span></span></label>
-            <input type="text" id="adminToken" class="input input-bordered w-full" placeholder="TILTAB_ADMIN_TOKEN value">
-          </div>
-          <button id="refreshBtn" class="btn btn-primary">Refresh</button>
-        </div>
-
-        <div class="flex flex-wrap gap-4 items-center" id="sessionRow" style="display:none">
+<input type="hidden" id="adminToken">
+        <div class="flex flex-wrap gap-4 items-center" id="sessionRow">
           <span class="badge badge-success">Вы вошли</span>
-          <button id="refreshBtn2" class="btn btn-primary btn-sm">Обновить</button>
+          <button id="refreshBtn" class="btn btn-primary btn-sm">Обновить</button>
           <button id="logoutBtn" class="btn btn-ghost btn-sm">Выйти</button>
         </div>
         <p class="text-sm text-base-content/70 mt-3">
@@ -99,27 +84,9 @@
     </div>
   </div>
 
-  <dialog id="loginModal" class="modal">
-    <div class="modal-box">
-      <h3 class="text-lg font-bold">Admin access required</h3>
-      <p class="py-2 text-base-content/70">Enter the admin token to use this panel.</p>
-      <div class="form-control mt-2">
-        <input type="text" id="loginToken" class="input input-bordered w-full" placeholder="TILTAB_ADMIN_TOKEN value">
-      </div>
-      <div id="loginError" class="alert alert-error hidden text-sm mt-3" role="alert"></div>
-      <div class="modal-action">
-        <button id="loginBtn" class="btn btn-primary">Enter</button>
-      </div>
-    </div>
-  </dialog>
-
   <script>
     const API = "";
     const adminToken = document.getElementById("adminToken");
-    const loginToken = document.getElementById("loginToken");
-    const loginModal = document.getElementById("loginModal");
-    const loginBtn = document.getElementById("loginBtn");
-    const loginError = document.getElementById("loginError");
     const refreshBtn = document.getElementById("refreshBtn");
     const listContainer = document.getElementById("listContainer");
     const toast = document.getElementById("toast");
@@ -132,48 +99,15 @@
 
     let currentTab = "pending";
 
-    function getStoredToken() {
-      return localStorage.getItem("tiltab_admin_token") || "";
-    }
-
-    function setToken(token) {
-      adminToken.value = token;
-      loginToken.value = token;
-      localStorage.setItem("tiltab_admin_token", token);
-    }
-
-    const initialToken = getStoredToken();
-    if (initialToken) setToken(initialToken);
+    // Второго входа нет. Страницу отдают только супер-админу (проверка на
+    // сервере и guard.js), и тот же вход пускает к /api/admin. Отдельный пароль
+    // панели лишь заставлял входить дважды — и не спасал, когда сессия
+    // разметки уже была, а пароль нет.
+    try { localStorage.removeItem("tiltab_admin_token"); } catch (e) {}
 
     function requireToken() {
-      if (!adminToken.value.trim()) {
-        loginModal.showModal();
-        return false;
-      }
-      loginModal.close();
       return true;
     }
-
-    adminToken.addEventListener("change", () => {
-      setToken(adminToken.value);
-      requireToken();
-    });
-
-    loginBtn.addEventListener("click", () => {
-      const token = loginToken.value.trim();
-      if (!token) {
-        loginError.classList.remove("hidden");
-        loginError.textContent = "Token is required.";
-        return;
-      }
-      setToken(token);
-      requireToken();
-      loadTab(currentTab);
-    });
-
-    loginToken.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") loginBtn.click();
-    });
 
     function showToast(msg, isError) {
       toastMsg.textContent = msg;
@@ -847,76 +781,11 @@
     }
 
 
-    // --- Authentication ----------------------------------------------------
-    // The server decides which control the panel shows: a password form once
-    // ADMIN_PASSWORD_HASH is set, the legacy token box until then. Deciding it
-    // here would let the page offer a login that cannot work.
-    const loginRow = document.getElementById("loginRow");
-    const tokenRow = document.getElementById("tokenRow");
-    const sessionRow = document.getElementById("sessionRow");
-    const adminPassword = document.getElementById("adminPassword");
-    const pwLoginBtn = document.getElementById("pwLoginBtn");
-    const pwLoginNote = document.getElementById("pwLoginNote");
-    const logoutBtn = document.getElementById("logoutBtn");
-    const refreshBtn2 = document.getElementById("refreshBtn2");
-
-    async function refreshAuthState() {
-      try {
-        const res = await fetch("/api/admin/session", { credentials: "same-origin" });
-        const data = await res.json();
-        if (data.authenticated) {
-          loginRow.style.display = "none";
-          tokenRow.style.display = "none";
-          sessionRow.style.display = "flex";
-          loadTab(currentTab);
-        } else if (data.passwordConfigured) {
-          loginRow.style.display = "flex";
-          tokenRow.style.display = "none";
-          sessionRow.style.display = "none";
-        } else {
-          loginRow.style.display = "none";
-          tokenRow.style.display = "flex";
-          sessionRow.style.display = "none";
-        }
-      } catch (err) {
-        tokenRow.style.display = "flex";
-      }
-    }
-
-    async function doLogin() {
-      const password = adminPassword.value;
-      if (!password) { pwLoginNote.textContent = "Введите пароль"; pwLoginNote.className = "text-sm text-error"; return; }
-      pwLoginBtn.disabled = true;
-      pwLoginNote.textContent = "Проверяю…";
-      pwLoginNote.className = "text-sm opacity-70";
-      try {
-        const res = await fetch("/api/admin/login", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: password }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
-        adminPassword.value = "";
-        pwLoginNote.textContent = "";
-        await refreshAuthState();
-      } catch (err) {
-        pwLoginNote.textContent = err.message;
-        pwLoginNote.className = "text-sm text-error";
-      } finally {
-        pwLoginBtn.disabled = false;
-      }
-    }
-
-    pwLoginBtn.addEventListener("click", doLogin);
-    adminPassword.addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
-    logoutBtn.addEventListener("click", async () => {
-      await fetch("/api/admin/logout", { method: "POST", credentials: "same-origin" });
-      location.reload();
+    // --- Выход -------------------------------------------------------------
+    document.getElementById("logoutBtn").addEventListener("click", async () => {
+      await fetch("/api/dataset/logout", { method: "POST", credentials: "same-origin" });
+      location.href = "/web/dataset.html";
     });
-    refreshBtn2.addEventListener("click", () => loadTab(currentTab));
-    refreshAuthState();
 
     async function searchRequestNumber() {
       const number = requestSearch.value.trim();
@@ -981,8 +850,7 @@
 
     refreshBtn.addEventListener("click", () => loadTab(currentTab));
 
-    requireToken();
-    if (adminToken.value) loadTab("pending");
+    loadTab("pending");
   </script>
 </body>
 </html>

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="business">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TilTap Admin — Субтитры</title>
+  <meta name="robots" content="noindex">
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="/web/guard.js"></script>
+  <script>window.TilTapGuard.requireSuperAdmin();</script>
+</head>
+<body class="min-h-screen bg-base-200 py-6 px-4">
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <header class="flex flex-wrap items-center justify-between gap-4">
+      <h1 class="text-3xl font-bold tracking-tight">Субтитры <span class="badge badge-warning align-middle">в разработке</span></h1>
+      <div class="flex gap-2">
+        <a href="/web/admin.html" class="btn btn-sm btn-ghost">Админка</a>
+        <a href="/web/admin-beta-test.html" class="btn btn-sm btn-ghost">Beta STT Test</a>
+      </div>
+    </header>
+
+    <!-- Песочница для наложения субтитров на видео. Живёт отдельно от рабочих
+         страниц: пока фича сырая, пользователи её не видят. -->
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body">
+        <p class="text-base-content/70">Здесь будем тестировать наложение субтитров на видео. Пока пусто.</p>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>
