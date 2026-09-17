@@ -237,6 +237,16 @@ a { color: inherit; }
   .reveal { opacity: 1; transform: none; transition: none; }
   .tile:hover, .btn:active { transform: none; }
 }
+/* На телефоне логотип-картинка шире прежней буквы "T": шапка перестаёт
+   помещаться, и кнопка "Открыть" уезжает за край экрана. Та же кнопка есть
+   на первом экране, поэтому в шапке её можно убрать. Кнопки первого экрана
+   разной ширины при переносе выглядят рассыпанными — ставим их в столбик. */
+@media (max-width: 640px) {
+  .brand img { height: 30px !important; }
+  .nav-side > .btn { display: none; }
+  .hero-actions { display: grid; grid-template-columns: 1fr; }
+  .hero-actions .btn { width: 100%; }
+}
 </style>
 </head>
 <body>
