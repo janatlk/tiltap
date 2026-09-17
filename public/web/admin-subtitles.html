@@ -10,26 +10,369 @@
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <script src="/web/guard.js"></script>
   <script>window.TilTapGuard.requireSuperAdmin();</script>
+  <style>
+    .cue-time { font-variant-numeric: tabular-nums; }
+    .cue-row.is-playing { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+    textarea.cue { min-height: 3.2rem; resize: vertical; }
+  </style>
 </head>
 <body class="min-h-screen bg-base-200 py-6 px-4">
   <div class="max-w-6xl mx-auto space-y-6">
 
     <header class="flex flex-wrap items-center justify-between gap-4">
-      <h1 class="text-3xl font-bold tracking-tight">Субтитры <span class="badge badge-warning align-middle">в разработке</span></h1>
+      <h1 class="text-3xl font-bold tracking-tight">Субтитры <span class="badge badge-warning align-middle">бета</span></h1>
       <div class="flex gap-2">
         <a href="/web/admin.html" class="btn btn-sm btn-ghost">Админка</a>
         <a href="/web/admin-beta-test.html" class="btn btn-sm btn-ghost">Beta STT Test</a>
       </div>
     </header>
 
-    <!-- Песочница для наложения субтитров на видео. Живёт отдельно от рабочих
-         страниц: пока фича сырая, пользователи её не видят. -->
+    <!-- Песочница. Работает отдельный сервис (subtitles_lab), прод видит его
+         лишь как обычного посетителя: отдаёт звук на распознавание и текст на
+         перевод. Видео скачивается и хранится у лаборатории, 48 часов. -->
+
+    <!-- 1. Источник -->
+    <div class="card bg-base-100 shadow-sm" id="startCard">
+      <div class="card-body space-y-4">
+        <h2 class="card-title">1. Источник</h2>
+        <div role="tablist" class="tabs tabs-box w-fit">
+          <button role="tab" class="tab tab-active" data-src="link">Ссылка</button>
+          <button role="tab" class="tab" data-src="file">Видео или аудио файл</button>
+        </div>
+
+        <div id="srcLink">
+          <input type="url" id="urlInput" class="input input-bordered w-full" placeholder="https://www.youtube.com/watch?v=… · TikTok · Instagram · Facebook">
+        </div>
+        <div id="srcFile" class="hidden">
+          <input type="file" id="fileInput" class="file-input file-input-bordered w-full"
+                 accept="video/*,audio/*,.mp4,.mov,.mkv,.webm,.mp3,.wav,.ogg,.m4a,.flac,.opus">
+          <p class="text-xs opacity-60 mt-1">До 500 МБ и 30 минут. Через tiltap.kg Cloudflare пропускает файлы только до 100 МБ.</p>
+        </div>
+
+        <div class="grid sm:grid-cols-2 gap-4">
+          <label class="form-control">
+            <span class="label-text mb-1">Язык речи</span>
+            <select id="sourceLang" class="select select-bordered w-full">
+              <option value="auto">Автоопределение</option>
+              <option value="ky">Кыргызча</option>
+              <option value="tg">Тоҷикӣ</option>
+              <option value="uz">Oʻzbekcha</option>
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+          <label class="form-control">
+            <span class="label-text mb-1">Перевести на</span>
+            <select id="targetLang" class="select select-bordered w-full">
+              <option value="none">Без перевода</option>
+              <option value="ky">Кыргызча</option>
+              <option value="tg">Тоҷикӣ</option>
+              <option value="uz">Oʻzbekcha (lotin)</option>
+              <option value="uz_cyrl">Ўзбекча (кирилл)</option>
+              <option value="ru" selected>Русский</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <button id="startBtn" class="btn btn-primary">Распознать</button>
+          <span id="startNote" class="text-sm"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ход работы -->
+    <div class="card bg-base-100 shadow-sm hidden" id="progressCard">
+      <div class="card-body space-y-2">
+        <div class="flex justify-between gap-4 text-sm">
+          <span id="stageText">…</span><span id="percentText" class="opacity-70"></span>
+        </div>
+        <progress id="progressBar" class="progress progress-primary w-full" value="0" max="100"></progress>
+        <div id="errorBox" class="alert alert-error hidden text-sm"></div>
+        <p id="noteText" class="text-xs opacity-60"></p>
+      </div>
+    </div>
+
+    <!-- 2. Правка -->
+    <div class="card bg-base-100 shadow-sm hidden" id="editCard">
+      <div class="card-body space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 class="card-title">2. Расшифровка и перевод</h2>
+          <div class="flex flex-wrap items-center gap-2">
+            <select id="retranslateLang" class="select select-bordered select-sm">
+              <option value="ky">Кыргызча</option>
+              <option value="tg">Тоҷикӣ</option>
+              <option value="uz">Oʻzbekcha (lotin)</option>
+              <option value="uz_cyrl">Ўзбекча (кирилл)</option>
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+            <button id="retranslateBtn" class="btn btn-sm btn-outline">Перевести заново</button>
+          </div>
+        </div>
+        <p class="text-sm opacity-70">Исправьте ошибки: на видео попадёт ровно то, что написано в полях. Нажмите на время, чтобы перейти к фразе в плеере.</p>
+        <div class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead><tr><th class="w-28">Время</th><th>Оригинал</th><th>Перевод</th></tr></thead>
+            <tbody id="cueBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Сборка -->
+    <div class="card bg-base-100 shadow-sm hidden" id="renderCard">
+      <div class="card-body space-y-4">
+        <h2 class="card-title">3. Наложить субтитры</h2>
+        <div class="flex flex-wrap items-center gap-3">
+          <select id="renderMode" class="select select-bordered">
+            <option value="translation">Перевод</option>
+            <option value="original">Оригинал</option>
+            <option value="both">Перевод и оригинал сверху</option>
+          </select>
+          <button id="renderBtn" class="btn btn-primary">Начать</button>
+          <span id="saveNote" class="text-sm opacity-70"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Результат -->
+    <div class="card bg-base-100 shadow-sm hidden" id="resultCard">
+      <div class="card-body space-y-3">
+        <h2 class="card-title">Готовое видео</h2>
+        <video id="player" class="w-full rounded-box bg-black max-h-[70vh]" controls playsinline></video>
+        <div class="flex flex-wrap gap-2">
+          <a id="downloadLink" class="btn btn-sm btn-outline" download>Скачать MP4</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Недавние -->
     <div class="card bg-base-100 shadow-sm">
       <div class="card-body">
-        <p class="text-base-content/70">Здесь будем тестировать наложение субтитров на видео. Пока пусто.</p>
+        <h2 class="card-title text-base">Недавние задания <span class="text-xs font-normal opacity-60">хранятся 48 часов</span></h2>
+        <ul id="recentList" class="text-sm space-y-1"></ul>
       </div>
     </div>
 
   </div>
+
+  <script>
+    const API = "/lab/subtitles/api";
+    const $ = (id) => document.getElementById(id);
+    const BUSY = ["queued", "downloading", "transcribing", "translating", "rendering"];
+    let source = "link";
+    let job = null;
+    let pollTimer = null;
+    let dirty = false;
+
+    function escapeHtml(t) {
+      return String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+    function fmt(t) {
+      const m = Math.floor(t / 60), s = t - m * 60;
+      return `${m}:${s.toFixed(1).padStart(4, "0")}`;
+    }
+    async function api(path, opts = {}) {
+      const res = await fetch(API + path, { credentials: "same-origin", ...opts });
+      let data = null;
+      try { data = await res.json(); } catch (e) {}
+      if (!res.ok) throw new Error((data && (data.detail || data.error)) || "HTTP " + res.status);
+      return data;
+    }
+
+    document.querySelectorAll("[data-src]").forEach((tab) => tab.addEventListener("click", () => {
+      source = tab.dataset.src;
+      document.querySelectorAll("[data-src]").forEach((t) => t.classList.toggle("tab-active", t === tab));
+      $("srcLink").classList.toggle("hidden", source !== "link");
+      $("srcFile").classList.toggle("hidden", source !== "file");
+    }));
+
+    $("startBtn").addEventListener("click", async () => {
+      const sourceLang = $("sourceLang").value;
+      const targetLang = $("targetLang").value;
+      $("startNote").textContent = "";
+      $("startBtn").disabled = true;
+      try {
+        let created;
+        if (source === "link") {
+          const url = $("urlInput").value.trim();
+          if (!url) throw new Error("Вставьте ссылку");
+          created = await api("/jobs/link", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url, sourceLang, targetLang }),
+          });
+        } else {
+          const file = $("fileInput").files[0];
+          if (!file) throw new Error("Выберите файл");
+          const form = new FormData();
+          form.append("file", file);
+          form.append("sourceLang", sourceLang);
+          form.append("targetLang", targetLang);
+          $("startNote").textContent = "Загружаю файл…";
+          created = await api("/jobs/upload", { method: "POST", body: form });
+          $("startNote").textContent = "";
+        }
+        openJob(created.id);
+      } catch (err) {
+        $("startNote").textContent = err.message;
+        $("startNote").className = "text-sm text-error";
+      } finally {
+        $("startBtn").disabled = false;
+      }
+    });
+
+    function openJob(id) {
+      history.replaceState(null, "", "#" + id);
+      job = null;
+      dirty = false;
+      $("cueBody").innerHTML = "";
+      ["editCard", "renderCard", "resultCard"].forEach((c) => $(c).classList.add("hidden"));
+      poll(id);
+    }
+
+    async function poll(id) {
+      clearTimeout(pollTimer);
+      let next;
+      try {
+        next = await api("/jobs/" + id);
+      } catch (err) {
+        showProgress({ stage: "Не удалось получить задание", percent: 0, error: err.message });
+        return;
+      }
+      const cuesChanged = !job || job.cues.length !== next.cues.length || job.status !== next.status;
+      job = next;
+      showProgress(job);
+      const busy = BUSY.includes(job.status);
+      if (job.cues.length && (cuesChanged && !dirty)) renderCues();
+      $("editCard").classList.toggle("hidden", !job.cues.length);
+      $("renderCard").classList.toggle("hidden", !job.cues.length);
+      $("renderBtn").disabled = busy;
+      $("retranslateBtn").disabled = busy;
+      if (job.targetLang) $("retranslateLang").value = job.targetLang;
+      if (job.output && job.status === "done") showResult();
+      if (busy) pollTimer = setTimeout(() => poll(id), 2000);
+      loadRecent();
+    }
+
+    function showProgress(j) {
+      $("progressCard").classList.remove("hidden");
+      $("stageText").textContent = j.stage || j.status || "";
+      $("percentText").textContent = j.percent ? j.percent + "%" : "";
+      $("progressBar").value = j.percent || 0;
+      $("errorBox").classList.toggle("hidden", !j.error);
+      $("errorBox").textContent = j.error || "";
+      $("noteText").textContent = j.downloadNote || "";
+    }
+
+    function renderCues() {
+      $("cueBody").innerHTML = job.cues.map((c, i) => `
+        <tr class="cue-row" data-i="${i}">
+          <td class="align-top"><button class="link cue-time text-xs" data-seek="${c.start}">${fmt(c.start)}<br>${fmt(c.end)}</button></td>
+          <td class="align-top"><textarea class="textarea textarea-bordered textarea-sm w-full cue" data-field="text">${escapeHtml(c.text)}</textarea></td>
+          <td class="align-top"><textarea class="textarea textarea-bordered textarea-sm w-full cue" data-field="translation">${escapeHtml(c.translation)}</textarea></td>
+        </tr>`).join("");
+      dirty = false;
+    }
+
+    $("cueBody").addEventListener("input", (e) => {
+      const area = e.target.closest("textarea");
+      if (!area) return;
+      const i = Number(area.closest("tr").dataset.i);
+      job.cues[i][area.dataset.field] = area.value;
+      dirty = true;
+      $("saveNote").textContent = "Есть несохранённые правки — сохранятся при нажатии «Начать»";
+    });
+
+    $("cueBody").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-seek]");
+      if (!btn || $("resultCard").classList.contains("hidden")) return;
+      $("player").currentTime = Number(btn.dataset.seek);
+      $("player").play();
+    });
+
+    async function saveCues() {
+      if (!dirty) return;
+      await api(`/jobs/${job.id}/cues`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cues: job.cues.map((c) => ({ text: c.text, translation: c.translation })) }),
+      });
+      dirty = false;
+      $("saveNote").textContent = "";
+    }
+
+    $("retranslateBtn").addEventListener("click", async () => {
+      if (dirty && !confirm("Новый перевод заменит ваши правки в колонке «Перевод». Продолжить?")) return;
+      try {
+        await saveCues();
+        await api(`/jobs/${job.id}/translate`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targetLang: $("retranslateLang").value }),
+        });
+        dirty = false;
+        job = null;
+        poll(location.hash.slice(1));
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
+    $("renderBtn").addEventListener("click", async () => {
+      try {
+        await saveCues();
+        await api(`/jobs/${job.id}/render`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: $("renderMode").value }),
+        });
+        $("resultCard").classList.add("hidden");
+        poll(job.id);
+      } catch (err) {
+        $("saveNote").textContent = err.message;
+      }
+    });
+
+    function showResult() {
+      const src = `${API}/jobs/${job.id}/output.mp4?t=${Math.round(job.updatedAt)}`;
+      if ($("player").dataset.src !== src) {
+        $("player").src = src;
+        $("player").dataset.src = src;
+        $("downloadLink").href = src;
+      }
+      $("resultCard").classList.remove("hidden");
+    }
+
+    $("player").addEventListener("timeupdate", () => {
+      if (!job) return;
+      const t = $("player").currentTime;
+      document.querySelectorAll(".cue-row").forEach((row) => {
+        const c = job.cues[Number(row.dataset.i)];
+        row.classList.toggle("is-playing", !!c && t >= c.start && t < c.end);
+      });
+    });
+
+    const STATUS = { queued: "в очереди", downloading: "скачивается", transcribing: "распознаётся", translating: "переводится",
+                     rendering: "собирается", ready: "готово к правке", done: "видео готово", failed: "ошибка" };
+    async function loadRecent() {
+      try {
+        const data = await api("/jobs");
+        $("recentList").innerHTML = data.jobs.map((j) => `
+          <li><a class="link" href="#${j.id}" data-open="${j.id}">${escapeHtml(j.url || j.filename || j.id)}</a>
+          <span class="opacity-60">— ${STATUS[j.status] || j.status}, ${new Date(j.createdAt * 1000).toLocaleString("ru-RU")}</span></li>`).join("")
+          || '<li class="opacity-60">Пока пусто</li>';
+      } catch (err) {
+        $("recentList").innerHTML = `<li class="text-error">${escapeHtml(err.message)}</li>`;
+      }
+    }
+    $("recentList").addEventListener("click", (e) => {
+      const a = e.target.closest("[data-open]");
+      if (!a) return;
+      e.preventDefault();
+      openJob(a.dataset.open);
+    });
+
+    if (/^#[0-9a-f]{32}$/.test(location.hash)) openJob(location.hash.slice(1));
+    else loadRecent();
+  </script>
 </body>
 </html>
