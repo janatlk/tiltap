@@ -293,7 +293,11 @@ def split_segment(seg: dict) -> list:
     return cues
 
 
-def translate_via_prod(texts: list, source_lang: str, target_lang: str) -> list:
+TRANSLATE_BATCH = 25
+TRANSLATE_THREADS = 3
+
+
+def translate_via_prod(texts: list, source_lang: str, target_lang: str, on_progress=None) -> list:
     def call(text: str) -> str:
         r = requests.post(PROD + "/api/web/translate", json={
             "text": text, "sourceLang": source_lang or "auto", "targetLang": target_lang, "sourceType": "web",
@@ -302,14 +306,35 @@ def translate_via_prod(texts: list, source_lang: str, target_lang: str) -> list:
             raise RuntimeError(f"Перевод не удался: {r.status_code} {r.text[:200]}")
         return r.json().get("translatedText") or ""
 
-    # Одним текстом переводится связнее, чем репликами по отдельности. Реплики
-    # разделяем пустой строкой: переводчик прода обязан сохранять абзацы. Если
-    # число абзацев не сошлось, соответствие потеряно — тогда по одной.
-    joined = call("\n\n".join(texts))
-    parts = [p.strip() for p in re.split(r"\n\s*\n", joined.strip()) if p.strip()]
-    if len(parts) == len(texts):
-        return parts
-    return [call(t) if t.strip() else "" for t in texts]
+    # Пачками с номерами: пачка переводится связно, а номер держит соответствие
+    # реплик. Весь текст разом не годится — на длинном видео переводчик
+    # сливает или делит абзацы, соответствие теряется, и перевод по одной
+    # реплике растягивался на сорок минут.
+    def batch(chunk: list) -> list:
+        numbered = "\n\n".join(f"[{i + 1}] {t}" for i, t in enumerate(chunk))
+        out = call(numbered)
+        found = {}
+        for m in re.finditer(r"\[(\d+)\]\s*(.*?)(?=\n\s*\[\d+\]|\Z)", out, re.S):
+            found[int(m.group(1))] = " ".join(m.group(2).split())
+        if all(found.get(i + 1) for i, t in enumerate(chunk) if t.strip()):
+            return [found.get(i + 1, "") for i in range(len(chunk))]
+        # Номера потерялись — эту пачку по одной реплике.
+        return [call(t) if t.strip() else "" for t in chunk]
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    chunks = [texts[i:i + TRANSLATE_BATCH] for i in range(0, len(texts), TRANSLATE_BATCH)]
+    results = [None] * len(chunks)
+    done = 0
+    with ThreadPoolExecutor(max_workers=TRANSLATE_THREADS) as pool:
+        futures = {pool.submit(batch, c): i for i, c in enumerate(chunks)}
+        from concurrent.futures import as_completed
+        for f in as_completed(futures):
+            results[futures[f]] = f.result()
+            done += 1
+            if on_progress:
+                on_progress(done, len(chunks))
+    return [t for part in results for t in part]
 
 
 def ass_time(t: float) -> str:
@@ -449,7 +474,10 @@ def translate_cues(job: dict) -> None:
     update(job, status="translating", stage="Перевожу", percent=0)
     source = job.get("detectedLang") or job["sourceLang"]
     texts = [c["text"] for c in job["cues"]]
-    translated = translate_via_prod(texts, source if source in LANGS else "auto", job["targetLang"])
+    translated = translate_via_prod(
+        texts, source if source in LANGS else "auto", job["targetLang"],
+        lambda done, total: update(job, stage=f"Перевожу: {done} из {total} частей", percent=int(done * 100 / total)),
+    )
     for c, t in zip(job["cues"], translated):
         c["translation"] = t
     save(job)
