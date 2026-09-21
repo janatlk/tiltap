@@ -543,7 +543,7 @@ ${t("documentReturnedAsText", lang)}`;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error("Document translation failed", { error: message, chatId, filename });
-    await sendTextMessage(chatId, message, { replyMarkup: createMainKeyboard(lang) });
+    await sendTextMessage(chatId, t("documentFailed", lang), { replyMarkup: createMainKeyboard(lang) });
   }
 }
 
@@ -602,7 +602,7 @@ async function processTextTranslation(
     });
     await sendTextMessage(
       chatId,
-      t("translationFailed", lang, { error: err instanceof Error ? err.message : String(err) }),
+      t("translationFailed", lang),
       { replyMarkup: createMainKeyboard(lang) }
     );
   }
@@ -1227,7 +1227,7 @@ async function processAudio(
       requestNumber,
     });
     await closeTranscriptionRequest(requestNumber, { status: "error", errorMessage: errMessage });
-    const msg = t("transcriptionFailed", lang, { error: escapeHtml(errMessage) });
+    const msg = t("transcriptionFailed", lang);
     await editMessageText(chatId, statusMsgId, msg, removeKeyboard);
   }
 }
@@ -1376,7 +1376,10 @@ async function downloadAndTranscribeYouTube(
     await unlink(tmpWav).catch(() => {});
     const errMessage = err instanceof Error ? err.message : String(err);
     await closeTranscriptionRequest(requestNumber, { status: "error", errorMessage: errMessage });
-    const msg = `❌ ${escapeHtml(errMessage)}`;
+    // Сырой текст ошибки (список инстансов, советы yt-dlp про cookies) остаётся в
+    // записи запроса выше; человеку — одна понятная строка.
+    const isDownload = /\[download\]|cobalt|yt-dlp|download process|audio mode/i.test(errMessage);
+    const msg = t(isDownload ? "downloadFailed" : "transcriptionFailed", lang);
     await editMessageText(chatId, statusMsgId, msg, removeKeyboard);
     throw err;
   }
@@ -1392,11 +1395,11 @@ function getYouTubeErrorMessage(reason: string | undefined, lang: SupportedLangu
       ru: "❌ Видео недоступно. Возможно, оно удалено, скрыто или заблокировано в вашем регионе.",
     },
     sign_in_required: {
-      ky: "❌ Бул видео YouTube'ко кириүүнү талап кылат. Бот мындай видеолорду жүктөй албайт.",
-      tg: "❌ Ин видео талаб мекунад, ки дар YouTube ворид шавед. Бот чунин видеоҳоро боргирӣ карда наметавонад.",
-      uz: "❌ Bu video YouTube'ga kirishni talab qiladi. Bot bunday videolarni yuklab ololmaydi.",
-      en: "❌ This video requires YouTube sign-in. The bot cannot download such videos.",
-      ru: "❌ Это видео требует входа в YouTube. Бот не может скачать такие видео.",
+      ky: "❌ Бул шилтемеден видеону жүктөп алуу мүмкүн болгон жок. Бир аздан кийин кайра аракет кылыңыз же видеону файл катары жибериңиз.",
+      tg: "❌ Видеоро аз ин пайванд боргирӣ кардан нашуд. Каме баъдтар бори дигар кӯшиш кунед ё видеоро ҳамчун файл фиристед.",
+      uz: "❌ Bu havoladan videoni yuklab bo'lmadi. Birozdan keyin qayta urinib ko'ring yoki videoni fayl sifatida yuboring.",
+      en: "❌ Couldn't download the video from this link. Please try again a bit later or send the video as a file.",
+      ru: "❌ Не получилось скачать видео по этой ссылке. Попробуйте чуть позже или пришлите видео файлом.",
     },
     private: {
       ky: "❌ Бул жеке видео. Бот аны жүктөй албайт.",
@@ -1420,25 +1423,25 @@ function getYouTubeErrorMessage(reason: string | undefined, lang: SupportedLangu
       ru: "❌ Прямые трансляции нельзя расшифровать. Пожалуйста, пришлите новую ссылку после окончания эфира.",
     },
     timeout: {
-      ky: "❌ Видеону текшерүү өтө көп убакыт алды. Интернет же YouTube көйгөйлөрү мүмкүн.",
-      tg: "❌ Санҷиши видео хеле тулонӣ шуд. Эҳтимол мушкилоти интернет ё YouTube.",
-      uz: "❌ Videoni tekshirish juda uzoq davom etdi. Ehtimol internet yoki YouTube muammolari.",
-      en: "❌ Video validation took too long. Possible network or YouTube issues.",
-      ru: "❌ Проверка видео заняла слишком много времени. Возможны проблемы с сетью или YouTube.",
+      ky: "❌ Бул шилтемеден видеону жүктөп алуу мүмкүн болгон жок. Бир аздан кийин кайра аракет кылыңыз же видеону файл катары жибериңиз.",
+      tg: "❌ Видеоро аз ин пайванд боргирӣ кардан нашуд. Каме баъдтар бори дигар кӯшиш кунед ё видеоро ҳамчун файл фиристед.",
+      uz: "❌ Bu havoladan videoni yuklab bo'lmadi. Birozdan keyin qayta urinib ko'ring yoki videoni fayl sifatida yuboring.",
+      en: "❌ Couldn't download the video from this link. Please try again a bit later or send the video as a file.",
+      ru: "❌ Не получилось скачать видео по этой ссылке. Попробуйте чуть позже или пришлите видео файлом.",
     },
     missing_deps: {
-      ky: "❌ Видеону текшерүүчү куралдар табылган жок. Администратор python3 жана requests орнотконун текшерсин.",
-      tg: "❌ Воситаҳои санҷиши видео ёфт нашуданд. Администратор python3 ва requests-ро насб кардааст, тафтиш кунад.",
-      uz: "❌ Video tekshirish vositalari topilmadi. Administrator python3 va requests o'rnatganini tekshirsin.",
-      en: "❌ Video validation tools are missing. Please ask the admin to install python3 and requests.",
-      ru: "❌ Не найдены инструменты для проверки видео. Попросите администратора установить python3 и requests.",
+      ky: "❌ Бул шилтемеден видеону жүктөп алуу мүмкүн болгон жок. Бир аздан кийин кайра аракет кылыңыз же видеону файл катары жибериңиз.",
+      tg: "❌ Видеоро аз ин пайванд боргирӣ кардан нашуд. Каме баъдтар бори дигар кӯшиш кунед ё видеоро ҳамчун файл фиристед.",
+      uz: "❌ Bu havoladan videoni yuklab bo'lmadi. Birozdan keyin qayta urinib ko'ring yoki videoni fayl sifatida yuboring.",
+      en: "❌ Couldn't download the video from this link. Please try again a bit later or send the video as a file.",
+      ru: "❌ Не получилось скачать видео по этой ссылке. Попробуйте чуть позже или пришлите видео файлом.",
     },
     cobalt_auth_required: {
-      ky: "❌ Көчүрүү кызматына кирүү үчүн аутентификация талап кылынат. Администраторго жеке Cobalt серверин орнотууну сураныңыз.",
-      tg: "❌ Барои дастрасӣ ба хидмати боргирӣ аутентификатсия лозим аст. Администраторро барои насби сервери хусусии Cobalt дастгирӣ кунед.",
-      uz: "❌ Yuklab olish xizmatiga kirish uchun autentifikatsiya talab qilinadi. Administratordan shaxsiy Cobalt serverini o'rnatishni so'rang.",
-      en: "❌ The download service now requires authentication. Please ask the admin to deploy a private Cobalt server.",
-      ru: "❌ Сервис скачивания теперь требует аутентификации. Попросите администратора развернуть приватный сервер Cobalt.",
+      ky: "❌ Бул шилтемеден видеону жүктөп алуу мүмкүн болгон жок. Бир аздан кийин кайра аракет кылыңыз же видеону файл катары жибериңиз.",
+      tg: "❌ Видеоро аз ин пайванд боргирӣ кардан нашуд. Каме баъдтар бори дигар кӯшиш кунед ё видеоро ҳамчун файл фиристед.",
+      uz: "❌ Bu havoladan videoni yuklab bo'lmadi. Birozdan keyin qayta urinib ko'ring yoki videoni fayl sifatida yuboring.",
+      en: "❌ Couldn't download the video from this link. Please try again a bit later or send the video as a file.",
+      ru: "❌ Не получилось скачать видео по этой ссылке. Попробуйте чуть позже или пришлите видео файлом.",
     },
     unknown: {
       ky: "❌ Видеону текшерүү мүмкүн болгон жок. Шилтеме туура эмес же видео жеткиликтүү эмес.",
@@ -1550,7 +1553,7 @@ async function sendResultDocument(
       });
       await sendTextMessage(
         chatId,
-        t("translationFailed", lang, { error: err instanceof Error ? err.message : String(err) }),
+        t("translationFailed", lang),
         { replyMarkup: backToMenuKeyboard }
       ).catch(() => {});
       // Fall through to send the original transcription file.
@@ -1727,7 +1730,7 @@ async function runAccuracyTest(chatId: number, language: string): Promise<void> 
   } catch (err) {
     const fs = await import("fs/promises");
     await fs.unlink(tmpWav).catch(() => {});
-    const msg = `❌ ${t("transcriptionFailed", lang, { error: escapeHtml(err instanceof Error ? err.message : String(err)) })}`;
+    const msg = t("transcriptionFailed", lang);
     await editMessageText(chatId, statusMsgId, msg, removeKeyboard);
     throw err;
   }

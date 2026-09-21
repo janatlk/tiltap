@@ -125,6 +125,34 @@ export function isValidYouTubeUrl(url: string): boolean {
  * The probe pulls real bytes and can take minutes (JS challenges), so it is
  * only worth running once Cobalt has already failed everywhere.
  */
+export type CookiesStatus = "valid" | "invalid" | "unknown";
+
+/** Живы ли cookies YouTube. Ничего не скачивает — см. cookies_status в youtube_ytdlp.py. */
+export async function checkYoutubeCookies(url: string): Promise<{ status: CookiesStatus; detail: string }> {
+  return new Promise((resolve) => {
+    const proc = spawn(PYTHON_PATH, ["youtube_ytdlp.py", "--check-cookies", url], {
+      cwd: process.cwd(),
+      env: getCobaltEnv(),
+    });
+    let stdout = "";
+    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString("utf-8"); });
+    const timeout = setTimeout(() => proc.kill("SIGKILL"), 240_000);
+    proc.on("error", (err) => {
+      clearTimeout(timeout);
+      resolve({ status: "unknown", detail: err.message });
+    });
+    proc.on("close", () => {
+      clearTimeout(timeout);
+      try {
+        const data = JSON.parse(stdout.trim().split("\n").pop() || "{}") as { status?: CookiesStatus; detail?: string };
+        resolve({ status: data.status ?? "unknown", detail: data.detail ?? "no detail" });
+      } catch {
+        resolve({ status: "unknown", detail: "check produced no result" });
+      }
+    });
+  });
+}
+
 export async function probeYtdlp(url: string): Promise<{ ok: boolean; detail: string }> {
   return new Promise((resolve) => {
     const proc = spawn(PYTHON_PATH, ["youtube_ytdlp.py", "--probe", url], {

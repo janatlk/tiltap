@@ -230,11 +230,55 @@ def download_audio(url: str, output_dir: str, progress_cb=None, max_bytes: int =
     raise RuntimeError("yt-dlp reported success but produced no file: " + "; ".join(tail[-3:]))
 
 
+COOKIES_CHECK_TIMEOUT = int(os.environ.get("TILTAB_YTDLP_COOKIES_CHECK_TIMEOUT_SEC", "150"))
+
+
+def cookies_status(url: str) -> tuple:
+    """Живы ли cookies YouTube. Возвращает ("valid" | "invalid" | "unknown", detail).
+
+    Куки протухают примерно за месяц: Google меняет сессию, а у нас лежит
+    снимок. Узнавали мы об этом по волне отказов у пользователей. yt-dlp же
+    прямо пишет "cookies are no longer valid" ещё до скачивания — ловим эту
+    строку, ничего не качая.
+    """
+    if not os.path.isfile(COOKIES):
+        return "invalid", f"cookies file missing: {COOKIES}"
+    workdir = tempfile.mkdtemp(prefix="ytdlp-cookies-")
+    try:
+        cmd = [YTDLP_BIN, "-v", "--no-playlist", "--skip-download",
+               "--remote-components", "ejs:github", "--js-runtimes", JS_RUNTIME,
+               "--cookies", _disposable_cookies(workdir)]
+        if PROXY:
+            cmd += ["--proxy", PROXY]
+        try:
+            r = subprocess.run(cmd + [url], capture_output=True, text=True, timeout=COOKIES_CHECK_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            return "unknown", "check timed out"
+        log = (r.stderr or "") + (r.stdout or "")
+        if "no longer valid" in log:
+            return "invalid", "YouTube says the account cookies are no longer valid"
+        if "Found YouTube account cookies" not in log:
+            return "invalid", "no YouTube account cookies found in the file"
+        if r.returncode == 0:
+            return "valid", "ok"
+        # Куки приняты, но ролик не отдали — это не про куки.
+        tail = [l for l in log.strip().splitlines() if l.startswith("ERROR")][-1:] or ["unknown error"]
+        return "unknown", tail[0][:200]
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     # Health probe (used by the backend monitor): --probe <url> -> JSON on stdout
     if len(sys.argv) >= 3 and sys.argv[1] == "--probe":
         ok, detail = probe(sys.argv[2])
         print(json.dumps({"ok": ok, "detail": detail}), flush=True)
+        sys.exit(0)
+
+    # Проверка cookies: --check-cookies <url> -> JSON on stdout
+    if len(sys.argv) >= 3 and sys.argv[1] == "--check-cookies":
+        status, detail = cookies_status(sys.argv[2])
+        print(json.dumps({"status": status, "detail": detail}), flush=True)
         sys.exit(0)
 
     # Smoke test: python3 youtube_ytdlp.py <url> <output_dir>

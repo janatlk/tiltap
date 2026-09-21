@@ -18,6 +18,7 @@ import { failOrphanedJobs } from "./db/repos/webJobRepo";
 import { initPendingActions } from "./services/telegramService";
 import { cleanupOldTempFiles } from "./utils/tempCleanup";
 import { startCobaltHealthMonitor } from "./services/cobaltHealthService";
+import { startYoutubeCookiesMonitor } from "./services/youtubeCookiesMonitor";
 import { startFeedbackReminders } from "./services/feedbackReplyService";
 import { purgeExpiredSessions } from "./services/adminAuthService";
 
@@ -60,6 +61,7 @@ async function start() {
   app.listen(PORT, HOST, () => {
     logger.info(`🚀 TilTap backend running on ${HOST}:${PORT} in ${config.NODE_ENV} mode`);
     startCobaltHealthMonitor();
+    startYoutubeCookiesMonitor();
     // Список команд в меню бота — единственный способ найти /language
     // тому, кто не читает язык интерфейса.
     void registerBotCommands();
