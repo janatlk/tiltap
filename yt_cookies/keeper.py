@@ -23,7 +23,10 @@ import subprocess
 import threading
 import time
 
+import urllib.request
+
 import requests
+import websocket  # websocket-client
 from fastapi import FastAPI, HTTPException, Request
 
 PROD = os.environ.get("KEEPER_PROD_URL", "http://127.0.0.1:3000")
@@ -37,7 +40,10 @@ YTDLP_HELPER = os.environ.get("KEEPER_YTDLP_HELPER", "/opt/tiltap/youtube_ytdlp.
 CHECK_URL = os.environ.get("KEEPER_CHECK_URL", "https://www.youtube.com/watch?v=jNQXAC9IVRw")
 REFRESH_HOURS = float(os.environ.get("KEEPER_REFRESH_HOURS", "6"))
 SESSION_MAX_MIN = int(os.environ.get("KEEPER_SESSION_MAX_MIN", "30"))
-DISPLAY = ":99"
+DISPLAY = ":99"          # экран окна входа
+WARM_DISPLAY = ":98"     # экран планового продления сессии
+CDP_SESSION = 9222       # отладочные порты Chrome, только на 127.0.0.1
+CDP_WARM = 9224
 
 os.makedirs(HOME, exist_ok=True)
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
@@ -111,6 +117,64 @@ def stop(proc: subprocess.Popen, grace: float = 15) -> None:
         proc.wait(5)
 
 
+# Cookies забираем из работающего браузера через его отладочный интерфейс, а не
+# из файла профиля: закрытый сигналом Chrome считает, что выключают компьютер
+# ("SessionEnded"), выходит наспех и свежие cookies входа на диск не пишет.
+# Так первый вход и потерялся целиком.
+
+def cdp(port: int, method: str, params: dict = None, timeout: float = 20) -> dict:
+    info = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=5))
+    ws = websocket.create_connection(info["webSocketDebuggerUrl"], timeout=timeout, origin="http://127.0.0.1")
+    try:
+        ws.send(json.dumps({"id": 1, "method": method, "params": params or {}}))
+        while True:
+            msg = json.loads(ws.recv())
+            if msg.get("id") == 1:
+                break
+    finally:
+        ws.close()
+    if "error" in msg:
+        raise RuntimeError(f"{method}: {msg['error']}")
+    return msg.get("result", {})
+
+
+def live_cookies(port: int) -> list:
+    return cdp(port, "Storage.getCookies").get("cookies", [])
+
+
+def close_browser(proc: subprocess.Popen, port: int) -> None:
+    """Закрыть Chrome штатно, как крестиком: тогда он дописывает профиль как следует."""
+    if proc.poll() is not None:
+        return
+    try:
+        cdp(port, "Browser.close", timeout=10)
+        proc.wait(20)
+    except Exception:
+        stop(proc)
+
+
+def write_netscape(cookies: list, path: str) -> int:
+    lines = ["# Netscape HTTP Cookie File"]
+    count = 0
+    for c in cookies:
+        domain = c.get("domain", "")
+        if not domain.lstrip(".").endswith(("youtube.com", "google.com")):
+            continue
+        expires = int(c.get("expires") or 0)
+        if expires < 0:
+            expires = 0
+        prefix = "#HttpOnly_" if c.get("httpOnly") else ""
+        lines.append("\t".join([
+            prefix + domain, "TRUE" if domain.startswith(".") else "FALSE", c.get("path", "/"),
+            "TRUE" if c.get("secure") else "FALSE", str(expires), c["name"], c.get("value", ""),
+        ]))
+        count += 1
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    os.chmod(path, 0o600)
+    return count
+
+
 def session_active() -> bool:
     procs = session["procs"]
     if not procs:
@@ -124,14 +188,14 @@ def session_active() -> bool:
     return True
 
 
-def clear_stale_display() -> None:
+def clear_stale_display(display: str = DISPLAY) -> None:
     """Убрать блокировку экрана, оставшуюся от прошлого сеанса.
 
     Xvfb, закрытый не до конца, оставляет /tmp/.X99-lock, и следующий запуск
     падает с "Server is already active". Удаляем, только если процесса с этим
     номером в блокировке уже нет.
     """
-    lock_file = f"/tmp/.X{DISPLAY[1:]}-lock"
+    lock_file = f"/tmp/.X{display[1:]}-lock"
     try:
         with open(lock_file) as f:
             pid = int(f.read().strip())
@@ -143,7 +207,7 @@ def clear_stale_display() -> None:
         pass
     except PermissionError:
         return
-    for path in (lock_file, f"/tmp/.X11-unix/X{DISPLAY[1:]}"):
+    for path in (lock_file, f"/tmp/.X11-unix/X{display[1:]}"):
         try:
             os.remove(path)
         except OSError:
@@ -168,6 +232,7 @@ def start_session(fresh: bool) -> None:
             raise HTTPException(500, "Не запустился виртуальный экран")
         chrome = subprocess.Popen(
             chrome_args(["--start-maximized", "--window-position=0,0", "--window-size=1280,860",
+                         f"--remote-debugging-port={CDP_SESSION}", "--remote-allow-origins=http://127.0.0.1",
                          "https://accounts.google.com/ServiceLogin?continue=https://www.youtube.com/"]),
             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         started.insert(0, chrome)
@@ -195,33 +260,37 @@ def start_session(fresh: bool) -> None:
 def end_session() -> None:
     if not session["procs"]:
         return
-    for p in session["procs"]:
+    close_browser(session["procs"][0], CDP_SESSION)
+    for p in session["procs"][1:]:
         stop(p)
     session["procs"] = []
     lock.release()
 
 
-def warm_up() -> None:
-    """Открыть YouTube в профиле без экрана, чтобы Google продлил сессию."""
-    proc = subprocess.Popen(chrome_args(["--headless=new", "--window-size=1280,860", "https://www.youtube.com/"]),
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(45)
-    stop(proc)
+def warm_up() -> list:
+    """Открыть YouTube в профиле, дать Google продлить сессию и забрать cookies.
+
+    Обычный Chrome на своём виртуальном экране, а не headless: такой браузер
+    Google узнаёт по подписи и может разлогинить.
+    """
+    clear_stale_display(WARM_DISPLAY)
+    xvfb = subprocess.Popen(["Xvfb", WARM_DISPLAY, "-screen", "0", "1280x860x24", "-nolisten", "tcp"])
+    chrome = None
+    try:
+        time.sleep(1.5)
+        chrome = subprocess.Popen(
+            chrome_args(["--window-size=1280,860", f"--remote-debugging-port={CDP_WARM}",
+                         "--remote-allow-origins=http://127.0.0.1", "https://www.youtube.com/"]),
+            env=dict(os.environ, DISPLAY=WARM_DISPLAY), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(40)
+        return live_cookies(CDP_WARM)
+    finally:
+        if chrome:
+            close_browser(chrome, CDP_WARM)
+        stop(xvfb, 5)
 
 
 # --- Выгрузка и проверка -----------------------------------------------------
-
-def export_cookies(path: str) -> int:
-    from yt_dlp.cookies import extract_cookies_from_browser
-    jar = extract_cookies_from_browser("chrome", PROFILE, keyring="BASICTEXT")
-    keep = [c for c in jar if c.domain.endswith(("youtube.com", "google.com"))]
-    jar.clear()
-    for c in keep:
-        jar.set_cookie(c)
-    jar.save(path, ignore_discard=True, ignore_expires=True)
-    os.chmod(path, 0o600)
-    return len(keep)
-
 
 def check_cookies(path: str) -> tuple:
     env = dict(os.environ, TILTAB_YTDLP_COOKIES=path)
@@ -247,17 +316,10 @@ def account_of(path: str) -> str:
         return ""
 
 
-def refresh(warm: bool = True) -> dict:
-    """Продлить сессию, выгрузить cookies, проверить и только тогда отдать проду."""
-    if not os.path.isdir(PROFILE):
-        return save_state(lastRefresh=time.time(), lastResult="no_profile", lastDetail="Вход в аккаунт не выполнен")
-    if warm:
-        warm_up()
+def install_cookies(cookies: list) -> dict:
+    """Проверить выгруженные cookies и только тогда отдать их проду."""
     tmp = OUTPUT + ".new"
-    try:
-        count = export_cookies(tmp)
-    except Exception as exc:
-        return save_state(lastRefresh=time.time(), lastResult="export_failed", lastDetail=str(exc)[:300])
+    count = write_netscape(cookies, tmp)
     status, detail = check_cookies(tmp)
     account = account_of(tmp)
     if status == "valid":
@@ -269,11 +331,22 @@ def refresh(warm: bool = True) -> dict:
     return save_state(lastRefresh=time.time(), lastResult=status, lastDetail=detail, account=account)
 
 
-def refresh_locked(warm: bool = True) -> dict:
+def refresh() -> dict:
+    """Плановое продление: открыть YouTube в профиле, забрать и проверить cookies."""
+    if not os.path.isdir(PROFILE):
+        return save_state(lastRefresh=time.time(), lastResult="no_profile", lastDetail="Вход в аккаунт не выполнен")
+    try:
+        cookies = warm_up()
+    except Exception as exc:
+        return save_state(lastRefresh=time.time(), lastResult="export_failed", lastDetail=str(exc)[:300])
+    return install_cookies(cookies)
+
+
+def refresh_locked() -> dict:
     if not lock.acquire(blocking=False):
         return save_state(lastDetail="Пропущено: профиль занят (открыт вход)")
     try:
-        return refresh(warm)
+        return refresh()
     finally:
         lock.release()
 
@@ -326,8 +399,12 @@ def post_session_finish(request: Request):
     require_admin(request)
     if not session_active():
         raise HTTPException(409, "no_session")
+    try:
+        cookies = live_cookies(CDP_SESSION)
+    except Exception as exc:
+        raise HTTPException(500, f"Не удалось забрать cookies из браузера: {exc}")
     end_session()
-    return refresh_locked(warm=False)
+    return install_cookies(cookies)
 
 
 @app.post("/session/cancel")
