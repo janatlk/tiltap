@@ -112,7 +112,42 @@ def stop(proc: subprocess.Popen, grace: float = 15) -> None:
 
 
 def session_active() -> bool:
-    return any(p.poll() is None for p in session["procs"])
+    procs = session["procs"]
+    if not procs:
+        return False
+    # Сеанс жив, пока жив Chrome (он первый в списке). Если браузер закрылся
+    # сам — упал или его закрыли в окне, — сеанс надо свернуть и освободить
+    # профиль, иначе он числится занятым до перезапуска сервиса.
+    if procs[0].poll() is not None:
+        end_session()
+        return False
+    return True
+
+
+def clear_stale_display() -> None:
+    """Убрать блокировку экрана, оставшуюся от прошлого сеанса.
+
+    Xvfb, закрытый не до конца, оставляет /tmp/.X99-lock, и следующий запуск
+    падает с "Server is already active". Удаляем, только если процесса с этим
+    номером в блокировке уже нет.
+    """
+    lock_file = f"/tmp/.X{DISPLAY[1:]}-lock"
+    try:
+        with open(lock_file) as f:
+            pid = int(f.read().strip())
+        os.kill(pid, 0)
+        return  # сервер экрана жив — не наш случай
+    except (FileNotFoundError, ValueError):
+        pass
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        return
+    for path in (lock_file, f"/tmp/.X11-unix/X{DISPLAY[1:]}"):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
 
 def start_session(fresh: bool) -> None:
@@ -120,26 +155,37 @@ def start_session(fresh: bool) -> None:
         return
     if not lock.acquire(timeout=120):
         raise HTTPException(409, "busy")
+    started = []  # всё, что успели запустить, — чтобы при сбое ничего не осталось висеть
     try:
         if fresh and os.path.isdir(PROFILE):
             shutil.rmtree(PROFILE)
         env = dict(os.environ, DISPLAY=DISPLAY)
+        clear_stale_display()
         xvfb = subprocess.Popen(["Xvfb", DISPLAY, "-screen", "0", "1280x860x24", "-nolisten", "tcp"])
+        started.append(xvfb)
         time.sleep(1.5)
+        if xvfb.poll() is not None:
+            raise HTTPException(500, "Не запустился виртуальный экран")
         chrome = subprocess.Popen(
-            chrome_args(["--start-maximized", "--window-size=1280,860",
+            chrome_args(["--start-maximized", "--window-position=0,0", "--window-size=1280,860",
                          "https://accounts.google.com/ServiceLogin?continue=https://www.youtube.com/"]),
             env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        started.insert(0, chrome)
         vnc = subprocess.Popen(["x11vnc", "-display", DISPLAY, "-rfbport", "5901", "-localhost",
                                 "-nopw", "-forever", "-shared", "-quiet"],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        started.insert(1, vnc)
         ws = subprocess.Popen(["websockify", "127.0.0.1:6080", "127.0.0.1:5901"],
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        started.insert(1, ws)
+        time.sleep(2)
+        if chrome.poll() is not None:
+            raise HTTPException(500, "Не запустился браузер")
         # Порядок важен при остановке: сначала Chrome (дописать cookies), экран последним.
         session["procs"] = [chrome, ws, vnc, xvfb]
         session["started"] = time.time()
     except Exception:
-        for p in session["procs"]:
+        for p in started:
             stop(p, 3)
         session["procs"] = []
         lock.release()
