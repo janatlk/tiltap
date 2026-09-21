@@ -68,7 +68,7 @@ app.get("/api/stats", handlePublicStats);
 //
 // Переброс на клиенте (guard.js) остаётся: он показывает человеку страницу
 // входа вместо голого отказа. Настоящая проверка теперь здесь.
-const SUPER_ADMIN_PAGES = new Set(["/admin.html", "/admin-beta-test.html", "/admin-subtitles.html"]);
+const SUPER_ADMIN_PAGES = new Set(["/admin.html", "/admin-beta-test.html", "/admin-subtitles.html", "/admin-youtube.html"]);
 const DATASET_PAGES = new Set([
   "/dataset-tasks.html",
   "/dataset-task.html",

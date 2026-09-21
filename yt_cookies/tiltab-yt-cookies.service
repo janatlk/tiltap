@@ -1,0 +1,23 @@
+# Хранитель cookies YouTube. Отдельный пользователь: Chrome под root работает
+# только без песочницы, а браузер, открывающий чужие страницы, без неё держать нельзя.
+[Unit]
+Description=TilTap YouTube cookies keeper (Chrome session for yt-dlp)
+After=network.target
+
+[Service]
+Type=simple
+User=ytkeeper
+Group=ytkeeper
+WorkingDirectory=/opt/tiltap/yt_cookies
+Environment=HOME=/var/lib/ytkeeper
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -m uvicorn keeper:app --host 127.0.0.1 --port 8030 --workers 1
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+CPUQuota=200%
+MemoryMax=2G
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
