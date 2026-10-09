@@ -650,6 +650,19 @@
     </div>
   </dialog>
 
+  <!-- Пост с несколькими видео (карусель). Спрашиваем, что взять: молча взять
+       первое значит иногда расшифровать не то, о чём просили. -->
+  <dialog id="itemsDialog" class="sheet">
+    <div class="sheet-head">
+      <h2 data-i18n="itemsTitle">В этом посте несколько видео</h2>
+      <button type="button" class="icon-x" id="itemsClose" data-i18n-title="close" title="Закрыть">✕</button>
+    </div>
+    <div class="sheet-body">
+      <p class="sheet-note" data-i18n="itemsHint">Выберите, что расшифровать. Если не знаете, какое нужно, берите все подряд: они пойдут одной расшифровкой, по порядку.</p>
+      <div class="chips" id="itemsButtons" style="gap:0.5rem"></div>
+    </div>
+  </dialog>
+
   <script>
     // ===================== i18n =====================
     const I18N = {
@@ -729,6 +742,10 @@
         translationFailed: "Translation failed",
         errorSelectFile: "Please select a file first",
         errorFileTooLarge: "File is too large ({size} MB). Max allowed is 25 MB.",
+        itemsTitle: "This post has several videos",
+        itemsHint: "Choose what to transcribe. If you are not sure which one you need, take them all: they will come back as one transcript, in order.",
+        itemsAll: "All videos in order",
+        itemsOne: "Video {n}",
         errorEnterUrl: "Please enter a video link",
         errorEnterText: "Please enter text to translate",
         errorUploadFailed: "Upload failed. Please check your connection and try again.",
@@ -825,6 +842,10 @@
         translationFailed: "Ошибка перевода",
         errorSelectFile: "Сначала выберите файл",
         errorFileTooLarge: "Файл слишком большой ({size} МБ). Максимум 25 МБ.",
+        itemsTitle: "В этом посте несколько видео",
+        itemsHint: "Выберите, что расшифровать. Если не знаете, какое нужно, берите все подряд: они придут одной расшифровкой, по порядку.",
+        itemsAll: "Все видео подряд",
+        itemsOne: "Видео {n}",
         errorEnterUrl: "Введите ссылку на видео",
         errorEnterText: "Введите текст для перевода",
         errorUploadFailed: "Ошибка загрузки. Проверьте соединение и попробуйте снова.",
@@ -921,6 +942,10 @@
         translationFailed: "Которуу ката",
         errorSelectFile: "Алгач файл тандаңыз",
         errorFileTooLarge: "Файл өтө чоң ({size} МБ). Максимум 25 МБ.",
+        itemsTitle: "Бул постто бир нече видео бар",
+        itemsHint: "Эмнени текстке айландырууну тандаңыз. Кайсынысы керек экенин билбесеңиз, баарын алыңыз: алар иретинде бир текст болуп келет.",
+        itemsAll: "Бардык видеолор иретинде",
+        itemsOne: "{n}-видео",
         errorEnterUrl: "Видео шилтемесин киргизиңиз",
         errorEnterText: "Которула турган текстти киргизиңиз",
         errorUploadFailed: "Жүктөө ката. Туташууну текшерип, кайра аракет кылыңыз.",
@@ -1017,6 +1042,10 @@
         translationFailed: "Хатои тарҷума",
         errorSelectFile: "Аввал файлро интихоб кунед",
         errorFileTooLarge: "Файл хеле калон аст ({size} МБ). Ҳадди аксар 25 МБ.",
+        itemsTitle: "Дар ин навишта якчанд видео ҳаст",
+        itemsHint: "Интихоб кунед, кадомашро ба матн табдил диҳем. Агар надонед кадомаш лозим аст, ҳамаашро гиред: онҳо паи ҳам як матн мешаванд.",
+        itemsAll: "Ҳамаи видеоҳо паи ҳам",
+        itemsOne: "Видеои {n}",
         errorEnterUrl: "Пайванди видеоро ворид кунед",
         errorEnterText: "Матни тарҷумаашро воред",
         errorUploadFailed: "Хатои боргузорӣ. Пайвастшавиро тафтиш кунед ва аз нав кӯшиш кунед.",
@@ -1113,6 +1142,10 @@
         translationFailed: "Tarjima xatosi",
         errorSelectFile: "Avval faylni tanlang",
         errorFileTooLarge: "Fayl juda katta ({size} MB). Maksimum 25 MB.",
+        itemsTitle: "Bu postda bir nechta video bor",
+        itemsHint: "Nimani matnga aylantirishni tanlang. Qaysi biri kerakligini bilmasangiz, hammasini oling: ular navbat bilan bitta matn bo'lib keladi.",
+        itemsAll: "Hamma video navbat bilan",
+        itemsOne: "{n}-video",
         errorEnterUrl: "Video havolasini kiriting",
         errorEnterText: "Tarjima qilinadigan matnni kiriting",
         errorUploadFailed: "Yuklash xatosi. Ulanishni tekshirib, qayta urinib ko'ring.",
@@ -1210,6 +1243,10 @@
         translationFailed: "Таржима хатоси",
         errorSelectFile: "Аввал файлни танланг",
         errorFileTooLarge: "Файл жуда катта ({сизе} МБ). Максимум 25 МБ.",
+        itemsTitle: "Бу постда бир нечта видео бор",
+        itemsHint: "Нимани матнга айлантиришни танланг. Қайси бири кераклигини билмасангиз, ҳаммасини олинг: улар навбат билан битта матн бўлиб келади.",
+        itemsAll: "Ҳамма видео навбат билан",
+        itemsOne: "{n}-видео",
         errorEnterUrl: "Видео ҳаволасини киритинг",
         errorEnterText: "Таржима қилинадиган матнни киритинг",
         errorUploadFailed: "Юклаш хатоси. Уланишни текшириб, қайта уриниб кўринг.",
@@ -1785,18 +1822,31 @@
           data = res.data;
         } else {
           if (!youtubeUrl.value.trim()) throw new Error(t("errorEnterUrl"));
-          const res = await fetch(API + "/api/web/youtube", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: youtubeUrl.value.trim(), sourceLang, targetLang }),
-          });
-          try {
-            data = await res.json();
-          } catch {
-            const text = await res.text().catch(() => "");
-            throw new Error(text || `Server returned ${res.status}`);
+          const link = youtubeUrl.value.trim();
+          const send = async (item) => {
+            const res = await fetch(API + "/api/web/youtube", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: link, sourceLang, targetLang, item }),
+            });
+            let payload;
+            try {
+              payload = await res.json();
+            } catch {
+              const text = await res.text().catch(() => "");
+              throw new Error(text || `Server returned ${res.status}`);
+            }
+            if (!res.ok) throw new Error(mapErrorMessage(payload.error, payload.details?.reason, payload.max) || t("errorJobFailed"));
+            return payload;
+          };
+
+          data = await send();
+          // В посте несколько видео: сервер вернул их список вместо задания.
+          if (data.needsChoice) {
+            const choice = await askItems(data.items);
+            if (!choice) return;
+            data = await send(choice);
           }
-          if (!res.ok) throw new Error(mapErrorMessage(data.error, data.details?.reason, data.max) || t("errorJobFailed"));
         }
 
         currentJobId = data.jobId;
@@ -1806,6 +1856,30 @@
       } catch (err) {
         showError(err.message);
       }
+    }
+
+    // Выбор видео в посте-карусели. Возвращает "all", номер или null (закрыли).
+    document.getElementById("itemsClose").addEventListener("click", () => document.getElementById("itemsDialog").close());
+
+    function askItems(indexes) {
+      const dialog = document.getElementById("itemsDialog");
+      const box = document.getElementById("itemsButtons");
+      box.innerHTML = "";
+      return new Promise((resolve) => {
+        let answer = null;
+        const add = (label, value) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "btn btn-sm " + (value === "all" ? "btn-primary" : "btn-outline");
+          btn.textContent = label;
+          btn.onclick = () => { answer = value; dialog.close(); };
+          box.appendChild(btn);
+        };
+        add(t("itemsAll"), "all");
+        indexes.forEach((index, n) => add(t("itemsOne", { n: n + 1 }), String(index)));
+        dialog.addEventListener("close", () => resolve(answer), { once: true });
+        dialog.showModal();
+      });
     }
 
     function renderDirectTranslation(data, targetLang) {

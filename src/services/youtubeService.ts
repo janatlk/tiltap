@@ -281,11 +281,47 @@ export interface MediaDownloadResult {
   pid: number;
 }
 
+export interface MediaItem {
+  /** Номер вложения внутри поста, как его отдаёт Cobalt (с нуля). */
+  index: number;
+  type: "video" | "photo" | string;
+}
+
+/**
+ * Вложения поста, если их несколько (карусель инстаграма и подобное).
+ *
+ * Для обычной ссылки с одним видео возвращает пустой список: спрашивать там
+ * нечего. Фото остаются в списке, но расшифровывать в них нечего — отбор
+ * делает вызывающий.
+ */
+export async function listMediaItems(url: string): Promise<MediaItem[]> {
+  return new Promise((resolve) => {
+    const proc = spawn(PYTHON_PATH, ["download_youtube.py", "--list", url], {
+      cwd: process.cwd(),
+      env: getCobaltEnv(),
+    });
+    let stdout = "";
+    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString("utf-8"); });
+    const timeout = setTimeout(() => proc.kill("SIGKILL"), 90_000);
+    proc.on("error", () => { clearTimeout(timeout); resolve([]); });
+    proc.on("close", () => {
+      clearTimeout(timeout);
+      try {
+        const data = JSON.parse(stdout.trim().split("\n").pop() || "{}") as { items?: MediaItem[] };
+        resolve(Array.isArray(data.items) ? data.items : []);
+      } catch {
+        resolve([]);
+      }
+    });
+  });
+}
+
 export async function downloadMediaAudio(
   url: string,
   onProgress?: (progress: TranscriptionProgress) => void,
   abortSignal?: AbortSignal,
-  owner?: string
+  owner?: string,
+  item?: string
 ): Promise<MediaDownloadResult> {
   // Cap parallel downloads. Each one spawns Python and then ffmpeg, and
   // unbounded ffmpeg processes starve the transcription doing the real work.
@@ -294,7 +330,7 @@ export async function downloadMediaAudio(
   await ticket.wait(abortSignal);
   downloadGate.logWait(Date.now() - queuedAt, url);
   try {
-    return await runDownload(url, onProgress, abortSignal);
+    return await runDownload(url, onProgress, abortSignal, item);
   } finally {
     ticket.release();
   }
@@ -303,12 +339,15 @@ export async function downloadMediaAudio(
 async function runDownload(
   url: string,
   onProgress?: (progress: TranscriptionProgress) => void,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  item?: string
 ): Promise<MediaDownloadResult> {
   const tmpWav = join(tmpdir(), `tiltab_yt_${Date.now()}.wav`);
 
   const pid = await new Promise<number>((resolve, reject) => {
-    const proc = spawn(PYTHON_PATH, ["download_youtube.py", url, FFMPEG_PATH, tmpWav], {
+    const args = ["download_youtube.py", url, FFMPEG_PATH, tmpWav];
+    if (item) args.push("--item", item);
+    const proc = spawn(PYTHON_PATH, args, {
       cwd: process.cwd(),
       env: getCobaltEnv(),
     });
@@ -391,7 +430,8 @@ export async function transcribeMediaLink(
   onProcessStart?: (pid: number) => void,
   abortSignal?: AbortSignal,
   onQueuePosition?: (position: number) => void,
-  owner?: string
+  owner?: string,
+  item?: string
 ): Promise<TranscriptionResult> {
   // Скачивание и распознавание отчитываются каждое по своей шкале от нуля до
   // ста. На одной полосе это выглядело так: цифра доходила до сотни, а потом
@@ -413,7 +453,8 @@ export async function transcribeMediaLink(
     url,
     onProgress ? band(0, DOWNLOAD_SHARE_END) : undefined,
     abortSignal,
-    owner
+    owner,
+    item
   );
   if (onProcessStart && pid) {
     onProcessStart(pid);

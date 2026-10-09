@@ -299,6 +299,34 @@ const TRANSLATIONS: Record<string, Partial<Record<SupportedLanguage, string>>> =
     en: "❌ Translation failed. Please try again a bit later.",
     ru: "❌ Не удалось перевести. Попробуйте ещё раз чуть позже.",
   },
+  itemsTitle: {
+    ky: "Бул постто бир нече видео бар",
+    tg: "Дар ин навишта якчанд видео ҳаст",
+    uz: "Bu postda bir nechta video bor",
+    en: "This post has several videos",
+    ru: "В этом посте несколько видео",
+  },
+  itemsHint: {
+    ky: "Эмнени текстке айландырууну тандаңыз. Кайсынысы керек экенин билбесеңиз, баарын алыңыз: алар иретинде бир текст болуп келет.",
+    tg: "Интихоб кунед, кадомашро ба матн табдил диҳем. Агар надонед кадомаш лозим аст, ҳамаашро гиред: онҳо паи ҳам як матн мешаванд.",
+    uz: "Nimani matnga aylantirishni tanlang. Qaysi biri kerakligini bilmasangiz, hammasini oling: ular navbat bilan bitta matn bo'lib keladi.",
+    en: "Choose what to transcribe. If you are not sure which one you need, take them all: they will come back as one transcript, in order.",
+    ru: "Выберите, что расшифровать. Если не знаете, какое нужно, берите все подряд: они придут одной расшифровкой, по порядку.",
+  },
+  itemsAll: {
+    ky: "Бардык видеолор иретинде",
+    tg: "Ҳамаи видеоҳо паи ҳам",
+    uz: "Hamma video navbat bilan",
+    en: "All videos in order",
+    ru: "Все видео подряд",
+  },
+  itemsOne: {
+    ky: "{n}-видео",
+    tg: "Видеои {n}",
+    uz: "{n}-video",
+    en: "Video {n}",
+    ru: "Видео {n}",
+  },
   downloadFailed: {
     ky: "❌ Бул шилтемеден видеону жүктөп алуу мүмкүн болгон жок. Бир аздан кийин кайра аракет кылыңыз же видеону файл катары жибериңиз.",
     tg: "❌ Видеоро аз ин пайванд боргирӣ кардан нашуд. Каме баъдтар бори дигар кӯшиш кунед ё видеоро ҳамчун файл фиристед.",
@@ -768,6 +796,8 @@ export interface PendingYouTube {
   type: "youtube";
   url: string;
   title?: string;
+  /** Что брать из поста с несколькими видео: номер вложения или "all". */
+  item?: string;
   sourceLanguage?: SupportedLanguage;
   targetLanguage?: SupportedLanguage | "none";
   createdAt: number;

@@ -19,6 +19,7 @@ import {
   detectMediaSource,
   mediaSourceName,
   mediaAudioFilename,
+  listMediaItems,
 } from "../services/youtubeService";
 import { renderLoadingStages } from "../utils/progressBar";
 import { isQueueFull, MAX_QUEUED_PER_USER } from "../services/concurrencyGate";
@@ -652,6 +653,29 @@ async function handleMediaLink(chatId: number, url: string, prefs: UserPreferenc
     });
   }
 
+  // В посте может быть несколько видео (карусель инстаграма). Спрашиваем, что
+  // брать: молча взять первое значит иногда расшифровать не то, о чём просили.
+  const items = await listMediaItems(url);
+  const videos = items.filter((i) => i.type === "video");
+  if (videos.length > 1) {
+    const buttons: InlineKeyboardButton[][] = [[{ text: t("itemsAll", lang), callback_data: `item:all:${actionId}` }]];
+    for (let n = 0; n < videos.length; n += 2) {
+      buttons.push(
+        videos.slice(n, n + 2).map((v, k) => ({
+          text: t("itemsOne", lang, { n: String(n + k + 1) }),
+          callback_data: `item:${v.index}:${actionId}`,
+        }))
+      );
+    }
+    buttons.push([{ text: t("back", lang), callback_data: `confirm:cancel:${actionId}` }]);
+    await sendTextMessage(chatId, `${t("itemsTitle", lang)}
+
+${t("itemsHint", lang)}`, {
+      replyMarkup: { inline_keyboard: buttons },
+    });
+    return;
+  }
+
   await sendTextMessage(
     chatId,
     t("mediaPreview", lang, { title: escapeHtml(validation.title || "") }),
@@ -751,7 +775,7 @@ async function startPendingAction(chatId: number, force = false, cardMessageId?:
     );
   } else if (pending.type === "youtube") {
     try {
-      await downloadAndTranscribeYouTube(chatId, pending.url, sourceLang, targetLang, cardMessageId);
+      await downloadAndTranscribeYouTube(chatId, pending.url, sourceLang, targetLang, cardMessageId, pending.item);
     } catch (err) {
       logger.error("YouTube processing failed", {
         error: err instanceof Error ? err.message : String(err),
@@ -1237,7 +1261,8 @@ async function downloadAndTranscribeYouTube(
   url: string,
   language: string,
   targetLanguage?: string,
-  cardMessageId?: number
+  cardMessageId?: number,
+  item?: string
 ): Promise<void> {
   const prefs = await getUserPreferences(chatId);
   const lang = prefs.interfaceLanguage;
@@ -1280,7 +1305,7 @@ async function downloadAndTranscribeYouTube(
       filename: audioFilename,
     });
 
-    const downloadResult = await downloadMediaAudio(url, undefined, abortController.signal, queueOwner(chatId));
+    const downloadResult = await downloadMediaAudio(url, undefined, abortController.signal, queueOwner(chatId), item);
     tmpWav = downloadResult.tmpWav;
 
     spinner.setPhase(t("stageTranscribe", lang));
@@ -1953,6 +1978,24 @@ async function handleCallbackQuery(callbackQuery: {
       }
       await sendTextMessage(chatId, t("sendTextToTranslate", lang), { replyMarkup: createMainKeyboard(lang) });
     }
+    return;
+  }
+
+  // Выбор видео в посте из нескольких вложений
+  if (data.startsWith("item:")) {
+    const [, choice, actionId] = data.split(":");
+    const pending = getPendingAction(chatId);
+    if (!pending || pending.actionId !== actionId || pending.type !== "youtube") {
+      await editMessageText(chatId, messageId, t("sessionExpired", lang), { replyMarkup: createMainKeyboard(lang) });
+      return;
+    }
+    updatePendingAction(chatId, { item: choice } as Partial<PendingAction>);
+    await editMessageText(
+      chatId,
+      messageId,
+      t("mediaPreview", lang, { title: escapeHtml(pending.title || "") }),
+      { replyMarkup: createSourceLanguageKeyboard(`confirm:${actionId}`, lang, "action:main") }
+    );
     return;
   }
 

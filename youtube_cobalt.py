@@ -277,6 +277,56 @@ def _download_media(media_url: str, output_path: str, max_bytes: int = 0, progre
                 f.write(chunk)
 
 
+def list_picker_items(url: str, timeout: int = None) -> list:
+    """Что лежит в посте из нескольких вложений (карусель инстаграма и т.п.).
+
+    Cobalt на такой пост отвечает не ссылкой, а списком ("picker"). Раньше наш
+    код знал только ответ-ссылку и считал список ошибкой, поэтому карусель
+    выглядела как недоступное видео.
+
+    Возвращает [] для обычной ссылки с одним видео.
+    """
+    payload = {"url": url, "downloadMode": "auto", "filenameStyle": "basic"}
+    timeout = timeout or COBALT_RESOLVE_TIMEOUT
+    for api in _api_urls():
+        try:
+            _, resp, data = _resolve_one(api, payload, timeout)
+        except Exception:
+            continue
+        if not resp.ok or not isinstance(data, dict):
+            continue
+        if data.get("status") == "picker":
+            items = []
+            for i, item in enumerate(data.get("picker") or []):
+                if not item.get("url"):
+                    continue
+                items.append({
+                    "index": i,
+                    "type": item.get("type") or "video",
+                    "url": item["url"],
+                    "thumb": item.get("thumb") or "",
+                })
+            return items
+        if data.get("status") in ("tunnel", "redirect"):
+            return []
+    return []
+
+
+def download_picker_item(item_url: str, output_dir: str, name: str,
+                         progress_cb=None, max_bytes: int = 0) -> str:
+    """Скачать один элемент поста по прямой ссылке из списка."""
+    output_path = os.path.join(output_dir, os.path.basename(name))
+    _download_media(item_url, output_path, max_bytes=max_bytes, progress_cb=progress_cb)
+    size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
+    if size < MIN_MEDIA_BYTES:
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
+        raise RuntimeError(f"empty file ({size} bytes)")
+    return output_path
+
+
 def download_media_via_cobalt(
     url: str,
     output_dir: str,
@@ -342,6 +392,14 @@ def validate_via_cobalt(url: str, download_mode: str = "auto") -> dict:
     }
     if download_mode == "audio":
         payload["audioFormat"] = "mp3"
+
+    # Пост из нескольких вложений Cobalt отдаёт списком, а не ссылкой. Для
+    # проверки это такой же годный ответ: ссылка разобрана, видео есть.
+    try:
+        if list_picker_items(url, COBALT_VALIDATE_TIMEOUT):
+            return {"ok": True, "title": "", "duration": 0, "uploader": ""}
+    except Exception:
+        pass
 
     # Validation only needs to know the link is resolvable, so the first
     # responder is enough — no download is attempted here.

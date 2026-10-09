@@ -5,7 +5,7 @@ import type { TranscriptionResult } from "../types";
 import { translateText } from "../services/translationService";
 import { cleanupTranscription, detectTranscriptionIssues } from "../services/cleanupService";
 import { assessResultConfidence, formatConfidenceLine } from "../services/transcriptQualityService";
-import { isSupportedMediaUrl, validateMediaUrl, transcribeMediaLink } from "../services/youtubeService";
+import { isSupportedMediaUrl, validateMediaUrl, transcribeMediaLink, listMediaItems } from "../services/youtubeService";
 import type { TranslateRequest } from "../types";
 import * as webJobRepo from "../db/repos/webJobRepo";
 import * as translationRepo from "../db/repos/translationRepo";
@@ -215,7 +215,8 @@ export async function handleWebTranscribe(req: Request, res: Response): Promise<
 export async function handleWebYouTube(req: Request, res: Response): Promise<void> {
   let owner: string | undefined;
   try {
-    const { url, sourceLang, targetLang } = req.body as { url?: string; sourceLang?: string; targetLang?: string };
+    const { url, sourceLang, targetLang, item } = req.body as
+      { url?: string; sourceLang?: string; targetLang?: string; item?: string };
 
     if (!url || !isSupportedMediaUrl(url)) {
       res.status(400).json({ error: "Missing or invalid media URL. Supported: YouTube, TikTok, Instagram Reels, Facebook" });
@@ -225,6 +226,23 @@ export async function handleWebYouTube(req: Request, res: Response): Promise<voi
     const validation = await validateMediaUrl(url);
     if (!validation.ok) {
       res.status(400).json({ error: validation.reason ?? "unknown", details: validation });
+      return;
+    }
+
+    // В посте может быть несколько видео (карусель инстаграма). Пока человек
+    // не сказал, какое брать, спрашиваем — молча взять первое значит иногда
+    // расшифровать не то, о чём просили, и не сообщить об этом.
+    const choice = typeof item === "string" && item.trim() ? item.trim() : undefined;
+    if (!choice) {
+      const items = await listMediaItems(url);
+      const videos = items.filter((i) => i.type === "video");
+      if (videos.length > 1) {
+        res.status(200).json({ needsChoice: true, items: videos.map((v) => v.index), title: validation.title });
+        return;
+      }
+    }
+    if (choice && choice !== "all" && !/^\d+$/.test(choice)) {
+      res.status(400).json({ error: "bad_item" });
       return;
     }
 
@@ -246,7 +264,7 @@ export async function handleWebYouTube(req: Request, res: Response): Promise<voi
     });
     res.status(202).json({ jobId: job.id, requestNumber: job.requestNumber, title: validation.title });
 
-    processMediaLinkJob(job, url, language, target, "youtube", owner).catch((err) => {
+    processMediaLinkJob(job, url, language, target, "youtube", owner, choice).catch((err) => {
       logger.error("Web media link job failed", { error: err instanceof Error ? err.message : String(err), jobId: job.id });
       updateJob(job, { status: "failed", error: err instanceof Error ? err.message : String(err) });
     });
@@ -531,7 +549,8 @@ async function processMediaLinkJob(
   language: string,
   targetLanguage?: string,
   sourceType?: string,
-  owner?: string
+  owner?: string,
+  item?: string
 ): Promise<void> {
   updateJob(job, { status: "running", progress: { percent: 0, label: "Starting..." } });
 
@@ -543,7 +562,8 @@ async function processMediaLinkJob(
       (pid) => updateJob(job, { pid }),
       undefined,
       (position) => setJobProgress(job, queueProgress(position)),
-      owner
+      owner,
+      item
     );
 
     await finalizeTranscription(job, result, targetLanguage, url, sourceType);
