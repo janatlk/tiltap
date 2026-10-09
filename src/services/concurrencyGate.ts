@@ -47,6 +47,8 @@ interface Waiter {
   ready: boolean;
   admitted: boolean;
   released: boolean;
+  /** Когда работа действительно началась — для оценки времени ожидания. */
+  startedAt?: number;
 }
 
 export class ConcurrencyGate {
@@ -58,6 +60,35 @@ export class ConcurrencyGate {
     private readonly limit: number,
     private readonly name: string
   ) {}
+
+  /**
+   * Сколько длились последние работы. По ним считается обещание «примерно N
+   * минут»: раньше там стояло число из головы (45 секунд на одного впереди), и
+   * на деле оно не имело отношения ни к длине записи, ни к скорости сервера.
+   */
+  private recentRuntimes: number[] = [];
+  private static readonly RUNTIME_SAMPLES = 20;
+  /** Пока работ не было, обещаем по минуте на человека впереди. */
+  private static readonly RUNTIME_FALLBACK_MS = 60_000;
+
+  private recordRuntime(ms: number): void {
+    if (ms <= 0) return;
+    this.recentRuntimes.push(ms);
+    if (this.recentRuntimes.length > ConcurrencyGate.RUNTIME_SAMPLES) this.recentRuntimes.shift();
+  }
+
+  /** Среднее время одной работы, мс. */
+  averageRuntimeMs(): number {
+    if (this.recentRuntimes.length === 0) return ConcurrencyGate.RUNTIME_FALLBACK_MS;
+    return this.recentRuntimes.reduce((a, b) => a + b, 0) / this.recentRuntimes.length;
+  }
+
+  /** Сколько примерно ждать тому, кто стоит на месте `position`, в секундах. */
+  estimateWaitSeconds(position: number): number {
+    if (position <= 0) return 0;
+    // Работ идёт `limit` сразу, поэтому очередь уходит во столько же раз быстрее.
+    return Math.round((position * this.averageRuntimeMs()) / this.limit / 1000);
+  }
 
   get stats(): { running: number; waiting: number; limit: number } {
     return { running: this.running, waiting: this.waiting.length, limit: this.limit };
@@ -166,6 +197,7 @@ export class ConcurrencyGate {
         waiter.released = true;
         if (waiter.admitted) {
           this.running -= 1;
+          if (waiter.startedAt) this.recordRuntime(Date.now() - waiter.startedAt);
         } else {
           this.drop(waiter);
         }
@@ -190,6 +222,7 @@ export class ConcurrencyGate {
       if (!next.ready) break;
       this.waiting.splice(this.waiting.indexOf(next), 1);
       next.admitted = true;
+      next.startedAt = Date.now();
       // Everyone still queued is now measured against this round, so an owner
       // who has been away cannot use an old, low counter to jump the line.
       this.currentRound = next.round;
@@ -218,11 +251,22 @@ export class ConcurrencyGate {
   }
 }
 
-// One heavy transcription at a time. GigaAM already saturates every core, so a
-// second concurrent job does not finish sooner — measured on the server, two in
-// parallel took 13.1s against 14.3s sequentially, i.e. no real gain — and it
-// risks the two of them tripping the worker's HTTP timeout.
-export const sttGate = new ConcurrencyGate(1, "stt");
+// Две записи сразу — но только разными движками.
+//
+// Замер на сервере (9 октября, минута речи на каждую): таджикская и русская
+// записи вместе заняли 37 с против 60 с по очереди, причём каждая замедлилась
+// на пару секунд. А две кыргызских вместе — 83 и 85 с против примерно 30 с по
+// очереди: они идут в один резидентный сервер GigaAM, и параллельно он не
+// ускоряется, а захлёбывается.
+//
+// Отсюда два замка: общий на две работы и отдельный на GigaAM, который
+// пропускает по одной. Пока очередь была одна на всех, человек при пятерых
+// одновременных ждал десятки минут (23 сентября — 26 минут на двухминутную
+// запись, та же запись в одиночку — 9 секунд).
+export const sttGate = new ConcurrencyGate(2, "stt");
+
+/** Резидентный сервер GigaAM (кыргызский, узбекский) — строго по одной. */
+export const gigaamGate = new ConcurrencyGate(1, "gigaam");
 
 // Downloads are network-bound, so several can overlap usefully. The cap exists
 // because each one also spawns ffmpeg, and unbounded ffmpeg processes starve

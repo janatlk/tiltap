@@ -1,6 +1,6 @@
 import { logger } from "../utils/logger";
 import { config } from "../config";
-import { getEffectiveCobaltUrls, testCobaltApiUrl } from "./cobaltConfigService";
+import { getEffectiveCobaltUrls, testCobaltApiUrl, recordCobaltProbe } from "./cobaltConfigService";
 import { sendAdminAlert, resetAlertThrottle } from "./alertService";
 import { probeYtdlp } from "./youtubeService";
 
@@ -56,6 +56,7 @@ export async function checkCobaltHealth(): Promise<CobaltHealthResult> {
     if (!result.ok) {
       result = await testCobaltApiUrl(url, config.COBALT_HEALTHCHECK_URL);
     }
+    recordCobaltProbe(url, result.ok);
     probes.push({ url, ok: result.ok, error: result.error });
     if (result.ok && !workingUrl) workingUrl = url;
   }

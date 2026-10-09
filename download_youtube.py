@@ -102,6 +102,18 @@ def download(url: str, tmpdir: str):
             print(f"[download] yt-dlp also failed: {ytdlp_error}", file=sys.stderr, flush=True)
             return None
 
+    # YouTube сразу отдаём yt-dlp. Cobalt на ютубе не работает с августа:
+    # инстансы отвечают "нужен вход" или отдают пустой туннель, а перебор
+    # шести штук стоит человеку полутора минут ожидания на каждой ссылке.
+    # Для остальных площадок порядок прежний: Cobalt быстрее и дешевле.
+    if youtube_ytdlp.is_youtube(url) and youtube_ytdlp.available(url):
+        try:
+            return youtube_ytdlp.download_audio(
+                url, tmpdir, progress_cb=report, max_bytes=AUDIO_MAX_BYTES
+            )
+        except Exception as ytdlp_error:
+            print(f"[download] yt-dlp failed ({ytdlp_error}); trying Cobalt", file=sys.stderr, flush=True)
+
     try:
         return download_media_via_cobalt(
             url, tmpdir, progress_cb=report, download_mode="audio",

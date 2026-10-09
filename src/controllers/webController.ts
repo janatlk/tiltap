@@ -16,7 +16,7 @@ import {
   type FeedbackRating,
 } from "../db/repos/feedbackRepo";
 import { sendAdminAlert } from "../services/alertService";
-import { isQueueFull, beginJob, endJob, MAX_QUEUED_PER_USER } from "../services/concurrencyGate";
+import { isQueueFull, beginJob, endJob, MAX_QUEUED_PER_USER, sttGate } from "../services/concurrencyGate";
 import { isSupportedDocument, translateDocument } from "../services/documentService";
 import { normalizeLanguageCode } from "../utils/languageCodes";
 import { paragraphsFromSegments, paragraphsFromSentences } from "../utils/paragraphs";
@@ -438,8 +438,11 @@ function queueOwner(req: Request): string {
 }
 
 function queueProgress(position: number): TranscriptionProgress {
+  // Второе число — оценка ожидания в секундах по реальной скорости последних
+  // работ. Страница переводится на стороне браузера, поэтому сюда уходит
+  // пометка с числами, а не готовая фраза.
   return position > 0
-    ? { percent: 0, label: `queued:${position}` }
+    ? { percent: 0, label: `queued:${position}:${sttGate.estimateWaitSeconds(position)}` }
     : { percent: 0, label: "Transcribing..." };
 }
 

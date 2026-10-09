@@ -22,7 +22,7 @@ import {
   listMediaItems,
 } from "../services/youtubeService";
 import { renderLoadingStages } from "../utils/progressBar";
-import { isQueueFull, MAX_QUEUED_PER_USER } from "../services/concurrencyGate";
+import { isQueueFull, MAX_QUEUED_PER_USER, sttGate } from "../services/concurrencyGate";
 import { config } from "../config";
 
 import { combinedAccuracy } from "../utils/textSimilarity";
@@ -819,10 +819,9 @@ function queueIsFullFor(chatId: number): boolean {
 // Rough per-job estimate for the queue wait. Measured end-to-end time over the
 // last 60 days averaged 40s, so 45 is a deliberate round-up: a wait that ends
 // early is a good surprise, one that runs over is not.
-const QUEUE_ESTIMATE_SEC = 45;
-
 function queuedLabel(lang: SupportedLanguage, position: number): string {
-  const minutes = Math.max(1, Math.ceil((position * QUEUE_ESTIMATE_SEC) / 60));
+  // Оценка по реальной скорости последних работ, а не по числу из головы.
+  const minutes = Math.max(1, Math.ceil(sttGate.estimateWaitSeconds(position) / 60));
   return t("stageQueued", lang, { position: String(position), minutes: String(minutes) });
 }
 

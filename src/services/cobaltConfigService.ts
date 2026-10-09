@@ -5,6 +5,53 @@ import { config } from "../config";
 
 const CONFIG_DIR = path.join(process.cwd(), "data");
 const CONFIG_FILE = path.join(CONFIG_DIR, "cobalt-config.json");
+const HEALTH_FILE = path.join(CONFIG_DIR, "cobalt-health.json");
+
+/** Когда каждый инстанс в последний раз реально отдавал медиа (мс эпохи). */
+type HealthMap = Record<string, number>;
+
+/** Инстанс считается живым, если отдавал медиа за последние двое суток. */
+const FRESH_MS = 48 * 60 * 60 * 1000;
+
+function loadHealth(): HealthMap {
+  try {
+    if (!fs.existsSync(HEALTH_FILE)) return {};
+    return JSON.parse(fs.readFileSync(HEALTH_FILE, "utf-8")) as HealthMap;
+  } catch {
+    return {};
+  }
+}
+
+/** Отметить итог проверки инстанса. Пишет только успехи: отказ — не приговор. */
+export function recordCobaltProbe(url: string, ok: boolean): void {
+  if (!ok) return;
+  try {
+    const health = loadHealth();
+    health[url] = Date.now();
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.writeFileSync(HEALTH_FILE, JSON.stringify(health, null, 2));
+  } catch {
+    // Порядок инстансов — не та вещь, ради которой стоит ронять скачивание.
+  }
+}
+
+/**
+ * Живые инстансы вперёд, молчащие двое суток — в конец.
+ *
+ * Список перебирается сверху вниз, и каждый мёртвый инстанс в начале стоит
+ * человеку лишних секунд ожидания: до починки cookies на одну ссылку уходило
+ * до полутора минут только на опрос заведомо нерабочих.
+ */
+function byFreshness(urls: string[]): string[] {
+  const health = loadHealth();
+  const now = Date.now();
+  return [...urls].sort((a, b) => {
+    const aFresh = now - (health[a] ?? 0) < FRESH_MS;
+    const bFresh = now - (health[b] ?? 0) < FRESH_MS;
+    if (aFresh !== bFresh) return aFresh ? -1 : 1;
+    return (health[b] ?? 0) - (health[a] ?? 0);
+  });
+}
 
 // "Me at the zoo": the oldest public video on YouTube, 19 seconds, no rights
 // holder and no restrictions. The previous canary (dQw4w9WgXcQ) is a licensed
@@ -86,8 +133,7 @@ export function resetConfiguredCobaltUrls(): void {
  * defaults so admins can override broken instances without redeploying.
  */
 export function getCobaltApiUrlsEnv(): string {
-  const configured = getConfiguredCobaltUrls();
-  return configured.join(",");
+  return byFreshness(getEffectiveCobaltUrls()).join(",");
 }
 
 /**

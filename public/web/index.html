@@ -1618,12 +1618,14 @@
 
       // "queued:3" — a place in line rather than a stage. The server sends a
       // marker because this page is translated on the client.
-      const queued = /^queued:(\d+)$/.exec(progress.label || "");
+      const queued = /^queued:(\d+)(?::(\d+))?$/.exec(progress.label || "");
       if (queued) {
         const position = Number(queued[1]);
+        // Второе число — оценка сервера по реальной скорости последних работ.
+        const seconds = queued[2] ? Number(queued[2]) : position * QUEUE_ESTIMATE_SEC;
         progressLabel.textContent = t("progressQueued", {
           position: position,
-          minutes: Math.max(1, Math.ceil((position * QUEUE_ESTIMATE_SEC) / 60)),
+          minutes: Math.max(1, Math.ceil(seconds / 60)),
         });
       } else {
         progressLabel.textContent = stageLabel(progress.label);
