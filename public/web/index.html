@@ -752,6 +752,7 @@
         errorUploadCancelled: "Upload was cancelled.",
         errorUploadTimeout: "Upload timed out. The file may be too large or the connection is slow.",
         errorNotAvailable: "This video is not available. It may be deleted, private, region-blocked, or the URL is incorrect.",
+        errorDownloadFailed: "Couldn't download the recording from this link. Please try again a bit later, or send the file instead.",
         errorSignInRequired: "This video requires a YouTube sign-in. The bot cannot download it. Try another video.",
         errorPrivate: "This is a private video. The bot cannot download it.",
         errorAgeRestricted: "This video is age-restricted. The bot cannot download it.",
@@ -852,6 +853,7 @@
         errorUploadCancelled: "Загрузка отменена.",
         errorUploadTimeout: "Превышено время загрузки. Файл слишком большой или соединение медленное.",
         errorNotAvailable: "Видео недоступно. Возможно, оно удалено, приватное, заблокировано в регионе или URL неверный.",
+        errorDownloadFailed: "Не получилось скачать запись по этой ссылке. Попробуйте чуть позже или пришлите файл.",
         errorSignInRequired: "Видео требует входа в YouTube. Бот не может скачать его. Попробуйте другое видео.",
         errorPrivate: "Это приватное видео. Бот не может скачать его.",
         errorAgeRestricted: "Видео имеет возрастное ограничение. Бот не может скачать его.",
@@ -952,6 +954,7 @@
         errorUploadCancelled: "Жүктөө токтотулду.",
         errorUploadTimeout: "Жүктөө убактысы бүттү. Файл өтө чоң же туташуу жай.",
         errorNotAvailable: "Бул видео жеткиликсиз. Ал өчүрүлгөн, жабык, аймактык блоктоого кабылган же URL туура эмес.",
+        errorDownloadFailed: "Бул шилтемеден жазууну жүктөп алуу мүмкүн болгон жок. Бир аздан кийин кайра аракет кылыңыз же файл жибериңиз.",
         errorSignInRequired: "Бул видео YouTube'га кирүүнү талап кылат. Бот аны жүктөй албайт. Башка видео аракет кылыңыз.",
         errorPrivate: "Бул жабык видео. Бот аны жүктөй албайт.",
         errorAgeRestricted: "Бул видео жаш чектөөсү бар. Бот аны жүктөй албайт.",
@@ -1052,6 +1055,7 @@
         errorUploadCancelled: "Боргузорӣ бекор карда шуд.",
         errorUploadTimeout: "Вақти боргузорӣ ба охир расид. Файл хеле калон аст ё пайвастшавӣ суст аст.",
         errorNotAvailable: "Ин видео дастрас нест. Возможно, онро нест кардаанд, хусусӣ, минтақавӣ бастаанд ё пайванд нодуруст аст.",
+        errorDownloadFailed: "Сабтро аз ин пайванд боргирӣ кардан нашуд. Каме баъдтар бори дигар кӯшиш кунед ё файл фиристед.",
         errorSignInRequired: "Ин видео талаб мекунад, ки шумо ба YouTube ворид шавед. Бот онро боргузорӣ карда наметавонад. Видеои дигарро кӯшиш кунед.",
         errorPrivate: "Ин видеои хусусӣ аст. Бот онро боргузорӣ карда наметавонад.",
         errorAgeRestricted: "Ин видео дорои маҳдудияти синну сол аст. Бот онро боргузорӣ карда наметавонад.",
@@ -1152,6 +1156,7 @@
         errorUploadCancelled: "Yuklash bekor qilindi.",
         errorUploadTimeout: "Yuklash vaqti tugadi. Fayl juda katta yoki ulanish sekin.",
         errorNotAvailable: "Bu video mavjud emas. U o'chirilgan, xususiy, mintaqaviy bloklangan yoki URL noto'g'ri bo'lishi mumkin.",
+        errorDownloadFailed: "Bu havoladan yozuvni yuklab bo'lmadi. Birozdan keyin qayta urinib ko'ring yoki fayl yuboring.",
         errorSignInRequired: "Bu video YouTube'ga kirishni talab qiladi. Bot uni yuklay olmaydi. Boshqa videoni sinab ko'ring.",
         errorPrivate: "Bu xususiy video. Bot uni yuklay olmaydi.",
         errorAgeRestricted: "Bu video yosh chegarasiga ega. Bot uni yuklay olmaydi.",
@@ -1253,6 +1258,7 @@
         errorUploadCancelled: "Юклаш бекор қилинди.",
         errorUploadTimeout: "Юклаш вақти тугади. Файл жуда катта ёки уланиш секин.",
         errorNotAvailable: "Бу видео мавжуд эмас. У ўчирилган, хусусий, минтақавий блокланган ёки УРЛ нотўғри бўлиши мумкин.",
+        errorDownloadFailed: "Бу ҳаволадан ёзувни юклаб бўлмади. Бироздан кейин қайта уриниб кўринг ёки файл юборинг.",
         errorSignInRequired: "Бу видео ЁуТубеъга киришни талаб қилади. Бот уни юклай олмайди. Бошқа видеони синаб кўринг.",
         errorPrivate: "Бу хусусий видео. Бот уни юклай олмайди.",
         errorAgeRestricted: "Бу видео ёш чегарасига эга. Бот уни юклай олмайди.",
@@ -1587,13 +1593,23 @@
       if (code === "queue_full") return t("errorQueueFull", { max: max });
       const keys = {
         not_available: "errorNotAvailable",
-        sign_in_required: "errorSignInRequired",
         private: "errorPrivate",
         age_restricted: "errorAgeRestricted",
         invalid: "errorInvalidUrl",
-        timeout: "errorTimeout",
+        // Остальное для человека — одно и то же: запись по ссылке не скачалась.
+        // Чем именно недовольны наши источники, ему знать незачем, а код вроде
+        // "cobalt_auth_required" он до сих пор видел как есть.
+        sign_in_required: "errorDownloadFailed",
+        cobalt_auth_required: "errorDownloadFailed",
+        bot_detected: "errorDownloadFailed",
+        missing_deps: "errorDownloadFailed",
+        timeout: "errorDownloadFailed",
+        unknown: "errorDownloadFailed",
       };
-      return t(keys[code]) || error || t("errorJobFailed");
+      if (keys[code]) return t(keys[code]);
+      // Незнакомый код — тоже не для показа: это наша внутренняя пометка.
+      if (/^[a-z0-9_]+$/.test(String(code || ""))) return t("errorDownloadFailed");
+      return error || t("errorJobFailed");
     }
 
     // Matches the estimate the bot uses, so the two surfaces agree.

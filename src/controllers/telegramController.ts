@@ -1476,8 +1476,11 @@ function getYouTubeErrorMessage(reason: string | undefined, lang: SupportedLangu
     },
   };
 
-  const entry = messages[reason ?? "unknown"];
-  return entry[lang] ?? entry["uz"] ?? entry["ru"] ?? "Unknown error";
+  // Незнакомая причина — это наша внутренняя пометка вроде "bot_detected", и
+  // показывать её человеку нельзя. Раньше здесь вдобавок падало обращение к
+  // отсутствующей записи.
+  const entry = messages[reason ?? "unknown"] ?? messages.unknown;
+  return entry[lang] ?? entry["uz"] ?? entry["ru"] ?? messages.unknown["ru"] ?? "";
 }
 
 async function stopActiveProcess(chatId: number): Promise<void> {
