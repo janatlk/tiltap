@@ -219,7 +219,7 @@ export async function handleWebYouTube(req: Request, res: Response): Promise<voi
       { url?: string; sourceLang?: string; targetLang?: string; item?: string };
 
     if (!url || !isSupportedMediaUrl(url)) {
-      res.status(400).json({ error: "Missing or invalid media URL. Supported: YouTube, TikTok, Instagram Reels, Facebook" });
+      res.status(400).json({ error: "invalid" });
       return;
     }
 

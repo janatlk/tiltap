@@ -1587,6 +1587,23 @@
       startBtn.disabled = false;
     }
 
+    // Площадки, с которых мы умеем качать. Держим рядом с hostOf, чтобы
+    // страница и сервер понимали ссылку одинаково.
+    const SUPPORTED_HOSTS = /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com|tiktok\.com|instagram\.com|facebook\.com|fb\.watch|fb\.com)$/i;
+
+    function normalizeLink(value) {
+      const s = value.trim();
+      return /^https?:/i.test(s) ? s : "https://" + s.replace(/^\/+/, "");
+    }
+
+    function isSupportedLink(value) {
+      try {
+        return SUPPORTED_HOSTS.test(new URL(normalizeLink(value)).hostname);
+      } catch (e) {
+        return false;
+      }
+    }
+
     function mapErrorMessage(error, reason, max) {
       const code = reason || error;
       // Carries a count, so it cannot go in the plain lookup below.
@@ -1840,7 +1857,11 @@
           data = res.data;
         } else {
           if (!youtubeUrl.value.trim()) throw new Error(t("errorEnterUrl"));
-          const link = youtubeUrl.value.trim();
+          // Площадку проверяем здесь, до отправки. Иначе человек нажимал
+          // «Начать», ждал и получал отказ — а бывает, что в ссылке просто
+          // потерялись первые буквы при вставке (youtu.be → outu.be).
+          const link = normalizeLink(youtubeUrl.value.trim());
+          if (!isSupportedLink(link)) throw new Error(t("errorInvalidUrl"));
           const send = async (item) => {
             const res = await fetch(API + "/api/web/youtube", {
               method: "POST",
