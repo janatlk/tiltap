@@ -85,7 +85,11 @@ import { sendAdminAlert } from "../services/alertService";
 
 const FFMPEG_PATH = require("ffmpeg-static");
 const PYTHON_PATH = process.platform === "win32" ? "python" : "python3";
-const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
+// Столько Telegram отдаёт ботам, и ни байтом больше: на файл крупнее getFile
+// отвечает "file is too big". Пока здесь стояло 25 МБ, записи от 20 до 25 МБ
+// проходили нашу проверку, падали на скачивании, и человек не получал вообще
+// ничего — бот выглядел сломанным. Чаще всего это видео с телефона.
+const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
 
 // Simple in-memory deduplication for Telegram update_ids. Prevents duplicate
 // processing when multiple poll forwarders or retries deliver the same update.
@@ -124,10 +128,24 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       await handleCallbackQuery(update.callback_query);
     }
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     logger.error("Error processing Telegram update", {
-      error: err instanceof Error ? err.message : String(err),
+      error: message,
       stack: err instanceof Error ? err.stack : undefined,
     });
+
+    // Молчание хуже отказа: человек ждёт ответа и считает бота сломанным.
+    // Так было с файлами крупнее 20 МБ — Telegram отказывал в выдаче, ошибка
+    // долетала сюда, и в чат не уходило ничего.
+    const chatId = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
+    if (chatId) {
+      const prefs = await getUserPreferences(chatId).catch(() => null);
+      const lang = prefs?.interfaceLanguage ?? "ru";
+      const tooBig = /file is too big/i.test(message);
+      await sendTextMessage(chatId, t(tooBig ? "fileTooLarge" : "somethingWentWrong", lang), {
+        replyMarkup: createMainKeyboard(lang),
+      }).catch(() => {});
+    }
   }
 
   const duration = Date.now() - startTime;
@@ -267,7 +285,7 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
   if (knownSize && knownSize > MAX_MEDIA_BYTES) {
     await sendTextMessage(
       chatId,
-      t("fileTooLarge", lang, { size: (knownSize / 1024 / 1024).toFixed(1) }),
+      t("fileTooLarge", lang),
       { replyMarkup: createMainKeyboard(lang) }
     );
     return;
@@ -280,7 +298,7 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
   if (buffer.length > MAX_MEDIA_BYTES) {
     await sendTextMessage(
       chatId,
-      t("fileTooLarge", lang, { size: (buffer.length / 1024 / 1024).toFixed(1) }),
+      t("fileTooLarge", lang),
       { replyMarkup: createMainKeyboard(lang) }
     );
     return;
