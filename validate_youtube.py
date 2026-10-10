@@ -8,10 +8,12 @@ the caller must not depend on them.
 """
 
 import json
+import os
 import signal
 import socket
 import sys
 
+import youtube_ytdlp
 from youtube_cobalt import validate_via_cobalt
 
 # Hard timeout so we never hang forever on slow/unreachable URLs
@@ -20,7 +22,7 @@ socket.setdefaulttimeout(15)
 # Absolute wall-clock limit for the whole validation step. Must stay shorter
 # than the Node-side timeout so the process returns a reason instead of being
 # killed mid-flight.
-VALIDATION_TIMEOUT_SECONDS = 20
+VALIDATION_TIMEOUT_SECONDS = int(os.environ.get("TILTAB_VALIDATION_TIMEOUT_SEC", "45"))
 
 
 class ValidationTimeout(Exception):
@@ -32,6 +34,16 @@ def _timeout_handler(signum, frame):
 
 
 def _validate(url: str):
+    # YouTube проверяем тем же движком, которым и качаем. Cobalt на нём
+    # отвечает «нужен вход» и отклоняет живые ссылки, до скачивания дело даже
+    # не доходило. Cobalt остаётся запасным: вдруг у yt-dlp свой сбой.
+    if youtube_ytdlp.is_youtube(url) and youtube_ytdlp.available(url):
+        ytdlp = youtube_ytdlp.validate(url)
+        if ytdlp.get("ok"):
+            return ytdlp
+        if ytdlp.get("reason") in ("private", "age_restricted", "live_stream", "not_available"):
+            return ytdlp
+
     cobalt = validate_via_cobalt(url, download_mode="auto")
     if cobalt["ok"]:
         return {"ok": True, "title": "", "duration": 0, "uploader": ""}

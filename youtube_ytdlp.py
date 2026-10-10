@@ -230,6 +230,60 @@ def download_audio(url: str, output_dir: str, progress_cb=None, max_bytes: int =
     raise RuntimeError("yt-dlp reported success but produced no file: " + "; ".join(tail[-3:]))
 
 
+VALIDATE_TIMEOUT = int(os.environ.get("TILTAB_YTDLP_VALIDATE_TIMEOUT_SEC", "90"))
+
+
+def validate(url: str) -> dict:
+    """Доступна ли ссылка и что это за запись. Ничего не качает.
+
+    Нужна потому, что проверка через Cobalt для YouTube давно отвечает «нужен
+    вход» и отклоняет живые ссылки ещё до скачивания: за 20 часов так
+    отказали 82 раза, причём скачать их yt-dlp смог бы. Заодно отдаёт
+    название и длительность, которых Cobalt не даёт вовсе.
+    """
+    if not available(url):
+        return {"ok": False, "reason": "unknown", "error": "yt-dlp unavailable"}
+    workdir = tempfile.mkdtemp(prefix="ytdlp-validate-")
+    try:
+        cmd = [YTDLP_BIN, "-J", "--skip-download", "--no-playlist", "--no-warnings",
+               "--remote-components", "ejs:github", "--js-runtimes", JS_RUNTIME,
+               "--cookies", _disposable_cookies(workdir)]
+        if PROXY:
+            cmd += ["--proxy", PROXY]
+        try:
+            r = subprocess.run(cmd + [url], capture_output=True, text=True, timeout=VALIDATE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "reason": "timeout", "error": "yt-dlp validate timed out"}
+        if r.returncode == 0:
+            try:
+                data = json.loads(r.stdout)
+            except ValueError:
+                return {"ok": False, "reason": "unknown", "error": "yt-dlp returned no metadata"}
+            if data.get("is_live"):
+                return {"ok": False, "reason": "live_stream", "error": "live stream"}
+            return {
+                "ok": True,
+                "title": data.get("title") or "",
+                "duration": int(data.get("duration") or 0),
+                "uploader": data.get("uploader") or "",
+            }
+        err = (r.stderr or "").strip()
+        low = err.lower()
+        if "private" in low:
+            reason = "private"
+        elif "age" in low and "restrict" in low:
+            reason = "age_restricted"
+        elif "sign in to confirm" in low or "cookies" in low:
+            reason = "sign_in_required"
+        elif "unavailable" in low or "not available" in low or "removed" in low:
+            reason = "not_available"
+        else:
+            reason = "unknown"
+        return {"ok": False, "reason": reason, "error": err[-300:] or "yt-dlp validate failed"}
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 COOKIES_CHECK_TIMEOUT = int(os.environ.get("TILTAB_YTDLP_COOKIES_CHECK_TIMEOUT_SEC", "150"))
 
 
