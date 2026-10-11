@@ -196,10 +196,19 @@ export async function setStatus(id: number, status: FeedbackStatus): Promise<Fee
  * Driven by a stored timestamp rather than a timer so restarts do not reset the
  * schedule or cause a double reminder.
  */
+/**
+ * Обращения, которые ждут ответа дольше положенного.
+ *
+ * Раньше напоминание приходило только по отложенным, а сообщения о проблемах
+ * со статусом "новое" не напоминали ни о чём: 17 обращений провисели без
+ * ответа с июля, и самые старые авторы уже ушли.
+ */
 export async function listDeferredDueForReminder(hours: number): Promise<FeedbackEntry[]> {
   const rows = await query<FeedbackEntry>(
     `SELECT * FROM feedback
-     WHERE status = 'deferred'
+     WHERE admin_reply IS NULL
+       AND (status = 'deferred' OR (status = 'new' AND rating = 'issue'))
+       AND created_at < NOW() - ($1 || ' hours')::interval
        AND (last_reminded_at IS NULL OR last_reminded_at < NOW() - ($1 || ' hours')::interval)
      ORDER BY created_at ASC`,
     [String(hours)]
