@@ -97,6 +97,23 @@ def get_audio_duration(wav_path: str) -> float:
 # Model cache
 # ---------------------------------------------------------------------------
 _whisper_models = {}
+# Где считать: процессор или видеокарта.
+#
+# До октября 2026 устройство было вшито в код ("cpu"/"int8"), и перенести
+# распознавание на видеокарту значило править четыре места в файле. Теперь это
+# настройка: на сервере без карты всё остаётся как было, на сервере с картой
+# достаточно TILTAB_STT_DEVICE=cuda.
+STT_DEVICE = os.environ.get("TILTAB_STT_DEVICE", "cpu").lower()
+# int8 на процессоре, float16 на видеокарте: на ней int8 не быстрее, а точность ниже.
+STT_COMPUTE_TYPE = os.environ.get(
+    "TILTAB_STT_COMPUTE_TYPE", "float16" if STT_DEVICE.startswith("cuda") else "int8"
+)
+
+
+def stt_device() -> str:
+    return STT_DEVICE
+
+
 _wav2vec_models = {}
 _whisper_hf_pipelines = {}
 
@@ -109,8 +126,8 @@ def get_whisper_model(model_path=LOCAL_WHISPER_MODEL):
         try:
             _whisper_models[model_path] = WhisperModel(
                 model_path,
-                device="cpu",
-                compute_type="int8",
+                device=STT_DEVICE,
+                compute_type=STT_COMPUTE_TYPE,
             )
         except (MemoryError, RuntimeError) as e:
             # If the model failed to load because of memory pressure, drop any
@@ -119,8 +136,8 @@ def get_whisper_model(model_path=LOCAL_WHISPER_MODEL):
                 release_whisper_models()
                 _whisper_models[model_path] = WhisperModel(
                     model_path,
-                    device="cpu",
-                    compute_type="int8",
+                    device=STT_DEVICE,
+                    compute_type=STT_COMPUTE_TYPE,
                 )
             else:
                 raise
@@ -169,7 +186,7 @@ def get_whisper_hf_pipeline(model_name: str):
         _whisper_hf_pipelines[model_name] = pipeline(
             "automatic-speech-recognition",
             model=model_name,
-            device="cpu",
+            device=0 if STT_DEVICE.startswith("cuda") else "cpu",
             chunk_length_s=30,
         )
         print(f"[whisper-hf] Model {model_name} loaded.", file=sys.stderr, flush=True)
@@ -1560,6 +1577,10 @@ def get_gigaam_model(revision: str | None = None):
             GIGAAM_MODEL_ID, revision=revision, trust_remote_code=True
         )
         model.eval()
+        # Код модели берёт устройство у своих же весов (next(self.parameters()).device),
+        # поэтому достаточно переложить её на карту.
+        if STT_DEVICE.startswith("cuda"):
+            model = model.to(STT_DEVICE)
         _gigaam_models[revision] = model
     return _gigaam_models[revision]
 
