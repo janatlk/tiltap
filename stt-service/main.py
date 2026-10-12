@@ -57,11 +57,14 @@ def _convert_upload_to_wav(upload_path: str, wav_path: str) -> None:
 def _transcribe_local(wav_path: str, language: str) -> dict:
     """Route to the best available local model, skipping cloud/download fallbacks."""
     if language == "ky":
-        return th.transcribe_kyrgyz(wav_path)
+        # Как и в основном пути: только GigaAM, без запасного Vosk.
+        return th.transcribe_gigaam(wav_path, "ky", progress_label="Кыргызча распознаю")
     if language == "uz":
         return th.transcribe_uzbek(wav_path)
     if language == "tg":
-        return th.transcribe_tajik(wav_path)
+        # transcribe_tajik больше не обрабатывает текст сам: это делает
+        # run_transcription, а здесь его нет.
+        return th.text_postprocessing.postprocess_transcription(th.transcribe_tajik(wav_path), "tg")
     if language == "ru":
         return th.transcribe_whisper(
             wav_path,

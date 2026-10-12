@@ -1336,7 +1336,10 @@ def transcribe_tajik(wav_path: str):
             # Trust the fine-tuned model unless it shows obvious hallucination artifacts.
             # Low log-prob confidence is expected with conservative decoding and should
             # not trigger a fallback to the generic model.
-            fine = text_postprocessing.postprocess_transcription(fine, "tg")
+            #
+            # Постобработку здесь не делаем: её проводит run_transcription для
+            # любого выбранного кандидата. Раньше она шла дважды, а при
+            # TILTAB_SKIP_POSTPROCESS сырой результат всё равно обрабатывался.
 
             if disable_fallback:
                 log_diagnostic(language="tg", fallback="disabled", returning=fine.get("model", "fine-tuned"), char_count=len(fine.get("text", "")))
@@ -1875,10 +1878,16 @@ def run_transcription(input_file, ffmpeg_path, language, beta_model="", skip_pos
         if beta_model:
             output = _run_beta_transcription(wav_path, language, beta_model)
         elif language == "ky":
-            output = gigaam_or_fallback(
-                wav_path, "ky", lambda: transcribe_kyrgyz(wav_path),
-                progress_label="Кыргызча распознаю",
-            )
+            # Только GigaAM, без запасного Vosk. Vosk на кыргызском настолько
+            # слабее, что его текст хуже честного отказа: человек получал
+            # расшифровку, которой нельзя пользоваться, и не знал, что стоит
+            # просто повторить попытку. Теперь сбой GigaAM — это ошибка, и бот
+            # предлагает попробовать ещё раз.
+            try:
+                output = transcribe_gigaam(wav_path, "ky", progress_label="Кыргызча распознаю")
+            except Exception as exc:  # noqa: BLE001
+                log_diagnostic(gigaam_failed=True, gigaam_error=str(exc)[:500])
+                raise RuntimeError(f"GigaAM failed for ky (no fallback): {exc}") from exc
 
         elif language == "tg":
             output = transcribe_tajik(wav_path)
