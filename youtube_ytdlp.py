@@ -44,9 +44,31 @@ def is_youtube(url: str) -> bool:
     return "youtube.com" in u or "youtu.be" in u
 
 
-def available() -> bool:
-    """yt-dlp path is only usable when the binary and cookies both exist."""
-    return bool(shutil.which(YTDLP_BIN)) and os.path.isfile(COOKIES)
+def is_facebook(url: str) -> bool:
+    u = url.lower()
+    return "facebook.com" in u or "fb.watch" in u or "fb.com" in u
+
+
+def needs_cookies(url: str) -> bool:
+    """Куки нужны только YouTube — он ими проверяет, что мы не робот.
+
+    Facebook отдаёт публичное видео без всякого входа, а наши куки принадлежат
+    ютубовскому аккаунту: слать их на чужой домен незачем.
+    """
+    return is_youtube(url)
+
+
+def available(url: str = "") -> bool:
+    """Годен ли путь через yt-dlp для этой ссылки.
+
+    Без ссылки отвечаем по строгому правилу (с куками): так продолжают работать
+    прежние вызовы, где речь всегда шла о YouTube.
+    """
+    if not shutil.which(YTDLP_BIN):
+        return False
+    if url and not needs_cookies(url):
+        return True
+    return os.path.isfile(COOKIES)
 
 
 def _build_cmd(url: str, out_template: str, max_bytes: int, cookies_path: str) -> list:
@@ -143,10 +165,10 @@ def download_audio(url: str, output_dir: str, progress_cb=None, max_bytes: int =
     Raises RuntimeError with yt-dlp's own message so the caller can decide
     whether to fall back to Cobalt.
     """
-    if not available():
+    if not available(url):
         raise RuntimeError(f"yt-dlp unavailable (bin={YTDLP_BIN}, cookies={COOKIES})")
 
-    session_copy = _disposable_cookies(output_dir)
+    session_copy = _disposable_cookies(output_dir) if needs_cookies(url) else ""
 
     out_template = os.path.join(output_dir, "yt_audio.%(ext)s")
     # stderr is merged into stdout on purpose: reading it only after the process
@@ -208,11 +230,109 @@ def download_audio(url: str, output_dir: str, progress_cb=None, max_bytes: int =
     raise RuntimeError("yt-dlp reported success but produced no file: " + "; ".join(tail[-3:]))
 
 
+VALIDATE_TIMEOUT = int(os.environ.get("TILTAB_YTDLP_VALIDATE_TIMEOUT_SEC", "90"))
+
+
+def validate(url: str) -> dict:
+    """Доступна ли ссылка и что это за запись. Ничего не качает.
+
+    Нужна потому, что проверка через Cobalt для YouTube давно отвечает «нужен
+    вход» и отклоняет живые ссылки ещё до скачивания: за 20 часов так
+    отказали 82 раза, причём скачать их yt-dlp смог бы. Заодно отдаёт
+    название и длительность, которых Cobalt не даёт вовсе.
+    """
+    if not available(url):
+        return {"ok": False, "reason": "unknown", "error": "yt-dlp unavailable"}
+    workdir = tempfile.mkdtemp(prefix="ytdlp-validate-")
+    try:
+        cmd = [YTDLP_BIN, "-J", "--skip-download", "--no-playlist", "--no-warnings",
+               "--remote-components", "ejs:github", "--js-runtimes", JS_RUNTIME,
+               "--cookies", _disposable_cookies(workdir)]
+        if PROXY:
+            cmd += ["--proxy", PROXY]
+        try:
+            r = subprocess.run(cmd + [url], capture_output=True, text=True, timeout=VALIDATE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "reason": "timeout", "error": "yt-dlp validate timed out"}
+        if r.returncode == 0:
+            try:
+                data = json.loads(r.stdout)
+            except ValueError:
+                return {"ok": False, "reason": "unknown", "error": "yt-dlp returned no metadata"}
+            if data.get("is_live"):
+                return {"ok": False, "reason": "live_stream", "error": "live stream"}
+            return {
+                "ok": True,
+                "title": data.get("title") or "",
+                "duration": int(data.get("duration") or 0),
+                "uploader": data.get("uploader") or "",
+            }
+        err = (r.stderr or "").strip()
+        low = err.lower()
+        if "private" in low:
+            reason = "private"
+        elif "age" in low and "restrict" in low:
+            reason = "age_restricted"
+        elif "sign in to confirm" in low or "cookies" in low:
+            reason = "sign_in_required"
+        elif "unavailable" in low or "not available" in low or "removed" in low:
+            reason = "not_available"
+        else:
+            reason = "unknown"
+        return {"ok": False, "reason": reason, "error": err[-300:] or "yt-dlp validate failed"}
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+COOKIES_CHECK_TIMEOUT = int(os.environ.get("TILTAB_YTDLP_COOKIES_CHECK_TIMEOUT_SEC", "150"))
+
+
+def cookies_status(url: str) -> tuple:
+    """Живы ли cookies YouTube. Возвращает ("valid" | "invalid" | "unknown", detail).
+
+    Куки протухают примерно за месяц: Google меняет сессию, а у нас лежит
+    снимок. Узнавали мы об этом по волне отказов у пользователей. yt-dlp же
+    прямо пишет "cookies are no longer valid" ещё до скачивания — ловим эту
+    строку, ничего не качая.
+    """
+    if not os.path.isfile(COOKIES):
+        return "invalid", f"cookies file missing: {COOKIES}"
+    workdir = tempfile.mkdtemp(prefix="ytdlp-cookies-")
+    try:
+        cmd = [YTDLP_BIN, "-v", "--no-playlist", "--skip-download",
+               "--remote-components", "ejs:github", "--js-runtimes", JS_RUNTIME,
+               "--cookies", _disposable_cookies(workdir)]
+        if PROXY:
+            cmd += ["--proxy", PROXY]
+        try:
+            r = subprocess.run(cmd + [url], capture_output=True, text=True, timeout=COOKIES_CHECK_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            return "unknown", "check timed out"
+        log = (r.stderr or "") + (r.stdout or "")
+        if "no longer valid" in log:
+            return "invalid", "YouTube says the account cookies are no longer valid"
+        if "Found YouTube account cookies" not in log:
+            return "invalid", "no YouTube account cookies found in the file"
+        if r.returncode == 0:
+            return "valid", "ok"
+        # Куки приняты, но ролик не отдали — это не про куки.
+        tail = [l for l in log.strip().splitlines() if l.startswith("ERROR")][-1:] or ["unknown error"]
+        return "unknown", tail[0][:200]
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     # Health probe (used by the backend monitor): --probe <url> -> JSON on stdout
     if len(sys.argv) >= 3 and sys.argv[1] == "--probe":
         ok, detail = probe(sys.argv[2])
         print(json.dumps({"ok": ok, "detail": detail}), flush=True)
+        sys.exit(0)
+
+    # Проверка cookies: --check-cookies <url> -> JSON on stdout
+    if len(sys.argv) >= 3 and sys.argv[1] == "--check-cookies":
+        status, detail = cookies_status(sys.argv[2])
+        print(json.dumps({"status": status, "detail": detail}), flush=True)
         sys.exit(0)
 
     # Smoke test: python3 youtube_ytdlp.py <url> <output_dir>

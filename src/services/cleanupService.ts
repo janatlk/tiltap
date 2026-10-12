@@ -341,8 +341,21 @@ function cleanupRejectionReason(original: string, cleaned: string): string | nul
   if (cleaned.length > original.length * 3) {
     return `too long: ${cleaned.length} chars vs ${original.length} original (max 300%)`;
   }
-  if (/\n\n|^(Here is|Below is|Note:|Translation:|Output:)/i.test(cleaned)) {
-    return "model added commentary or blank-line formatting";
+  if (/^(Here is|Below is|Note:|Translation:|Output:)/i.test(cleaned)) {
+    return "model added commentary";
+  }
+  // Пустая строка сама по себе больше не улика.
+  //
+  // Раньше вход всегда был сплошным, и любой пустой строкой модель выдавала
+  // добавленное от себя. Теперь абзацы расставляются до вычитки, и правило
+  // стало отклонять каждую вычитку многоабзацного текста — то есть все
+  // подряд, и на кыргызском, и на таджикском. Расшифровки уходили людям
+  // сырыми: без единой заглавной буквы и знака препинания.
+  //
+  // Подозрительна не пустая строка, а появившаяся из ниоткуда: если её не
+  // было во входе, значит модель разметила текст сама.
+  if (!/\n\n/.test(original) && /\n\n/.test(cleaned)) {
+    return "model added blank-line formatting";
   }
   const similarity = similarityRatio(original, cleaned);
   // If the LLM changed more than 15 % of the characters, it is probably rephrasing.
@@ -371,6 +384,14 @@ function buildSystemPrompt(language: string): string {
 
   const rules =
     "\n- Preserve meaning, sentence order, and paragraph structure." +
+    // Пустые строки расставлены до вычитки и несут структуру всего ответа:
+    // склеив их, вычитка вернула бы сплошное полотно, на которое отдельно
+    // жаловался лингвист.
+    "\n- Keep blank lines between paragraphs exactly where they are." +
+    // Распознавание сшивает соседние фразы в одну: "медонам, ки ... шикоят
+    // накунед" — два разных предложения подряд. Перевод честно переносит
+    // склейку, и связь мысли рвётся уже в переводе.
+    "\n- If two sentences are clearly glued together, separate them with a full stop; do not reword." +
     "\n- Add minimal punctuation only." +
     "\n- Remove only obvious duplicated words from transcription errors." +
     "\n- Keep names, numbers, dates, and code-switched words unchanged." +

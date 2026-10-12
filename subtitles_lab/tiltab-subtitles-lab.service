@@ -1,0 +1,22 @@
+# Лаборатория субтитров. Отдельно от прода: свой процесс, свой порт, урезанные
+# ресурсы. Если она зависнет или съест память, пострадает только она.
+[Unit]
+Description=TilTap subtitles lab (beta, isolated from prod)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/tiltap/subtitles_lab
+ExecStart=/usr/bin/python3 -m uvicorn server:app --host 127.0.0.1 --port 8020 --workers 1
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+# Не больше трёх ядер из восьми и 3 ГБ памяти; при споре за процессор и диск
+# уступаем всему остальному.
+CPUQuota=300%
+MemoryMax=3G
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

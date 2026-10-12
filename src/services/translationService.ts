@@ -7,8 +7,10 @@ import { similarity } from "../utils/textSimilarity";
 import { createHash } from "crypto";
 import * as translationRepo from "../db/repos/translationRepo";
 import * as glossaryRepo from "../db/repos/glossaryRepo";
+import { sendAdminAlert } from "./alertService";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const AZURE_TRANSLATOR_API_VERSION = "3.0";
 
 // Keep each LLM translation request small enough that its output cannot exceed
@@ -348,6 +350,14 @@ function buildSystemPrompt(targetName: string, sourceName?: string): string {
   return (
     `Translate the SOURCE text ${sourceHint}. ` +
     "Rules: translate every sentence and word; preserve sentence structure and repetitions; " +
+    // Утверждение и отрицание переворачивались на самом заметном месте:
+    // "трудности временны, а победа вечна" выходило наоборот. Полярность
+    // стоит назвать отдельно — она меняет смысл на противоположный, и
+    // читатель не может догадаться, что это ошибка.
+    "keep every negation and affirmation exactly as in the source, never invert polarity; " +
+    // Пустые строки несут структуру расшифровки; без этого правила модель
+    // возвращает всё одним полотном.
+    "keep blank lines between paragraphs; " +
     "keep names, numbers, and dates accurate; use established target-language forms for names when they exist; " +
     "do not add, omit, infer, reframe, or explain. " +
     // Sources reach us from speech recognition and from users pasting text, so
@@ -611,6 +621,24 @@ function estimateMaxTokens(text: string, cap: number): number {
   return Math.min(cap, Math.max(256, Math.ceil(text.length * 1.2) + 512));
 }
 
+/**
+ * Сообщить админу, что у провайдера кончились деньги.
+ *
+ * Без этого отказ виден только в журнале: 11 октября перевод не работал сутки,
+ * и узнали мы об этом из жалоб, а не от сервиса.
+ */
+async function warnAdminAboutQuota(message: string): Promise<void> {
+  const low = message.toLowerCase();
+  if (!low.includes("credit") && !low.includes("quota") && !low.includes("billing")) return;
+  await sendAdminAlert(
+    "translation-provider-no-credits",
+    "💳 <b>У провайдера перевода кончились деньги</b>\n\n" +
+      "Перевод идёт через запасной Groq, качество на кыргызском и таджикском ниже.\n" +
+      "Пополните счёт OpenAI.",
+    6,
+  ).catch(() => {});
+}
+
 function isRetryableError(status: number, body: string): boolean {
   // Auth errors should not be retried with the same key.
   if (status === 401 || status === 403) return false;
@@ -632,16 +660,17 @@ async function translateChunkWithOpenAI(
   sourceName: string | undefined,
   model: string,
   apiKey: string,
-  glossary: GlossaryMatch[] = []
+  glossary: GlossaryMatch[] = [],
+  viaGroq = false
 ): Promise<{ text: string; costUsd: number }> {
   const cap = config.TILTAB_TRANSLATION_MAX_TOKENS || 4096;
   const maxTokens = estimateMaxTokens(text, cap);
   try {
     return await callTranslationProvider(
-      OPENAI_API_URL,
+      viaGroq ? GROQ_API_URL : OPENAI_API_URL,
       apiKey,
       buildPayload(targetName, sourceName, text, model, maxTokens, glossary),
-      "OpenAI"
+      viaGroq ? "Groq" : "OpenAI"
     );
   } catch (err) {
     // Only truncation is recoverable by splitting; anything else propagates.
@@ -653,7 +682,7 @@ async function translateChunkWithOpenAI(
     const parts: string[] = [];
     let cost = 0;
     for (const half of halves) {
-      const r = await translateChunkWithOpenAI(half, targetName, sourceName, model, apiKey, glossary);
+      const r = await translateChunkWithOpenAI(half, targetName, sourceName, model, apiKey, glossary, viaGroq);
       parts.push(r.text);
       cost += r.costUsd;
     }
@@ -687,11 +716,12 @@ function pickTranslationModel(sourceLang: string, targetLang: string): string {
 
 async function translateWithOpenAI(
   req: TranslateRequest,
-  options: { skipCache?: boolean; model?: string; skipSave?: boolean } = {}
+  options: { skipCache?: boolean; model?: string; skipSave?: boolean; via?: "openai" | "groq" } = {}
 ): Promise<TranslateResponse> {
-  const openaiKey = config.OPENAI_API_KEY;
+  const viaGroq = options.via === "groq";
+  const openaiKey = viaGroq ? config.GROQ_API_KEY : config.OPENAI_API_KEY;
   if (!openaiKey) {
-    throw new Error("OPENAI_API_KEY is not configured for translation");
+    throw new Error(viaGroq ? "GROQ_API_KEY is not configured" : "OPENAI_API_KEY is not configured for translation");
   }
   const targetName = languageNames[req.targetLang] ?? req.targetLang;
   const declared = normalizeLanguageCodeOrKeep(req.sourceLang) ?? "auto";
@@ -716,7 +746,8 @@ async function translateWithOpenAI(
 
   // The override exists for the beta comparison page, which needs to run the
   // same code path on a named model rather than the one routing would choose.
-  const model = options.model || pickTranslationModel(sourceLang, req.targetLang);
+  const model = options.model
+    || (viaGroq ? (process.env.TILTAB_GROQ_TRANSLATION_MODEL || "openai/gpt-oss-120b") : pickTranslationModel(sourceLang, req.targetLang));
 
   // Chunk long inputs so no single request can hit the output token limit.
   const chunks =
@@ -729,9 +760,10 @@ async function translateWithOpenAI(
   const parts: string[] = [];
   let costUsd = 0;
   for (const chunk of chunks) {
-    const r = await translateChunkWithOpenAI(chunk, targetName, sourceName, model, openaiKey, glossary);
+    const r = await translateChunkWithOpenAI(chunk, targetName, sourceName, model, openaiKey, glossary, viaGroq);
     parts.push(r.text);
     costUsd += r.costUsd;
+    req.onChunk?.(parts.length, chunks.length);
   }
   const translatedText = parts.join("\n\n");
 
@@ -881,6 +913,13 @@ function buildReviewPayload(
   const prompt =
     `Review a translation from ${sourceName} to ${targetName}. ` +
     `You may fix only: untranslated fragments, inconsistent names/terms, invented names, or awkward phrasing. ` +
+    // Два дефекта из разбора лингвиста проверяющий пропускал, потому что его
+    // не просили о них думать: перевёрнутое отрицание и целые предложения,
+    // не доехавшие до перевода. Оба меняют смысл молча — читатель их не
+    // распознаёт, в отличие от корявой фразы.
+    `Also check two things explicitly and fix them: (1) every negation and affirmation matches the source, ` +
+    `nothing is inverted; (2) every sentence of the source is present in the translation, nothing is skipped. ` +
+    `Report either as an issue when you find it. ` +
     `Preserve meaning exactly; do not add, remove, reframe, or explain. ` +
     `If the translation is already accurate and natural, return corrected identical to the Translation, issues=[], warning=null. ` +
     `Return warning only when a concrete problem remains that a user should know about. ` +
@@ -1028,6 +1067,18 @@ export async function confirmTranslation(payload: {
 
 async function doTranslate(translateReq: TranslateRequest): Promise<TranslateResponse> {
   const sourceLang = normalizeLanguageCodeOrKeep(translateReq.sourceLang) ?? "auto";
+
+  // Перевод на тот же язык — это не перевод.
+  //
+  // Пришла жалоба "с английского на кыргызский не перевёл, оставил на
+  // английском" (запрос 1599): язык цели там стоял английский, текст был
+  // английский, и модель честно вернула его как есть. Со стороны это выглядит
+  // как поломка, потому что ответ неотличим от отсутствия ответа. Отказ
+  // объясняет, что произошло, а тихий повтор исходника — нет.
+  if (sourceLang !== "auto" && sourceLang === translateReq.targetLang) {
+    throw new Error("same_language");
+  }
+
   const hash = createHash("sha256").update(translateReq.text).digest("hex");
   const cached = await translationRepo.getConfirmedTranslationCache(hash, translateReq.targetLang);
   if (cached) {
@@ -1085,6 +1136,7 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
   const hasAzure = Boolean(config.AZURE_TRANSLATOR_KEY);
   const hasYandex = Boolean(config.YANDEX_TRANSLATE_API_KEY);
   const hasLingva = Boolean(config.LINGVA_TRANSLATE_URL);
+  const hasGroq = Boolean(config.GROQ_API_KEY);
 
   // Tajik and Uzbek Cyrillic strongly prefer LLMs because of script/entity handling.
   const prefersLlm = isTajikTranslation || translateReq.targetLang === "uz_cyrl";
@@ -1105,6 +1157,30 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
     if (!hasOpenAi) throw new Error("No LLM provider configured (OPENAI_API_KEY missing)");
     return await translateWithOpenAI(translateReq);
   }
+  async function tryGroq(): Promise<TranslateResponse> {
+    if (!hasGroq) throw new Error("Groq not configured");
+    return await translateWithOpenAI(translateReq, { via: "groq" });
+  }
+
+  /**
+   * Перевод с запасным провайдером.
+   *
+   * 11 октября на счету OpenAI кончились деньги, и перевод встал целиком: 474
+   * отказа за сутки, потому что в цепочке он был единственным. У вычитки
+   * запасной провайдер был и она пережила это незаметно. Groq слабее на
+   * кыргызском и таджикском, поэтому он именно запасной, а не равный.
+   */
+  async function withBackup(primary: () => Promise<TranslateResponse>): Promise<TranslateResponse> {
+    try {
+      return await primary();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!hasGroq) throw err;
+      logger.warn("Primary translation provider failed, trying Groq", { error: msg });
+      void warnAdminAboutQuota(msg);
+      return await tryGroq();
+    }
+  }
 
   if (provider === "lingva" && !isTajikTranslation) {
     result = await tryLingva();
@@ -1113,12 +1189,12 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
   } else if (provider === "yandex") {
     result = await tryYandex();
   } else if (provider === "openai") {
-    result = await tryOpenAI();
+    result = await withBackup(tryOpenAI);
   } else if (provider === "mock") {
     result = mockTranslation(translateReq);
   } else if (prefersLlm && hasOpenAi) {
     // Tajik / uz_cyrl: use LLM first for best script/entity handling.
-    result = await tryOpenAI();
+    result = await withBackup(tryOpenAI);
   } else {
     // Default auto chain: free → cheap paid NMT → LLM → mock.
     const errors: string[] = [];
@@ -1151,7 +1227,7 @@ async function doTranslate(translateReq: TranslateRequest): Promise<TranslateRes
     }
     if (!result && hasOpenAi) {
       try {
-        result = await tryOpenAI();
+        result = await withBackup(tryOpenAI);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logger.warn("OpenAI translation failed", { error: msg });

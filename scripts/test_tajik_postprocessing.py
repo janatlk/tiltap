@@ -71,8 +71,48 @@ def test_entities_and_noise():
         ("ҳақиқат дорад", "ҳақиқат дорад"),
     ]
     for inp, expected in cases:
-        out, _ = postprocess_segment(inp, "tg")
+        out, _score, _warning = postprocess_segment(inp, "tg")
         ok &= _assert_equal(out, expected, f"entity/noise {inp}")
+    return ok
+
+
+def test_common_verbs_do_not_become_place_names():
+    """Обычные слова не должны превращаться в названия городов.
+
+    Разбор лингвиста: в переводе одного ролика трижды всплыло "Конибодом" там,
+    где говорящий призывал "оғоз кун" (начни) и "бас кун" (прекрати). Виновата
+    была не модель, а наша же догадка по созвучию: "кун" отличается от варианта
+    "Кунй" одной буквой. Слушатель при этом читает название города посреди
+    призыва и не может понять, откуда оно взялось.
+    """
+    ok = True
+    cases = [
+        ("оғоз кун", "оғоз кун"),
+        ("ин корро бас кун", "ин корро бас кун"),
+        ("кун", "кун"),
+        ("шав", "шав"),
+        ("мон", "мон"),
+    ]
+    for inp, expected in cases:
+        out, _score, _warning = postprocess_segment(inp, "tg")
+        ok &= _assert_equal(out, expected, f"verb kept {inp}")
+
+    # "интизор" (ждёт) совпадало с вариантом имени "Синҷизор" ровно на пороге,
+    # и фраза "успех тебя ждёт" превращалась в "успех Санҷидзор".
+    for inp in ("интизор", "муваффақият интизор аст"):
+        out, _score, _warning = postprocess_segment(inp, "tg")
+        ok &= _assert_equal(out, inp, f"common word kept {inp}")
+
+    # Настоящие искажения имён по-прежнему чинятся — и по списку вариантов,
+    # и по созвучию, когда начало слова совпадает.
+    for inp, expected in [
+        ("Кунбедон", "Конибодом"),
+        ("Ходжент", "Хуҷанд"),
+        ("Конибодам", "Конибодом"),
+        ("Истаравшон", "Истаравшан"),
+    ]:
+        out, _score, _warning = postprocess_segment(inp, "tg")
+        ok &= _assert_equal(out, expected, f"entity still fixed {inp}")
     return ok
 
 
@@ -80,7 +120,7 @@ def test_garbage_not_over_triggered():
     ok = True
     # Two-word valid segments should not be dropped.
     for inp in ("хало салом", "Дидун боз пас Нозанин"):
-        out, score = postprocess_segment(inp, "tg")
+        out, score, _warning = postprocess_segment(inp, "tg")
         if out == UNINTELLIGIBLE:
             print(f"FAIL [garbage {inp}]: marked unintelligible (score={score})")
             ok = False
@@ -91,7 +131,7 @@ def test_code_switching_preserved():
     ok = True
     # Russian/English insertions should be left as-is by the rule-based layer.
     inp = "спасибо барои кӯмак thank you"
-    out, _ = postprocess_segment(inp, "tg")
+    out, _score, _warning = postprocess_segment(inp, "tg")
     ok &= _assert_equal(out, inp, "code-switching")
     return ok
 
@@ -120,6 +160,7 @@ def main():
         test_dates,
         test_clitics,
         test_entities_and_noise,
+        test_common_verbs_do_not_become_place_names,
         test_garbage_not_over_triggered,
         test_code_switching_preserved,
         test_full_transcription_pipeline,
@@ -129,9 +170,9 @@ def main():
         if not t():
             failed.append(t.__name__)
     if failed:
-        print(f"\\nFAILED: {failed}")
+        print(f"\nFAILED: {failed}")
         sys.exit(1)
-    print("\\nAll Tajik post-processing tests passed.")
+    print("\nAll Tajik post-processing tests passed.")
 
 
 if __name__ == "__main__":

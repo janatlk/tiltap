@@ -5,8 +5,8 @@
 См. заметку в Obsidian: `[[Projects/Tiltap]]` (`C:\Users\janat\Documents\Obsidian\KimiContext\Projects\Tiltap.md`).
 
 Важные договорённости:
-- Текущий фокус: довести транскрипцию ky/tg/uz до максимального качества.
-- Озвучку и перевод пока НЕ трогаем.
+- Текущий фокус (с августа 2026): качество транскрипции ky/tg/uz **и** перевода, надёжность скачивания по ссылкам, разбор жалоб пользователей.
+- Озвучку пока НЕ трогаем.
 - **Подход: локальные open-source STT-модели + инженерия.** Облачные STT API (ElevenLabs, OpenAI Whisper API и т.п.) не используются для транскрипции.
 - Перед запуском бота проверять `.env` и наличие локальных моделей в `models/`.
 
@@ -21,8 +21,8 @@
 | Swagger / OpenAPI docs | ✅ | Served at `/api-docs` from `swagger.yaml` |
 | Docker support | ✅ | `Dockerfile` + `docker-compose.yml` |
 | CI/CD prep | ✅ | `.github/workflows/ci.yml` |
-| Telegram webhook | ✅ | `POST /webhook/telegram` |
-| WhatsApp webhook | 🟡 | Placeholder endpoint only |
+| Telegram webhook | ✅ | `POST /webhook/telegram` (в проде апдейты приносит `tiltab-telegram-poll.service` через `getUpdates`) |
+| WhatsApp webhook | 🟡 | Placeholder endpoint only (на лендинге кнопка WhatsApp с пометкой «Бета», бот делает внешний интегратор) |
 
 ## Local Development Setup
 
@@ -87,10 +87,11 @@ Telegram Update → routes/webhook.ts → controllers/telegramController.ts
 1. On first contact (`/start` or any message) the bot detects the user's Telegram `language_code` and creates a profile with a matching interface language, default source language (same as interface language), and a sensible default target language.
 2. The user can send media (voice, audio, video, document) or a supported link directly. The main menu only offers **Settings** and **Help**, plus a list of supported platforms.
 3. After media or a link arrives, the bot first asks for the **source language**. The user picks it, then sees a confirmation card with the selected source → target languages and a **Start** button.
-4. Supported links: **YouTube**, **TikTok**, **Instagram Reels**. YouTube is validated via yt-dlp (with Cobalt fallback); TikTok and Instagram are downloaded directly through Cobalt. Invalid, private, age-restricted, or sign-in-required videos return a clear localized error.
-5. Processing starts with a real-time loading bar and a **Stop** inline button. The loading message is deleted once the final document is sent.
-6. The final transcription or translation document is sent with a **Back to menu** button attached. The chosen target language is saved as the user's default for future requests.
-7. `/settings` opens a single **Settings** screen where users change interface language, default transcription language, and default translation language independently. Back navigation returns to Settings rather than the main menu.
+4. Supported links: **YouTube**, **TikTok**, **Instagram** (`/reel/`, `/reels/`, `/share/…`), **Facebook** (`/watch/?v=`, `/reel/`, `share/v/…`, `fb.watch`). Since 2026-10-10 YouTube is validated **and** downloaded directly with yt-dlp (public Cobalt instances stopped working for YouTube in August 2026); TikTok/Instagram go through Cobalt; Facebook goes through Cobalt with a yt-dlp fallback. Posts with several videos (Instagram carousels) ask the user which video to transcribe, or "all" (audio concatenated in order with a 1 s pause). Invalid, private, age-restricted, or sign-in-required videos return a clear localized error — internal codes such as `cobalt_auth_required` are never shown to users.
+5. Telegram does not let bots download files larger than **20 MB**; larger media get a localized explanation instead of silence. Any unhandled failure ends with a message in the chat.
+6. Processing starts with a real-time loading bar and a **Stop** inline button. When the queue is busy the user sees their position and an ETA computed from recent real job durations (see *Concurrency* below). The loading message is deleted once the final document is sent.
+7. The final transcription or translation document is sent with a **Back to menu** button attached. Transcripts are split into paragraphs. The chosen target language is saved as the user's default for future requests.
+8. `/settings` opens a single **Settings** screen where users change interface language, default transcription language, and default translation language independently. Back navigation returns to Settings rather than the main menu.
 
 ## `/test` Accuracy Benchmark
 
@@ -118,20 +119,32 @@ Routing per language is based on the hard benchmark of real YouTube clips (`test
 
 | Language | Primary model | Fallback chain | Hard char/word | Notes |
 |----------|---------------|----------------|----------------|-------|
-| `ky` | **GigaAM Multilingual CTC** (`ai-sage/GigaAM-Multilingual`, 220M Conformer, local CPU) | Whisper `nineninesix/kyrgyz-whisper-small` CT2 on RunPod GPU → Vosk ky | **74.6% / 32.1%** (e2e prod) | Since 2026-07-15 GigaAM is the primary engine (`gigaam_or_fallback` in `transcribe_hybrid.py`, env `TILTAB_GIGAAM_LANGUAGES=ky,uz,ru`). ~20x realtime on CPU; CTC decoding cannot loop. Punctuation/casing added by Node LLM cleanup. The whisper GPU path remains as fallback; its tuned env on the endpoint: fixed 15 s chunks (`GPU_VAD_ENABLED=false`), `KYRGYZ_NO_REPEAT_NGRAM_SIZE=0`, `KYRGYZ_REPETITION_PENALTY=1.1` (68.1% char). |
+| `ky` | **GigaAM Multilingual CTC** (`ai-sage/GigaAM-Multilingual`, 220M Conformer, local CPU) | None locally: since 2026-10-12 a GigaAM failure is an error (the user is asked to retry) — Vosk ky output was worse than an honest failure. Whisper on RunPod GPU only if `TILTAB_GPU_STT_URL` is set | **74.6% / 32.1%** (e2e prod) | Since 2026-07-15 GigaAM is the primary engine (`gigaam_or_fallback` in `transcribe_hybrid.py`, env `TILTAB_GIGAAM_LANGUAGES`, default `ky,uz,ru`, but `ru` is routed to Whisper first in code). ~20x realtime on CPU; CTC decoding cannot loop. Punctuation/casing added by Node LLM cleanup. The whisper GPU path remains as fallback; its tuned env on the endpoint: fixed 15 s chunks (`GPU_VAD_ENABLED=false`), `KYRGYZ_NO_REPEAT_NGRAM_SIZE=0`, `KYRGYZ_REPETITION_PENALTY=1.1` (68.1% char). |
 | `tg` | Fine-tuned Whisper `models/whisper-tajik-finetuned-ct2` | Local Whisper `models/whisper-large-v3-turbo-ct2` → Vosk small tg | 94.3% / 94.4% | Local Whisper needs enough RAM; on low-memory machines it falls back to Vosk small. |
 | `uz` | **GigaAM Multilingual CTC** (local CPU) | Rubai `models/rubai-ct2-int8` → Local Whisper turbo → Vosk small uz | **96.5% / 68.6%** (e2e prod) | GigaAM beats Rubai (92.0%) on the hard benchmark and runs on CPU. |
-| `ru` | **GigaAM Multilingual CTC** (local CPU) | Local Whisper `models/whisper-large-v3-turbo-ct2` → Vosk small ru | — | GigaAM is best-in-class open-source Russian per upstream benchmarks (WER 5.1–7.6 vs 9–10 for whisper-large-v3). |
+| `ru` | Local Whisper `models/whisper-large-v3-turbo-ct2` (with `RUSSIAN_INITIAL_PROMPT`) | GigaAM Multilingual CTC | — | Since 2026-08-14 Whisper is primary again: our recordings are mixed ru/en, GigaAM writes English inserts in Cyrillic ("гуд монин") and outputs no punctuation; Whisper is readable and no worse on Russian itself. Cost: ~2.5x vs 4.7x realtime on the server. |
 | `en` | Local Whisper `models/whisper-large-v3-turbo-ct2` | — | — | Same multilingual model as ru/auto. |
 | `auto` / `multi` | Local Whisper `models/whisper-large-v3-turbo-ct2` dual-pass (auto-detect + Russian forced) | — | — | For Turkic/Russian code-switching. |
 
 Latest run: `python benchmark.py test_audio/hard_manifest.json` (2026-07-02).
 
+### Resident GigaAM worker
+
+`gigaam_server.py` (systemd `tiltab-gigaam.service`, `127.0.0.1:8010`) keeps GigaAM loaded in memory so ky/uz requests skip the ~2.8 s model load. The backend calls it for `TILTAB_GIGAAM_SERVER_LANGUAGES` (default `ky,uz`; `ru` was removed together with the Whisper switch) via `TILTAB_GIGAAM_SERVER_URL`, and falls back to spawning `transcribe_hybrid.py` if it is unreachable. Both paths run the same code.
+
+### Concurrency (`src/services/concurrencyGate.ts`)
+
+Since 2026-10-10 the queue is no longer one-at-a-time: `sttGate` runs **2** transcriptions at once, `gigaamGate` allows **1** GigaAM job (two parallel ky jobs on the shared resident worker were slower than sequential), `downloadGate` allows 4 downloads. Waiting jobs are served fairly by round (everyone's first job, then everyone's second), and the ETA shown to users is the average of the last 20 real job durations. Measured: tg + ru in parallel 37 s vs 60 s sequential.
+
+### Device (CPU / GPU)
+
+`TILTAB_STT_DEVICE` (default `cpu`) selects the device for both Whisper and GigaAM; `cuda` moves them to a GPU. `stt-service/Dockerfile.gpu` builds the same service on a CUDA base. Production (Hetzner, no GPU) is unaffected. The RunPod GPU worker (`gpu-worker/`) is used only when `TILTAB_GPU_STT_URL` is set.
+
 ### Chunking
 
 - **Kyrgyz GPU**: long audio is handled by the GPU worker. Since 2026-07-15 the endpoint runs with `GPU_VAD_ENABLED=false`: audio is split into **fixed 15 s chunks** (Silero VAD splitting measurably hurt quality: 53.7% → 68.1% char after disabling). Each chunk receives the short Cyrillic Kyrgyz `initial_prompt` baked into the image. `KYRGYZ_NO_REPEAT_NGRAM_SIZE=0` — n-gram blocking garbles legitimate Kyrgyz repetitions (restoring `=3` drops quality to ~52%). Identical text at chunk boundaries is deduplicated inside the handler. If the GPU worker fails or times out, the backend automatically falls back to local Vosk. ⚠️ After changing endpoint env, FlashBoot workers keep the old values for up to ~10 minutes — always re-benchmark after a cooldown.
 - **Whisper (ru/en/auto/multi and VAD-disabled tg/uz)**: language-specific `initial_prompt`s prime each chunk toward the correct script and style (e.g. Cyrillic Uzbek, Cyrillic Tajik, Russian). Long audio (> `TILTAB_WHISPER_CHUNK_THRESHOLD_SECONDS`, default 300 s) is split into overlapping time chunks (`TILTAB_WHISPER_CHUNK_SECONDS` default 300 s, overlap 5 s). Each chunk is transcribed independently, timestamps are shifted back, and boundary segments are deduplicated. This keeps conditioning from drifting on long podcasts/interviews. When VAD is enabled, chunks are based on detected speech regions instead.
-- **Kyrgyz CPU fallback (Vosk)**: if the GPU path is unavailable, long audio is split into sliding 25-second windows with 5-second overlap; timestamps are corrected and overlapping words are deduplicated.
+- **Vosk chunking** (`transcribe_vosk_chunked`, still used by the tg/uz last-resort fallbacks; no longer used for Kyrgyz): sliding 25-second windows with 5-second overlap; timestamps are corrected and overlapping words are deduplicated.
 - **RunPod upload compression**: the `/run` body has a 10 MiB limit. Files ≥ 6 MiB are re-encoded to MP3 (mono, 16 kHz, 32 kbps) before base64 upload. The re-encoding writes the input to a temporary file first; MP4/M4A containers cannot be reliably demuxed from a non-seekable pipe, and piping them produced empty/corrupt MP3s that caused `ffmpeg conversion failed` on the GPU worker.
 
 Environment controls:
@@ -157,6 +170,10 @@ After local STT, `text_postprocessing.py` runs language-aware cleanup:
   - Mixed-script typo correction (`муfассал` → `муфассал`).
   - Date ordinals and `ро` clitic normalization.
 - Noise markers (`[плач]`, `[кулол]`, `[аплодисменты]`, `[музыка]`, `[неразборчиво]`).
+- The consonant-cluster garbage rule is density-based (per 100 characters) since 2026-10-12; the old count-based rule turned half of a long Russian news story into `[неразборчиво]`.
+- Corrections sent by users in feedback are collected in `data/stt_corrections.json` and applied to every transcription.
+- Tajik fuzzy entity matching: threshold 0.82, words shorter than 5 letters never fuzzy-match, and the first letter must agree (prevents "кун" → "Конибодом", "интизор" → "Санҷидзор").
+- Transcripts are split into paragraphs before cleanup, so the breaks survive into translation.
 - Transcripts are passed through a Node-side LLM cleanup step by default. Provider: **OpenAI `gpt-4o-mini`** (default; `TILTAB_CLEANUP_PROVIDER=openai`). Set `TILTAB_CLEANUP_PROVIDER=none` to keep only rule-based processing, or `=groq`/`=gemini` to force a specific provider. Results are cached in `cleanup_cache` to avoid repeated API calls.
 - The backend now disables the Python-side LLM cleanup inside `transcribe_hybrid.py` to avoid paying twice for the same cleanup; Node `cleanupService.ts` is the single cleanup path.
 - Cleanup is enabled for all languages by default (`TILTAB_CLEANUP_NON_TAJIK=1`). For Kyrgyz and Uzbek it adds sentence punctuation and capitalization while preserving every word; for Tajik it also applies script normalization and named-entity fixes.
@@ -165,7 +182,8 @@ After local STT, `text_postprocessing.py` runs language-aware cleanup:
 
 A browser-based UI mirrors the Telegram bot's core features at `http://localhost:3000/web`:
 
-- Upload audio/video files (max 25 MB) or paste a YouTube link.
+- Upload audio/video files (max 25 MB) or paste a YouTube / TikTok / Instagram / Facebook link (validated in the browser before submit; rejections are explained in the user's language).
+- The job ID is kept in `localStorage`, so a closed tab reopens to the running job or its finished result (jobs and translations are persisted in `web_jobs`).
 - Choose source transcription language and optional target translation language.
 - Real-time progress via Server-Sent Events (with polling fallback).
 - View transcription text and timed segments.
@@ -195,7 +213,7 @@ Temporary in-memory state that is intentionally not persisted:
 
 - `activeProcesses` Map — currently running Python PIDs keyed by chat ID
 
-`pendingActions` is backed by PostgreSQL: audio buffers and YouTube URLs awaiting user confirmation are persisted to the `pending_actions` table so the confirmation flow survives Render free-tier spin-downs and container restarts. Rows are removed when the action is started/cancelled and expire after 60 minutes.
+`pendingActions` is backed by PostgreSQL: audio buffers and YouTube URLs awaiting user confirmation are persisted to the `pending_actions` table so the confirmation flow survives restarts. Rows are removed when the action is started/cancelled and expire after 60 minutes.
 
 ## Translation
 
@@ -203,8 +221,10 @@ Translation is available both in the Telegram bot (after transcription, if a tar
 
 Provider priority:
 
-- `TILTAB_TRANSLATION_PROVIDER` now defaults to **`openai`** (`gpt-4o-mini`).
-- If OpenAI fails and `GROQ_API_KEY` is set, Groq `llama-3.3-70b-versatile` is used as a fallback.
+- `TILTAB_TRANSLATION_PROVIDER` defaults to **`openai`**; the model is **`gpt-5.6-luna`** (`TILTAB_TRANSLATION_MODEL`, also `TILTAB_TRANSLATION_MODEL_LOWRESOURCE` for ky/tg/uz/uz_cyrl). It replaced gpt-4o / gpt-4o-mini after measurements on real texts: gpt-4o produced Cyrillic Uzbek where Latin was needed, mini returned Tajik untranslated; luna is ~8x cheaper than gpt-4o.
+- If OpenAI fails and `GROQ_API_KEY` is set, Groq `llama-3.3-70b-versatile` is used as a backup (`withBackup` in `translationService.ts`, added 2026-10-12 after the OpenAI balance ran out on 2026-10-11 and translation was down for a day — 474 failures). The admin gets an alert about the OpenAI quota/billing failure.
+- Requests where source and target language are the same are rejected with `same_language` instead of echoing the input.
+- A bilingual glossary (`TILTAB_GLOSSARY_ENABLED`, default on; up to `TILTAB_GLOSSARY_MAX_TERMS`=120 terms found in the text) is injected into the translation prompt.
 - You can still force `lingva`, `azure`, `yandex`, `groq`, or `mock` by setting `TILTAB_TRANSLATION_PROVIDER`.
 - The Lingva/Google Translate fallback inside the OpenAI chain has been removed so an explicit OpenAI request does not silently degrade to a free NMT service.
 
@@ -212,11 +232,11 @@ Translation results are cached in `translation_cache` keyed by SHA-256 of the so
 
 The LLM translation prompt is intentionally strict: it forbids adding, removing, summarizing, or inferring information; merging or splitting sentences; inventing names; and reframing meaning (e.g. intensifying "certain risks" into "a threat"). Names are preserved or rendered using their established target-language form when one exists.
 
-A post-translation QA review step (`TILTAB_REVIEW_ENABLED`, default `true`) checks the result for source-language leftovers, inconsistent terminology, and hallucinated names. `TILTAB_REVIEW_PROVIDER` now defaults to **`openai`** (`gpt-4o-mini`), falling back to Groq if OpenAI fails. Review failures are logged and silently ignored so they never block a translation. Review is skipped when the combined source + translated text exceeds `TILTAB_REVIEW_MAX_INPUT_CHARS` (default `3000`) to avoid JSON-format failures on long inputs. Common international brand/tech names (Google, Translate, YouTube, etc.) are not flagged as untranslated fragments.
+A post-translation QA review step (`TILTAB_REVIEW_ENABLED`, default `true`) checks the result for source-language leftovers, inconsistent terminology, and hallucinated names. It also looks for flipped negation and sentences dropped from the translation. `TILTAB_REVIEW_PROVIDER` defaults to **`openai`** with the same model as translation (`gpt-5.6-luna` unless `TILTAB_REVIEW_MODEL` is set), falling back to Groq if OpenAI fails. Review failures are logged and silently ignored so they never block a translation. Review is skipped when the combined source + translated text exceeds `TILTAB_REVIEW_MAX_INPUT_CHARS` (default `12000`) to avoid JSON-format failures on long inputs. Common international brand/tech names (Google, Translate, YouTube, etc.) are not flagged as untranslated fragments.
 
 Before a translation is cached or returned, a lightweight sanity check rejects degenerate outputs such as empty text or a single word repeated more than 35% of the time (e.g. the model getting stuck in a loop). When this happens the service throws, letting the caller fall back to the original transcription instead of sending garbage to the user. Cached translations are also re-validated on read, so any bad entries stored before this guard was introduced are automatically deleted and re-translated.
 
-LLM translation and review calls now use a dynamic `max_tokens` value capped by the configured limit (`TILTAB_TRANSLATION_MAX_TOKENS` / `TILTAB_REVIEW_MAX_TOKENS`, default `4096`). The dynamic limit is roughly `input_length / 3 + 256`, which avoids over-allocating tokens on short texts while still allowing longer outputs. If the model consumes the entire budget, the request is treated as truncated and fails over.
+LLM translation and review calls now use a dynamic `max_tokens` value capped by the configured limit (`TILTAB_TRANSLATION_MAX_TOKENS` default `8192` / `TILTAB_REVIEW_MAX_TOKENS` default `4096`). The dynamic limit is roughly `input_length / 3 + 256`, which avoids over-allocating tokens on short texts while still allowing longer outputs. If the model consumes the entire budget, the request is treated as truncated and fails over.
 
 If Daniel's module URL is configured (`TRANSLATION_MODULE_URL`), all translation requests are proxied to it instead.
 
@@ -254,10 +274,17 @@ Rejecting a translation updates its status instead of deleting it. Admins can st
 | `TILTAB_REVIEW_ENABLED` | no | Run post-translation QA review (default `true`) |
 | `TILTAB_REVIEW_PROVIDER` | no | `openai` (default), `groq`, or `auto` (prefers the same provider used for translation) |
 | `TILTAB_REVIEW_MODEL` | no | Override the model used for QA review |
-| `TILTAB_TRANSLATION_MAX_TOKENS` | no | Max output tokens for LLM translation (default `4096`). Hitting the limit raises an error so the caller can fall back to the source transcript. |
+| `TILTAB_TRANSLATION_MAX_TOKENS` | no | Max output tokens for LLM translation (default `8192`). Hitting the limit raises an error so the caller can fall back to the source transcript. |
 | `TILTAB_REVIEW_MAX_TOKENS` | no | Max output tokens for the post-translation review step (default `4096`) |
-| `TILTAB_REVIEW_MAX_INPUT_CHARS` | no | Skip the review step when source + translated text exceeds this length (default `3000`) |
-| `TILTAB_ADMIN_TOKEN` | **yes** | Required to open `/web/admin.html` and to call `/api/admin/*` endpoints. Without it the admin UI and API return `401`. |
+| `TILTAB_REVIEW_MAX_INPUT_CHARS` | no | Skip the review step when source + translated text exceeds this length (default `12000`) |
+| `TILTAB_ADMIN_TOKEN` | no | Machine token for scripts (`X-Admin-Token`) and an emergency way in. People log in to `/web/admin.html` with a **super-admin account of the dataset (annotation) system** — one account system for every closed page since 2026-09-17; the separate admin password was removed. |
+| `TILTAB_STT_DEVICE` | no | `cpu` (default) or `cuda` for Whisper and GigaAM |
+| `TILTAB_GIGAAM_SERVER_URL` | no | Resident GigaAM worker, e.g. `http://127.0.0.1:8010` |
+| `TILTAB_GIGAAM_SERVER_LANGUAGES` | no | Languages sent to the resident worker (default `ky,uz`) |
+| `TILTAB_TRANSLATION_MODEL` | no | OpenAI translation model (default `gpt-5.6-luna`) |
+| `TILTAB_BIND_HOST` | no | Backend bind address (default `127.0.0.1`; nginx terminates HTTPS in front) |
+| `COBALT_API_KEYS` | no | API keys for Cobalt instances that require them |
+| `TILTAB_FEEDBACK_REMINDERS_ENABLED` / `TILTAB_FEEDBACK_REMINDER_HOURS` | no | Admin reminders about unanswered user feedback (new and postponed), default every `24` h |
 | `TILTAB_STT_PROVIDER` | no | `local` (default), `auto`, `openai`, or `elevenlabs` |
 | `TILTAB_GPU_STT_URL` | no | RunPod GPU STT endpoint URL (e.g. `https://api.runpod.ai/v2/xxx/runsync`). When set, supported languages are offloaded to GPU. |
 | `TILTAB_GPU_STT_API_KEY` | no | RunPod endpoint API key |
@@ -301,7 +328,21 @@ Rejecting a translation updates its status instead of deleting it. Admins can st
 
 ## Deployment (Hetzner CX43)
 
-Production runs on a Hetzner CX43 (8 vCPU / 16 GB RAM / 160 GB NVMe, hel2) with local open-source models. Models live in `/opt/tiltap/models` and are part of the deployment artifact.
+Production runs on a Hetzner CX43 (8 vCPU / 16 GB RAM / 160 GB NVMe, hel2, no GPU) with local open-source models. Models live in `/opt/tiltap/models` and are part of the deployment artifact.
+
+Since 2026-09-01 the service is served over **HTTPS** by nginx with a Let's Encrypt certificate issued directly for the IP address (no domain; certs live 6 days and auto-renew, nginx reloads itself). The backend listens only on `127.0.0.1:3000` (`TILTAB_BIND_HOST`), Express trusts only the loopback proxy. Our Cobalt instance is exposed under `/cobalt/`.
+
+systemd units on the server:
+
+| Unit | What |
+|------|------|
+| `tiltab-backend.service` | Node backend (`dist/server.js`) |
+| `tiltab-telegram-poll.service` | `getUpdates` forwarder → `/webhook/telegram` (no Telegram webhook is set) |
+| `tiltab-gigaam.service` | Resident GigaAM worker, `127.0.0.1:8010` |
+| `tiltab-subtitles-lab.service` | Beta subtitles lab (`subtitles_lab/server.py`, `127.0.0.1:8020`, limited CPU/RAM, data in `/opt/tiltap-lab`, kept 48 h) |
+| `tiltab-yt-cookies.service` | YouTube cookie keeper (`yt_cookies/keeper.py`): Chrome profile logged in to YouTube, session refreshed every 6 h, cookies exported for yt-dlp; login via noVNC on `/web/admin-youtube.html` (super-admin only) |
+
+Other pages: public stats at `/stats.html` (`GET /api/stats`, counts only, cached 5 min), admin at `/web/admin.html`, subtitles beta at `/web/admin-subtitles.html`, dataset annotation at `/web/dataset*.html`. Unfinished web jobs are marked `job_interrupted` on startup.
 
 ### Required server secrets
 
@@ -331,7 +372,7 @@ git fetch origin
 git reset --hard origin/main
 npm ci
 npm run build
-systemctl restart tiltab-backend.service
+bash scripts/safe_restart.sh   # waits for running jobs to finish, then restarts tiltab-backend
 systemctl status tiltab-backend.service --no-pager
 ```
 
@@ -339,7 +380,7 @@ New models must be downloaded to `/opt/tiltap/models` and added to the server pr
 
 ### CI/CD
 
-`.github/workflows/ci.yml` builds, tests, and deploys to Render on every push to `main`. Add the Render deploy hook URL as a GitHub secret named `RENDER_DEPLOY_HOOK_URL`.
+`.github/workflows/ci.yml` builds and runs tests (`npm test`) on every push/PR. Its Render deploy step is a leftover from the Render era and is skipped when `RENDER_DEPLOY_HOOK_URL` is not set; production on Hetzner is deployed manually (see above).
 
 ## Notes
 
@@ -348,4 +389,5 @@ New models must be downloaded to `/opt/tiltap/models` and added to the server pr
 - Cyrillic output safety: `PYTHONIOENCODING=utf-8` + `sys.stdout.reconfigure(encoding="utf-8")`.
 - Real-time progress is emitted as JSON lines from `transcribe_hybrid.py` and consumed by the Node controller.
 - **YouTube on Render:** if all videos return "Sign in to confirm" or HTTP 403, set `YOUTUBE_AUTO_UPDATE_YTDLP=true`, add fresh browser cookies via `YOUTUBE_COOKIES_BASE64`, and (if still blocked) provide a PO token via `YOUTUBE_PO_TOKEN`. The Docker startup script now updates `yt-dlp` automatically when this flag is enabled, and `download_youtube.py`/`validate_youtube.py` prefer mobile/TV player clients to reduce bot detection.
-- **YouTube Cobalt fallback:** when yt-dlp fails with bot detection or sign-in requirements, `download_youtube.py` and `validate_youtube.py` automatically fall back to public Cobalt API instances (`COBALT_API_URL` or `COBALT_API_URLS`). The downloader rotates through the list until one succeeds. This is the current workaround for datacenter IPs (including Hetzner) where YouTube blocks direct yt-dlp downloads. For production load, deploy a private Cobalt instance and point `COBALT_API_URL` at it.
+- **YouTube now:** public Cobalt instances stopped working for YouTube in August 2026, and trying them cost ~1.5 min per link. Since 2026-10-10 YouTube links are validated and downloaded directly with yt-dlp using cookies from the cookie keeper (`tiltab-yt-cookies.service`); a daily check alerts the admin when the cookies stop working. `scripts/cookies_to_cobalt.py` converts the yt-dlp cookie file to Cobalt's format.
+- **Cobalt** is still used for TikTok/Instagram/Facebook. Instances that have been silent for two days are moved to the end of the rotation; the health check retries a failed probe once and repeats the whole sweep after a minute before alerting. Only `cobaltapi.cjs.nz` among public instances works without a token.

@@ -13,16 +13,12 @@ import { getRemoteSttQueueStatus } from "../services/remoteSttService";
 import { replyToFeedback } from "../services/feedbackReplyService";
 import { getJobs } from "./webController";
 
-function isAuthorized(req: Request): boolean {
-  const token = config.TILTAB_ADMIN_TOKEN;
-  // Admin token is mandatory. Without it, no admin data is exposed.
-  if (!token) {
-    return false;
-  }
-  // Only accept the token via a custom header. Query-string tokens would leak
-  // in browser history, server logs, and referrer headers.
-  const provided = req.headers["x-admin-token"];
-  return provided === token;
+// Доступ проверяет requireAdmin: все эти обработчики подключены только за ним
+// (сессия супер-админа или машинный токен). Здесь же раньше требовался именно
+// токен в заголовке, и вошедший через учётку админ получал Unauthorized на
+// каждой вкладке панели.
+function isAuthorized(_req: Request): boolean {
+  return true;
 }
 
 function mapEntry(r: translationRepo.TranslationCacheEntry) {

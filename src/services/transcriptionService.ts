@@ -13,7 +13,7 @@ import { normalizeLanguageCodeOrKeep } from "../utils/languageCodes";
 import { transcribeWithRemoteService } from "./remoteSttService";
 import { isGpuSttEnabled, isGpuSttLanguageSupported, transcribeWithGpu } from "./gpuSttService";
 import { isGigaamServerEnabled, isGigaamServerLanguage, transcribeWithGigaamServer } from "./gigaamServerService";
-import { sttGate } from "./concurrencyGate";
+import { sttGate, gigaamGate } from "./concurrencyGate";
 
 const FFMPEG_PATH = require("ffmpeg-static");
 const PYTHON_PATH = process.platform === "win32" ? "python" : "python3";
@@ -67,10 +67,26 @@ export async function transcribeAudio(
   // Our turn: now it is worth spending the memory.
   if (onQueuePosition) onQueuePosition(0);
 
+  // Записи на движке GigaAM пропускаем по одной: он один на всех и от двух
+  // одновременных работ не ускоряется, а замедляется впятеро (см. concurrencyGate).
+  const needsGigaam = isGigaamServerEnabled() && isGigaamServerLanguage(language ?? "");
+  const gigaamTicket = needsGigaam ? gigaamGate.take(owner) : null;
+  if (gigaamTicket) {
+    const gigaamQueuedAt = Date.now();
+    try {
+      await gigaamTicket.wait(abortSignal);
+    } catch (err) {
+      ticket.release();
+      throw err;
+    }
+    gigaamGate.logWait(Date.now() - gigaamQueuedAt, filename);
+  }
+
   try {
     const audioBuffer = typeof audio === "function" ? await audio() : audio;
     return await runTranscription(audioBuffer, filename, language, onProcessStart, onProgress, abortSignal);
   } finally {
+    gigaamTicket?.release();
     ticket.release();
   }
 }

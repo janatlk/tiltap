@@ -97,6 +97,23 @@ def get_audio_duration(wav_path: str) -> float:
 # Model cache
 # ---------------------------------------------------------------------------
 _whisper_models = {}
+# Где считать: процессор или видеокарта.
+#
+# До октября 2026 устройство было вшито в код ("cpu"/"int8"), и перенести
+# распознавание на видеокарту значило править четыре места в файле. Теперь это
+# настройка: на сервере без карты всё остаётся как было, на сервере с картой
+# достаточно TILTAB_STT_DEVICE=cuda.
+STT_DEVICE = os.environ.get("TILTAB_STT_DEVICE", "cpu").lower()
+# int8 на процессоре, float16 на видеокарте: на ней int8 не быстрее, а точность ниже.
+STT_COMPUTE_TYPE = os.environ.get(
+    "TILTAB_STT_COMPUTE_TYPE", "float16" if STT_DEVICE.startswith("cuda") else "int8"
+)
+
+
+def stt_device() -> str:
+    return STT_DEVICE
+
+
 _wav2vec_models = {}
 _whisper_hf_pipelines = {}
 
@@ -109,8 +126,8 @@ def get_whisper_model(model_path=LOCAL_WHISPER_MODEL):
         try:
             _whisper_models[model_path] = WhisperModel(
                 model_path,
-                device="cpu",
-                compute_type="int8",
+                device=STT_DEVICE,
+                compute_type=STT_COMPUTE_TYPE,
             )
         except (MemoryError, RuntimeError) as e:
             # If the model failed to load because of memory pressure, drop any
@@ -119,8 +136,8 @@ def get_whisper_model(model_path=LOCAL_WHISPER_MODEL):
                 release_whisper_models()
                 _whisper_models[model_path] = WhisperModel(
                     model_path,
-                    device="cpu",
-                    compute_type="int8",
+                    device=STT_DEVICE,
+                    compute_type=STT_COMPUTE_TYPE,
                 )
             else:
                 raise
@@ -169,7 +186,7 @@ def get_whisper_hf_pipeline(model_name: str):
         _whisper_hf_pipelines[model_name] = pipeline(
             "automatic-speech-recognition",
             model=model_name,
-            device="cpu",
+            device=0 if STT_DEVICE.startswith("cuda") else "cpu",
             chunk_length_s=30,
         )
         print(f"[whisper-hf] Model {model_name} loaded.", file=sys.stderr, flush=True)
@@ -1319,7 +1336,10 @@ def transcribe_tajik(wav_path: str):
             # Trust the fine-tuned model unless it shows obvious hallucination artifacts.
             # Low log-prob confidence is expected with conservative decoding and should
             # not trigger a fallback to the generic model.
-            fine = text_postprocessing.postprocess_transcription(fine, "tg")
+            #
+            # Постобработку здесь не делаем: её проводит run_transcription для
+            # любого выбранного кандидата. Раньше она шла дважды, а при
+            # TILTAB_SKIP_POSTPROCESS сырой результат всё равно обрабатывался.
 
             if disable_fallback:
                 log_diagnostic(language="tg", fallback="disabled", returning=fine.get("model", "fine-tuned"), char_count=len(fine.get("text", "")))
@@ -1560,6 +1580,10 @@ def get_gigaam_model(revision: str | None = None):
             GIGAAM_MODEL_ID, revision=revision, trust_remote_code=True
         )
         model.eval()
+        # Код модели берёт устройство у своих же весов (next(self.parameters()).device),
+        # поэтому достаточно переложить её на карту.
+        if STT_DEVICE.startswith("cuda"):
+            model = model.to(STT_DEVICE)
         _gigaam_models[revision] = model
     return _gigaam_models[revision]
 
@@ -1854,10 +1878,16 @@ def run_transcription(input_file, ffmpeg_path, language, beta_model="", skip_pos
         if beta_model:
             output = _run_beta_transcription(wav_path, language, beta_model)
         elif language == "ky":
-            output = gigaam_or_fallback(
-                wav_path, "ky", lambda: transcribe_kyrgyz(wav_path),
-                progress_label="Кыргызча распознаю",
-            )
+            # Только GigaAM, без запасного Vosk. Vosk на кыргызском настолько
+            # слабее, что его текст хуже честного отказа: человек получал
+            # расшифровку, которой нельзя пользоваться, и не знал, что стоит
+            # просто повторить попытку. Теперь сбой GigaAM — это ошибка, и бот
+            # предлагает попробовать ещё раз.
+            try:
+                output = transcribe_gigaam(wav_path, "ky", progress_label="Кыргызча распознаю")
+            except Exception as exc:  # noqa: BLE001
+                log_diagnostic(gigaam_failed=True, gigaam_error=str(exc)[:500])
+                raise RuntimeError(f"GigaAM failed for ky (no fallback): {exc}") from exc
 
         elif language == "tg":
             output = transcribe_tajik(wav_path)

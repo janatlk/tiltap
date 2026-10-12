@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="business">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TilTap Admin — Аккаунт YouTube</title>
+  <meta name="robots" content="noindex">
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="/web/guard.js"></script>
+  <script>window.TilTapGuard.requireSuperAdmin();</script>
+</head>
+<body class="min-h-screen bg-base-200 py-6 px-4">
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <header class="flex flex-wrap items-center justify-between gap-4">
+      <h1 class="text-3xl font-bold tracking-tight">Аккаунт YouTube</h1>
+      <div class="flex gap-2">
+        <a href="/web/admin.html" class="btn btn-sm btn-ghost">Админка</a>
+      </div>
+    </header>
+
+    <!-- Сервер держит свой Chrome с входом в аккаунт и раз в несколько часов
+         забирает из него свежие cookies для скачивания с YouTube. -->
+
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body space-y-3">
+        <h2 class="card-title">Состояние</h2>
+        <div id="statusBox" class="text-sm">Загружаю…</div>
+        <div class="flex flex-wrap gap-2 pt-2">
+          <button id="loginBtn" class="btn btn-primary btn-sm">Войти в аккаунт</button>
+          <button id="switchBtn" class="btn btn-outline btn-sm">Сменить аккаунт</button>
+          <button id="refreshBtn" class="btn btn-outline btn-sm">Обновить cookies сейчас</button>
+          <button id="logoutBtn" class="btn btn-ghost btn-sm text-error">Выйти из аккаунта</button>
+        </div>
+        <p class="text-xs opacity-60">Используйте отдельный аккаунт только для сервера, не личный: YouTube может его заблокировать.</p>
+      </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-sm hidden" id="sessionCard">
+      <div class="card-body space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 class="card-title">Браузер на сервере</h2>
+          <div class="flex gap-2">
+            <button id="finishBtn" class="btn btn-primary btn-sm">Готово, я вошёл</button>
+            <button id="cancelBtn" class="btn btn-ghost btn-sm">Отмена</button>
+          </div>
+        </div>
+        <p class="text-sm opacity-70">Войдите в аккаунт Google в окне ниже. Когда откроется YouTube с вашим аватаром, нажмите «Готово, я вошёл». Окно закроется само через <span id="sessionLeft"></span>.</p>
+        <iframe id="vnc" class="w-full rounded-box bg-black" style="aspect-ratio:1280/860;border:0"></iframe>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const API = "/yt-cookies/api";
+    const $ = (id) => document.getElementById(id);
+    const RESULT = {
+      ok: ["badge-success", "Cookies действуют"],
+      invalid: ["badge-error", "Cookies не действуют — войдите заново"],
+      no_profile: ["badge-warning", "Вход не выполнен"],
+      logged_out: ["badge-warning", "Вышли из аккаунта"],
+      export_failed: ["badge-error", "Не удалось выгрузить cookies"],
+      unknown: ["badge-warning", "Проверка не дала ответа"],
+    };
+    let busy = false;
+
+    function escapeHtml(t) {
+      return String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+    function when(ts) {
+      return ts ? new Date(ts * 1000).toLocaleString("ru-RU") : "—";
+    }
+    async function api(path, opts = {}) {
+      const res = await fetch(API + path, { credentials: "same-origin", ...opts });
+      let data = null;
+      try { data = await res.json(); } catch (e) {}
+      if (!res.ok) throw new Error((data && data.detail) || "HTTP " + res.status);
+      return data;
+    }
+
+    async function load() {
+      let s;
+      try {
+        s = await api("/status");
+      } catch (err) {
+        $("statusBox").innerHTML = `<span class="text-error">Сервис недоступен: ${escapeHtml(err.message)}</span>`;
+        return;
+      }
+      const [cls, label] = RESULT[s.lastResult] || ["badge-ghost", s.lastResult || "Ещё не проверялось"];
+      $("statusBox").innerHTML = `
+        <div class="grid sm:grid-cols-2 gap-x-8 gap-y-1">
+          <div>Статус: <span class="badge ${cls}">${escapeHtml(label)}</span></div>
+          <div>Аккаунт: <b>${escapeHtml(s.account || "—")}</b></div>
+          <div>Последнее обновление: ${when(s.lastRefresh)}</div>
+          <div>Последний раз действовали: ${when(s.lastValidAt)}</div>
+          <div class="sm:col-span-2 opacity-60">Обновляются сами раз в ${s.refreshHours} ч. ${escapeHtml(s.lastDetail || "")}</div>
+        </div>`;
+      $("loginBtn").classList.toggle("hidden", s.profile);
+      $("switchBtn").classList.toggle("hidden", !s.profile);
+      $("logoutBtn").classList.toggle("hidden", !s.profile);
+      showSession(s);
+    }
+
+    function showSession(s) {
+      $("sessionCard").classList.toggle("hidden", !s.sessionActive);
+      if (s.sessionActive) {
+        const left = Math.max(0, Math.round((s.sessionStarted + s.sessionMaxMinutes * 60 - s.now) / 60));
+        $("sessionLeft").textContent = left + " мин";
+        if (!$("vnc").src) {
+          $("vnc").src = "/yt-cookies/novnc/vnc.html?autoconnect=true&resize=scale&path=yt-cookies/websockify";
+        }
+      } else {
+        $("vnc").removeAttribute("src");
+      }
+    }
+
+    async function act(btn, path, body, confirmText) {
+      if (busy) return;
+      if (confirmText && !confirm(confirmText)) return;
+      busy = true;
+      const text = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "…";
+      try {
+        await api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        busy = false;
+        btn.disabled = false;
+        btn.textContent = text;
+        load();
+      }
+    }
+
+    $("loginBtn").onclick = (e) => act(e.target, "/session/start", { fresh: false });
+    $("switchBtn").onclick = (e) => act(e.target, "/session/start", { fresh: true },
+      "Текущий вход будет удалён, откроется окно для входа в другой аккаунт. Продолжить?");
+    $("finishBtn").onclick = (e) => act(e.target, "/session/finish");
+    $("cancelBtn").onclick = (e) => act(e.target, "/session/cancel");
+    $("refreshBtn").onclick = (e) => act(e.target, "/refresh");
+    $("logoutBtn").onclick = (e) => act(e.target, "/logout", {},
+      "Выйти из аккаунта на сервере? Скачивание с YouTube продолжит работать на последних cookies, пока они действуют.");
+
+    load();
+    setInterval(() => { if (!busy) load(); }, 15000);
+  </script>
+</body>
+</html>

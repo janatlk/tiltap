@@ -9,6 +9,7 @@ import { fetchTelegramFile } from "../services/fileDownloadService";
 import { transcribeAudio, formatSubtitles } from "../services/transcriptionService";
 
 import { cleanupTranscription, detectTranscriptionIssues } from "../services/cleanupService";
+import { paragraphsFromSegments, paragraphsFromSentences } from "../utils/paragraphs";
 import { assessResultConfidence, formatConfidenceLine } from "../services/transcriptQualityService";
 import { translateText } from "../services/translationService";
 import {
@@ -18,9 +19,10 @@ import {
   detectMediaSource,
   mediaSourceName,
   mediaAudioFilename,
+  listMediaItems,
 } from "../services/youtubeService";
 import { renderLoadingStages } from "../utils/progressBar";
-import { isQueueFull, MAX_QUEUED_PER_USER } from "../services/concurrencyGate";
+import { isQueueFull, MAX_QUEUED_PER_USER, sttGate } from "../services/concurrencyGate";
 import { config } from "../config";
 
 import { combinedAccuracy } from "../utils/textSimilarity";
@@ -83,7 +85,11 @@ import { sendAdminAlert } from "../services/alertService";
 
 const FFMPEG_PATH = require("ffmpeg-static");
 const PYTHON_PATH = process.platform === "win32" ? "python" : "python3";
-const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
+// Столько Telegram отдаёт ботам, и ни байтом больше: на файл крупнее getFile
+// отвечает "file is too big". Пока здесь стояло 25 МБ, записи от 20 до 25 МБ
+// проходили нашу проверку, падали на скачивании, и человек не получал вообще
+// ничего — бот выглядел сломанным. Чаще всего это видео с телефона.
+const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
 
 // Simple in-memory deduplication for Telegram update_ids. Prevents duplicate
 // processing when multiple poll forwarders or retries deliver the same update.
@@ -122,10 +128,24 @@ export async function handleTelegramWebhook(req: Request, res: Response): Promis
       await handleCallbackQuery(update.callback_query);
     }
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     logger.error("Error processing Telegram update", {
-      error: err instanceof Error ? err.message : String(err),
+      error: message,
       stack: err instanceof Error ? err.stack : undefined,
     });
+
+    // Молчание хуже отказа: человек ждёт ответа и считает бота сломанным.
+    // Так было с файлами крупнее 20 МБ — Telegram отказывал в выдаче, ошибка
+    // долетала сюда, и в чат не уходило ничего.
+    const chatId = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
+    if (chatId) {
+      const prefs = await getUserPreferences(chatId).catch(() => null);
+      const lang = prefs?.interfaceLanguage ?? "ru";
+      const tooBig = /file is too big/i.test(message);
+      await sendTextMessage(chatId, t(tooBig ? "fileTooLarge" : "somethingWentWrong", lang), {
+        replyMarkup: createMainKeyboard(lang),
+      }).catch(() => {});
+    }
   }
 
   const duration = Date.now() - startTime;
@@ -265,7 +285,7 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
   if (knownSize && knownSize > MAX_MEDIA_BYTES) {
     await sendTextMessage(
       chatId,
-      t("fileTooLarge", lang, { size: (knownSize / 1024 / 1024).toFixed(1) }),
+      t("fileTooLarge", lang),
       { replyMarkup: createMainKeyboard(lang) }
     );
     return;
@@ -278,7 +298,7 @@ async function handleMessage(msg: TelegramMessage, updateId: number): Promise<vo
   if (buffer.length > MAX_MEDIA_BYTES) {
     await sendTextMessage(
       chatId,
-      t("fileTooLarge", lang, { size: (buffer.length / 1024 / 1024).toFixed(1) }),
+      t("fileTooLarge", lang),
       { replyMarkup: createMainKeyboard(lang) }
     );
     return;
@@ -455,6 +475,21 @@ async function startTranslateTextFlow(
 
 
 /**
+ * Пропускает вызов не чаще раза в intervalMs. Первый проходит сразу, чтобы
+ * человек не ждал начала движения; последний может потеряться, и это здесь
+ * не важно — итог всё равно приходит отдельным сообщением.
+ */
+function throttled<T extends unknown[]>(fn: (...args: T) => void, intervalMs: number): (...args: T) => void {
+  let last = 0;
+  return (...args: T): void => {
+    const now = Date.now();
+    if (now - last < intervalMs) return;
+    last = now;
+    fn(...args);
+  };
+}
+
+/**
  * Документ на перевод. Вопросы о языке те же, что и для набранного текста,
  * поэтому идём общим путём — меняется только то, что переводим.
  */
@@ -500,9 +535,12 @@ async function processDocumentTranslation(
       filename,
       sourceLang,
       targetLang,
-      onProgress: (label) => {
+      // Перевод отчитывается о каждой пачке, а Telegram считает правки
+      // сообщений и при частых бьёт лимитом. Раз в три секунды человеку
+      // достаточно, чтобы видеть движение.
+      onProgress: throttled((label) => {
         void editMessageText(chatId, statusMessageId, label).catch(() => {});
-      },
+      }, 3000),
     });
 
     const note = result.structured
@@ -524,7 +562,7 @@ ${t("documentReturnedAsText", lang)}`;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error("Document translation failed", { error: message, chatId, filename });
-    await sendTextMessage(chatId, message, { replyMarkup: createMainKeyboard(lang) });
+    await sendTextMessage(chatId, t("documentFailed", lang), { replyMarkup: createMainKeyboard(lang) });
   }
 }
 
@@ -583,7 +621,7 @@ async function processTextTranslation(
     });
     await sendTextMessage(
       chatId,
-      t("translationFailed", lang, { error: err instanceof Error ? err.message : String(err) }),
+      t("translationFailed", lang),
       { replyMarkup: createMainKeyboard(lang) }
     );
   }
@@ -631,6 +669,29 @@ async function handleMediaLink(chatId: number, url: string, prefs: UserPreferenc
       targetLanguage: prefs.targetLanguage,
       createdAt: Date.now(),
     });
+  }
+
+  // В посте может быть несколько видео (карусель инстаграма). Спрашиваем, что
+  // брать: молча взять первое значит иногда расшифровать не то, о чём просили.
+  const items = await listMediaItems(url);
+  const videos = items.filter((i) => i.type === "video");
+  if (videos.length > 1) {
+    const buttons: InlineKeyboardButton[][] = [[{ text: t("itemsAll", lang), callback_data: `item:all:${actionId}` }]];
+    for (let n = 0; n < videos.length; n += 2) {
+      buttons.push(
+        videos.slice(n, n + 2).map((v, k) => ({
+          text: t("itemsOne", lang, { n: String(n + k + 1) }),
+          callback_data: `item:${v.index}:${actionId}`,
+        }))
+      );
+    }
+    buttons.push([{ text: t("back", lang), callback_data: `confirm:cancel:${actionId}` }]);
+    await sendTextMessage(chatId, `${t("itemsTitle", lang)}
+
+${t("itemsHint", lang)}`, {
+      replyMarkup: { inline_keyboard: buttons },
+    });
+    return;
   }
 
   await sendTextMessage(
@@ -732,7 +793,7 @@ async function startPendingAction(chatId: number, force = false, cardMessageId?:
     );
   } else if (pending.type === "youtube") {
     try {
-      await downloadAndTranscribeYouTube(chatId, pending.url, sourceLang, targetLang, cardMessageId);
+      await downloadAndTranscribeYouTube(chatId, pending.url, sourceLang, targetLang, cardMessageId, pending.item);
     } catch (err) {
       logger.error("YouTube processing failed", {
         error: err instanceof Error ? err.message : String(err),
@@ -776,10 +837,9 @@ function queueIsFullFor(chatId: number): boolean {
 // Rough per-job estimate for the queue wait. Measured end-to-end time over the
 // last 60 days averaged 40s, so 45 is a deliberate round-up: a wait that ends
 // early is a good surprise, one that runs over is not.
-const QUEUE_ESTIMATE_SEC = 45;
-
 function queuedLabel(lang: SupportedLanguage, position: number): string {
-  const minutes = Math.max(1, Math.ceil((position * QUEUE_ESTIMATE_SEC) / 60));
+  // Оценка по реальной скорости последних работ, а не по числу из головы.
+  const minutes = Math.max(1, Math.ceil(sttGate.estimateWaitSeconds(position) / 60));
   return t("stageQueued", lang, { position: String(position), minutes: String(minutes) });
 }
 
@@ -1112,8 +1172,12 @@ async function processAudio(
       return result;
     }
 
-    const cleanup = await cleanupTranscription(result.text, result.language);
-    const cleanedText = cleanup.cleanedText;
+    // Разрывы ставим до вычитки, чтобы они дошли и до перевода: он режет текст
+    // по пустым строкам и сохраняет их. Иначе расшифровка приходит одним
+    // полотном — в переписке это читать ещё тяжелее, чем на странице.
+    const structured = paragraphsFromSegments(result.segments) || result.text;
+    const cleanup = await cleanupTranscription(structured, result.language);
+    const cleanedText = paragraphsFromSentences(cleanup.cleanedText);
 
     // Quality check before sending to user
     const quality = detectTranscriptionIssues(cleanedText, result.language, result.segments);
@@ -1204,7 +1268,7 @@ async function processAudio(
       requestNumber,
     });
     await closeTranscriptionRequest(requestNumber, { status: "error", errorMessage: errMessage });
-    const msg = t("transcriptionFailed", lang, { error: escapeHtml(errMessage) });
+    const msg = t("transcriptionFailed", lang);
     await editMessageText(chatId, statusMsgId, msg, removeKeyboard);
   }
 }
@@ -1214,7 +1278,8 @@ async function downloadAndTranscribeYouTube(
   url: string,
   language: string,
   targetLanguage?: string,
-  cardMessageId?: number
+  cardMessageId?: number,
+  item?: string
 ): Promise<void> {
   const prefs = await getUserPreferences(chatId);
   const lang = prefs.interfaceLanguage;
@@ -1257,7 +1322,7 @@ async function downloadAndTranscribeYouTube(
       filename: audioFilename,
     });
 
-    const downloadResult = await downloadMediaAudio(url, undefined, abortController.signal, queueOwner(chatId));
+    const downloadResult = await downloadMediaAudio(url, undefined, abortController.signal, queueOwner(chatId), item);
     tmpWav = downloadResult.tmpWav;
 
     spinner.setPhase(t("stageTranscribe", lang));
@@ -1294,8 +1359,12 @@ async function downloadAndTranscribeYouTube(
       return;
     }
 
-    const cleanup = await cleanupTranscription(result.text, result.language);
-    const cleanedText = cleanup.cleanedText;
+    // Разрывы ставим до вычитки, чтобы они дошли и до перевода: он режет текст
+    // по пустым строкам и сохраняет их. Иначе расшифровка приходит одним
+    // полотном — в переписке это читать ещё тяжелее, чем на странице.
+    const structured = paragraphsFromSegments(result.segments) || result.text;
+    const cleanup = await cleanupTranscription(structured, result.language);
+    const cleanedText = paragraphsFromSentences(cleanup.cleanedText);
 
     let transcriptionId: number;
     try {
@@ -1349,7 +1418,10 @@ async function downloadAndTranscribeYouTube(
     await unlink(tmpWav).catch(() => {});
     const errMessage = err instanceof Error ? err.message : String(err);
     await closeTranscriptionRequest(requestNumber, { status: "error", errorMessage: errMessage });
-    const msg = `❌ ${escapeHtml(errMessage)}`;
+    // Сырой текст ошибки (список инстансов, советы yt-dlp про cookies) остаётся в
+    // записи запроса выше; человеку — одна понятная строка.
+    const isDownload = /\[download\]|cobalt|yt-dlp|download process|audio mode/i.test(errMessage);
+    const msg = t(isDownload ? "downloadFailed" : "transcriptionFailed", lang);
     await editMessageText(chatId, statusMsgId, msg, removeKeyboard);
     throw err;
   }
@@ -1365,11 +1437,11 @@ function getYouTubeErrorMessage(reason: string | undefined, lang: SupportedLangu
       ru: "❌ Видео недоступно. Возможно, оно удалено, скрыто или заблокировано в вашем регионе.",
     },
     sign_in_required: {
-      ky: "❌ Бул видео YouTube'ко кириүүнү талап кылат. Бот мындай видеолорду жүктөй албайт.",
-      tg: "❌ Ин видео талаб мекунад, ки дар YouTube ворид шавед. Бот чунин видеоҳоро боргирӣ карда наметавонад.",
-      uz: "❌ Bu video YouTube'ga kirishni talab qiladi. Bot bunday videolarni yuklab ololmaydi.",
-      en: "❌ This video requires YouTube sign-in. The bot cannot download such videos.",
-      ru: "❌ Это видео требует входа в YouTube. Бот не может скачать такие видео.",
+      ky: "❌ Бул шилтемеден видеону жүктөп алуу мүмкүн болгон жок. Бир аздан кийин кайра аракет кылыңыз же видеону файл катары жибериңиз.",
+      tg: "❌ Видеоро аз ин пайванд боргирӣ кардан нашуд. Каме баъдтар бори дигар кӯшиш кунед ё видеоро ҳамчун файл фиристед.",
+      uz: "❌ Bu havoladan videoni yuklab bo'lmadi. Birozdan keyin qayta urinib ko'ring yoki videoni fayl sifatida yuboring.",
+      en: "❌ Couldn't download the video from this link. Please try again a bit later or send the video as a file.",
+      ru: "❌ Не получилось скачать видео по этой ссылке. Попробуйте чуть позже или пришлите видео файлом.",
     },
     private: {
       ky: "❌ Бул жеке видео. Бот аны жүктөй албайт.",
@@ -1393,25 +1465,25 @@ function getYouTubeErrorMessage(reason: string | undefined, lang: SupportedLangu
       ru: "❌ Прямые трансляции нельзя расшифровать. Пожалуйста, пришлите новую ссылку после окончания эфира.",
     },
     timeout: {
-      ky: "❌ Видеону текшерүү өтө көп убакыт алды. Интернет же YouTube көйгөйлөрү мүмкүн.",
-      tg: "❌ Санҷиши видео хеле тулонӣ шуд. Эҳтимол мушкилоти интернет ё YouTube.",
-      uz: "❌ Videoni tekshirish juda uzoq davom etdi. Ehtimol internet yoki YouTube muammolari.",
-      en: "❌ Video validation took too long. Possible network or YouTube issues.",
-      ru: "❌ Проверка видео заняла слишком много времени. Возможны проблемы с сетью или YouTube.",
+      ky: "❌ Бул шилтемеден видеону жүктөп алуу мүмкүн болгон жок. Бир аздан кийин кайра аракет кылыңыз же видеону файл катары жибериңиз.",
+      tg: "❌ Видеоро аз ин пайванд боргирӣ кардан нашуд. Каме баъдтар бори дигар кӯшиш кунед ё видеоро ҳамчун файл фиристед.",
+      uz: "❌ Bu havoladan videoni yuklab bo'lmadi. Birozdan keyin qayta urinib ko'ring yoki videoni fayl sifatida yuboring.",
+      en: "❌ Couldn't download the video from this link. Please try again a bit later or send the video as a file.",
+      ru: "❌ Не получилось скачать видео по этой ссылке. Попробуйте чуть позже или пришлите видео файлом.",
     },
     missing_deps: {
-      ky: "❌ Видеону текшерүүчү куралдар табылган жок. Администратор python3 жана requests орнотконун текшерсин.",
-      tg: "❌ Воситаҳои санҷиши видео ёфт нашуданд. Администратор python3 ва requests-ро насб кардааст, тафтиш кунад.",
-      uz: "❌ Video tekshirish vositalari topilmadi. Administrator python3 va requests o'rnatganini tekshirsin.",
-      en: "❌ Video validation tools are missing. Please ask the admin to install python3 and requests.",
-      ru: "❌ Не найдены инструменты для проверки видео. Попросите администратора установить python3 и requests.",
+      ky: "❌ Бул шилтемеден видеону жүктөп алуу мүмкүн болгон жок. Бир аздан кийин кайра аракет кылыңыз же видеону файл катары жибериңиз.",
+      tg: "❌ Видеоро аз ин пайванд боргирӣ кардан нашуд. Каме баъдтар бори дигар кӯшиш кунед ё видеоро ҳамчун файл фиристед.",
+      uz: "❌ Bu havoladan videoni yuklab bo'lmadi. Birozdan keyin qayta urinib ko'ring yoki videoni fayl sifatida yuboring.",
+      en: "❌ Couldn't download the video from this link. Please try again a bit later or send the video as a file.",
+      ru: "❌ Не получилось скачать видео по этой ссылке. Попробуйте чуть позже или пришлите видео файлом.",
     },
     cobalt_auth_required: {
-      ky: "❌ Көчүрүү кызматына кирүү үчүн аутентификация талап кылынат. Администраторго жеке Cobalt серверин орнотууну сураныңыз.",
-      tg: "❌ Барои дастрасӣ ба хидмати боргирӣ аутентификатсия лозим аст. Администраторро барои насби сервери хусусии Cobalt дастгирӣ кунед.",
-      uz: "❌ Yuklab olish xizmatiga kirish uchun autentifikatsiya talab qilinadi. Administratordan shaxsiy Cobalt serverini o'rnatishni so'rang.",
-      en: "❌ The download service now requires authentication. Please ask the admin to deploy a private Cobalt server.",
-      ru: "❌ Сервис скачивания теперь требует аутентификации. Попросите администратора развернуть приватный сервер Cobalt.",
+      ky: "❌ Бул шилтемеден видеону жүктөп алуу мүмкүн болгон жок. Бир аздан кийин кайра аракет кылыңыз же видеону файл катары жибериңиз.",
+      tg: "❌ Видеоро аз ин пайванд боргирӣ кардан нашуд. Каме баъдтар бори дигар кӯшиш кунед ё видеоро ҳамчун файл фиристед.",
+      uz: "❌ Bu havoladan videoni yuklab bo'lmadi. Birozdan keyin qayta urinib ko'ring yoki videoni fayl sifatida yuboring.",
+      en: "❌ Couldn't download the video from this link. Please try again a bit later or send the video as a file.",
+      ru: "❌ Не получилось скачать видео по этой ссылке. Попробуйте чуть позже или пришлите видео файлом.",
     },
     unknown: {
       ky: "❌ Видеону текшерүү мүмкүн болгон жок. Шилтеме туура эмес же видео жеткиликтүү эмес.",
@@ -1422,8 +1494,11 @@ function getYouTubeErrorMessage(reason: string | undefined, lang: SupportedLangu
     },
   };
 
-  const entry = messages[reason ?? "unknown"];
-  return entry[lang] ?? entry["uz"] ?? entry["ru"] ?? "Unknown error";
+  // Незнакомая причина — это наша внутренняя пометка вроде "bot_detected", и
+  // показывать её человеку нельзя. Раньше здесь вдобавок падало обращение к
+  // отсутствующей записи.
+  const entry = messages[reason ?? "unknown"] ?? messages.unknown;
+  return entry[lang] ?? entry["uz"] ?? entry["ru"] ?? messages.unknown["ru"] ?? "";
 }
 
 async function stopActiveProcess(chatId: number): Promise<void> {
@@ -1523,7 +1598,7 @@ async function sendResultDocument(
       });
       await sendTextMessage(
         chatId,
-        t("translationFailed", lang, { error: err instanceof Error ? err.message : String(err) }),
+        t("translationFailed", lang),
         { replyMarkup: backToMenuKeyboard }
       ).catch(() => {});
       // Fall through to send the original transcription file.
@@ -1653,8 +1728,12 @@ async function runAccuracyTest(chatId: number, language: string): Promise<void> 
       return;
     }
 
-    const cleanup = await cleanupTranscription(result.text, result.language);
-    const cleanedText = cleanup.cleanedText;
+    // Разрывы ставим до вычитки, чтобы они дошли и до перевода: он режет текст
+    // по пустым строкам и сохраняет их. Иначе расшифровка приходит одним
+    // полотном — в переписке это читать ещё тяжелее, чем на странице.
+    const structured = paragraphsFromSegments(result.segments) || result.text;
+    const cleanup = await cleanupTranscription(structured, result.language);
+    const cleanedText = paragraphsFromSentences(cleanup.cleanedText);
 
     let referenceText = await captionPromise;
     if (!referenceText || referenceText.trim().length < 10) {
@@ -1696,7 +1775,7 @@ async function runAccuracyTest(chatId: number, language: string): Promise<void> 
   } catch (err) {
     const fs = await import("fs/promises");
     await fs.unlink(tmpWav).catch(() => {});
-    const msg = `❌ ${t("transcriptionFailed", lang, { error: escapeHtml(err instanceof Error ? err.message : String(err)) })}`;
+    const msg = t("transcriptionFailed", lang);
     await editMessageText(chatId, statusMsgId, msg, removeKeyboard);
     throw err;
   }
@@ -1919,6 +1998,24 @@ async function handleCallbackQuery(callbackQuery: {
       }
       await sendTextMessage(chatId, t("sendTextToTranslate", lang), { replyMarkup: createMainKeyboard(lang) });
     }
+    return;
+  }
+
+  // Выбор видео в посте из нескольких вложений
+  if (data.startsWith("item:")) {
+    const [, choice, actionId] = data.split(":");
+    const pending = getPendingAction(chatId);
+    if (!pending || pending.actionId !== actionId || pending.type !== "youtube") {
+      await editMessageText(chatId, messageId, t("sessionExpired", lang), { replyMarkup: createMainKeyboard(lang) });
+      return;
+    }
+    updatePendingAction(chatId, { item: choice } as Partial<PendingAction>);
+    await editMessageText(
+      chatId,
+      messageId,
+      t("mediaPreview", lang, { title: escapeHtml(pending.title || "") }),
+      { replyMarkup: createSourceLanguageKeyboard(`confirm:${actionId}`, lang, "action:main") }
+    );
     return;
   }
 

@@ -5,7 +5,7 @@ import type { TranscriptionResult } from "../types";
 import { translateText } from "../services/translationService";
 import { cleanupTranscription, detectTranscriptionIssues } from "../services/cleanupService";
 import { assessResultConfidence, formatConfidenceLine } from "../services/transcriptQualityService";
-import { isSupportedMediaUrl, validateMediaUrl, transcribeMediaLink } from "../services/youtubeService";
+import { isSupportedMediaUrl, validateMediaUrl, transcribeMediaLink, listMediaItems } from "../services/youtubeService";
 import type { TranslateRequest } from "../types";
 import * as webJobRepo from "../db/repos/webJobRepo";
 import * as translationRepo from "../db/repos/translationRepo";
@@ -16,9 +16,10 @@ import {
   type FeedbackRating,
 } from "../db/repos/feedbackRepo";
 import { sendAdminAlert } from "../services/alertService";
-import { isQueueFull, beginJob, endJob, MAX_QUEUED_PER_USER } from "../services/concurrencyGate";
+import { isQueueFull, beginJob, endJob, MAX_QUEUED_PER_USER, sttGate } from "../services/concurrencyGate";
 import { isSupportedDocument, translateDocument } from "../services/documentService";
 import { normalizeLanguageCode } from "../utils/languageCodes";
+import { paragraphsFromSegments, paragraphsFromSentences } from "../utils/paragraphs";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
@@ -214,16 +215,34 @@ export async function handleWebTranscribe(req: Request, res: Response): Promise<
 export async function handleWebYouTube(req: Request, res: Response): Promise<void> {
   let owner: string | undefined;
   try {
-    const { url, sourceLang, targetLang } = req.body as { url?: string; sourceLang?: string; targetLang?: string };
+    const { url, sourceLang, targetLang, item } = req.body as
+      { url?: string; sourceLang?: string; targetLang?: string; item?: string };
 
     if (!url || !isSupportedMediaUrl(url)) {
-      res.status(400).json({ error: "Missing or invalid media URL. Supported: YouTube, TikTok, Instagram Reels" });
+      res.status(400).json({ error: "invalid" });
       return;
     }
 
     const validation = await validateMediaUrl(url);
     if (!validation.ok) {
       res.status(400).json({ error: validation.reason ?? "unknown", details: validation });
+      return;
+    }
+
+    // В посте может быть несколько видео (карусель инстаграма). Пока человек
+    // не сказал, какое брать, спрашиваем — молча взять первое значит иногда
+    // расшифровать не то, о чём просили, и не сообщить об этом.
+    const choice = typeof item === "string" && item.trim() ? item.trim() : undefined;
+    if (!choice) {
+      const items = await listMediaItems(url);
+      const videos = items.filter((i) => i.type === "video");
+      if (videos.length > 1) {
+        res.status(200).json({ needsChoice: true, items: videos.map((v) => v.index), title: validation.title });
+        return;
+      }
+    }
+    if (choice && choice !== "all" && !/^\d+$/.test(choice)) {
+      res.status(400).json({ error: "bad_item" });
       return;
     }
 
@@ -245,7 +264,7 @@ export async function handleWebYouTube(req: Request, res: Response): Promise<voi
     });
     res.status(202).json({ jobId: job.id, requestNumber: job.requestNumber, title: validation.title });
 
-    processMediaLinkJob(job, url, language, target, "youtube", owner).catch((err) => {
+    processMediaLinkJob(job, url, language, target, "youtube", owner, choice).catch((err) => {
       logger.error("Web media link job failed", { error: err instanceof Error ? err.message : String(err), jobId: job.id });
       updateJob(job, { status: "failed", error: err instanceof Error ? err.message : String(err) });
     });
@@ -279,14 +298,70 @@ export async function handleWebTranslate(req: Request, res: Response): Promise<v
     const result = await translateText(body);
     res.status(200).json(result);
   } catch (err) {
-    logger.error("Web translate error", { error: err instanceof Error ? err.message : String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    // Просьба перевести на тот же язык — ошибка запроса, а не сбой сервиса.
+    if (message === "same_language") {
+      res.status(400).json({ error: "same_language" });
+      return;
+    }
+    logger.error("Web translate error", { error: message });
     res.status(500).json({ error: "Internal server error" });
   }
 }
 
+/**
+ * Задание, поднятое из базы, в том же виде, в каком его отдаёт память.
+ * Браузеру не нужно знать, откуда пришёл ответ, — иначе пришлось бы держать
+ * две ветки отрисовки результата вместо одной.
+ */
+function restoredJobResponse(entry: webJobRepo.WebJobEntry): Record<string, unknown> {
+  const segments = Array.isArray(entry.segments_json) ? entry.segments_json : [];
+  const done = entry.status === "completed";
+
+  // Незавершённые задания из памяти не выселяются, поэтому раз задания там нет,
+  // а в базе оно "выполняется" — процесс не пережил перезапуск сервера. Честнее
+  // сказать это сразу, чем оставить браузер опрашивать задание, которого нет.
+  const orphaned = entry.status === "pending" || entry.status === "running";
+
+  return {
+    id: entry.job_id,
+    type: entry.type,
+    status: orphaned ? "failed" : entry.status,
+    requestNumber: entry.request_number,
+    progress: { percent: entry.progress_percent ?? 0, label: entry.progress_label ?? "" },
+    result: done
+      ? {
+          text: entry.full_text ?? "",
+          language: entry.source_lang ?? "auto",
+          segments,
+          provider: entry.provider ?? undefined,
+          model: entry.model ?? undefined,
+          gpu: entry.gpu ?? undefined,
+        }
+      : undefined,
+    cleanedText: entry.full_text ?? undefined,
+    translatedText: entry.translated_text ?? undefined,
+    translatedLang: entry.translated_lang ?? undefined,
+    error: orphaned ? "job_interrupted" : entry.error_message ?? undefined,
+    restored: true,
+  };
+}
+
 export async function handleWebJobStatus(req: Request, res: Response): Promise<void> {
-  const job = getJob(String(req.params.jobId));
+  const jobId = String(req.params.jobId);
+  const job = getJob(jobId);
   if (!job) {
+    // Задания живут в памяти полчаса после завершения, а расшифровка лежит в
+    // базе постоянно. Без этого запасного пути закрытая вкладка означала
+    // потерю текста: идентификатор у браузера ещё есть, а спросить уже некого.
+    const stored = await webJobRepo.getWebJobById(jobId).catch((err) => {
+      logger.error("Failed to load web job from storage", { error: err instanceof Error ? err.message : String(err), jobId });
+      return null;
+    });
+    if (stored) {
+      res.status(200).json(restoredJobResponse(stored));
+      return;
+    }
     res.status(404).json({ error: "Job not found" });
     return;
   }
@@ -363,8 +438,11 @@ function queueOwner(req: Request): string {
 }
 
 function queueProgress(position: number): TranscriptionProgress {
+  // Второе число — оценка ожидания в секундах по реальной скорости последних
+  // работ. Страница переводится на стороне браузера, поэтому сюда уходит
+  // пометка с числами, а не готовая фраза.
   return position > 0
-    ? { percent: 0, label: `queued:${position}` }
+    ? { percent: 0, label: `queued:${position}:${sttGate.estimateWaitSeconds(position)}` }
     : { percent: 0, label: "Transcribing..." };
 }
 
@@ -420,7 +498,13 @@ async function processDocumentJob(
       filename,
       sourceLang: sourceLang && sourceLang !== "auto" ? sourceLang : undefined,
       targetLang,
-      onProgress: (label) => setJobProgress(job, { percent: 45, label }),
+      // Чтение файла занимает первые 10%, перевод — остальное. Пока доля
+      // перевода неизвестна (файл ещё разбирается), держим полосу на 10.
+      onProgress: (label, fraction) =>
+        setJobProgress(job, {
+          percent: typeof fraction === "number" ? 10 + Math.round(fraction * 88) : 10,
+          label,
+        }),
     });
 
     const result: TranscriptionResult = {
@@ -444,6 +528,8 @@ async function processDocumentJob(
     webJobRepo.updateWebJob(job.id, {
       status: "completed",
       full_text: doc.text,
+      translated_text: doc.text,
+      translated_lang: targetLang,
       segments_json: [],
       provider: "document",
       model: doc.format,
@@ -466,7 +552,8 @@ async function processMediaLinkJob(
   language: string,
   targetLanguage?: string,
   sourceType?: string,
-  owner?: string
+  owner?: string,
+  item?: string
 ): Promise<void> {
   updateJob(job, { status: "running", progress: { percent: 0, label: "Starting..." } });
 
@@ -478,7 +565,8 @@ async function processMediaLinkJob(
       (pid) => updateJob(job, { pid }),
       undefined,
       (position) => setJobProgress(job, queueProgress(position)),
-      owner
+      owner,
+      item
     );
 
     await finalizeTranscription(job, result, targetLanguage, url, sourceType);
@@ -511,8 +599,14 @@ async function finalizeTranscription(
   }
 
   setJobProgress(job, { percent: 95, label: "Finalizing..." });
-  const cleanup = await cleanupTranscription(result.text, result.language);
-  const cleanedText = cleanup.cleanedText;
+
+  // Абзацы расставляем до вычитки, чтобы разрывы дошли и до перевода: он
+  // режет текст по пустым строкам и сохраняет их в ответе. Расшифровка без
+  // единого разрыва — отдельная претензия лингвиста, читать её невозможно.
+  const structured = paragraphsFromSegments(result.segments) || result.text;
+  const cleanup = await cleanupTranscription(structured, result.language);
+  // Вычитка иногда склеивает абзацы обратно; тогда делим по предложениям.
+  const cleanedText = paragraphsFromSentences(cleanup.cleanedText);
   const cleanupWarning = cleanup.warning;
 
   const quality = detectTranscriptionIssues(cleanedText, result.language, result.segments);
@@ -566,6 +660,8 @@ async function finalizeTranscription(
   webJobRepo.updateWebJob(job.id, {
     status: "completed",
     full_text: cleanedText,
+    translated_text: translatedText ?? null,
+    translated_lang: translatedText ? targetLanguage ?? null : null,
     segments_json: result.segments,
     provider: result.provider,
     model: result.model,

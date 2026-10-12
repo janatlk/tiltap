@@ -76,7 +76,7 @@ function buildReminder(entries: feedbackRepo.FeedbackEntry[]): string {
 
   const more = entries.length > lines.length ? `\n\n…и ещё ${entries.length - lines.length}.` : "";
   return (
-    `⏳ <b>Отложенные обращения: ${entries.length}</b>\n\n` +
+    `⏳ <b>Обращения без ответа: ${entries.length}</b>\n\n` +
     lines.join("\n") +
     more +
     "\n\nОтветить или закрыть — в админке, вкладка Feedback."

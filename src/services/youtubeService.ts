@@ -43,15 +43,43 @@ function detectMissingDependency(stderr: string): boolean {
   );
 }
 
+/**
+ * Инстаграм раздаёт одно и то же видео под разными адресами, и кнопка
+ * "Поделиться" сейчас даёт /reels/ — во множественном числе.
+ *
+ * Прежний шаблон знал только /reel/, поэтому такая ссылка не считалась
+ * ссылкой на видео вовсе: она уходила в перевод как обычный текст, и человек
+ * получал обратно свой же адрес. Именно на это пришла жалоба "видео не
+ * переводит" — запрос 1704.
+ */
+const INSTAGRAM_URL =
+  /^(https?:\/\/)?(www\.)?instagram\.com\/(reels?|p|tv|stories|share)\/.+|^(https?:\/\/)?(www\.)?instagram\.com\/[^/]+\/(reels?|p)\/.+/;
+
+/**
+ * Facebook раздаёт одно и то же видео под несколькими видами ссылок, и люди
+ * копируют ту, которую им дала кнопка «Поделиться».
+ *
+ * Cobalt разбирает только два вида — /watch/?v= и /reel/ — а самые ходовые
+ * сегодня share/v/… и /Страница/videos/… он не понимает вовсе (проверено
+ * прямыми запросами: отвечает fetch.empty). Пропускаем их всё равно: за
+ * Cobalt стоит yt-dlp, у которого есть и facebook, и facebook:reel, и
+ * разбор коротких ссылок fb.watch.
+ *
+ * Закрытое логином скачать нельзя ничем — ни у нас, ни у кого.
+ */
+const FACEBOOK_URL =
+  /^(https?:\/\/)?((www|m|web|mbasic)\.)?(facebook\.com|fb\.watch|fb\.com)\/.+/;
+
 export function isSupportedMediaUrl(url: string): boolean {
   return (
     /^(https?:\/\/)?(www\.|m\.)?(youtube\.com|youtu\.be)\/.+/.test(url) ||
     /^(https?:\/\/)?(www\.|m\.|vm\.|vt\.)?tiktok\.com\/.+/.test(url) ||
-    /^(https?:\/\/)?(www\.)?instagram\.com\/(reel|p|stories|tv)\/.+/.test(url)
+    INSTAGRAM_URL.test(url) ||
+    FACEBOOK_URL.test(url)
   );
 }
 
-export type MediaSourceId = "youtube" | "tiktok" | "instagram" | "link";
+export type MediaSourceId = "youtube" | "tiktok" | "instagram" | "facebook" | "link";
 
 /**
  * Which service a media link points at. We accept TikTok and Instagram as well
@@ -63,6 +91,7 @@ export function detectMediaSource(url: string): MediaSourceId {
   if (/^(https?:\/\/)?(www\.|m\.)?(youtube\.com|youtu\.be)\//.test(url)) return "youtube";
   if (/^(https?:\/\/)?(www\.|m\.|vm\.|vt\.)?tiktok\.com\//.test(url)) return "tiktok";
   if (/^(https?:\/\/)?(www\.)?instagram\.com\//.test(url)) return "instagram";
+  if (FACEBOOK_URL.test(url)) return "facebook";
   return "link";
 }
 
@@ -70,6 +99,7 @@ const MEDIA_SOURCE_NAMES: Record<MediaSourceId, string> = {
   youtube: "YouTube",
   tiktok: "TikTok",
   instagram: "Instagram",
+  facebook: "Facebook",
   link: "the link",
 };
 
@@ -95,6 +125,34 @@ export function isValidYouTubeUrl(url: string): boolean {
  * The probe pulls real bytes and can take minutes (JS challenges), so it is
  * only worth running once Cobalt has already failed everywhere.
  */
+export type CookiesStatus = "valid" | "invalid" | "unknown";
+
+/** Живы ли cookies YouTube. Ничего не скачивает — см. cookies_status в youtube_ytdlp.py. */
+export async function checkYoutubeCookies(url: string): Promise<{ status: CookiesStatus; detail: string }> {
+  return new Promise((resolve) => {
+    const proc = spawn(PYTHON_PATH, ["youtube_ytdlp.py", "--check-cookies", url], {
+      cwd: process.cwd(),
+      env: getCobaltEnv(),
+    });
+    let stdout = "";
+    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString("utf-8"); });
+    const timeout = setTimeout(() => proc.kill("SIGKILL"), 240_000);
+    proc.on("error", (err) => {
+      clearTimeout(timeout);
+      resolve({ status: "unknown", detail: err.message });
+    });
+    proc.on("close", () => {
+      clearTimeout(timeout);
+      try {
+        const data = JSON.parse(stdout.trim().split("\n").pop() || "{}") as { status?: CookiesStatus; detail?: string };
+        resolve({ status: data.status ?? "unknown", detail: data.detail ?? "no detail" });
+      } catch {
+        resolve({ status: "unknown", detail: "check produced no result" });
+      }
+    });
+  });
+}
+
 export async function probeYtdlp(url: string): Promise<{ ok: boolean; detail: string }> {
   return new Promise((resolve) => {
     const proc = spawn(PYTHON_PATH, ["youtube_ytdlp.py", "--probe", url], {
@@ -223,11 +281,47 @@ export interface MediaDownloadResult {
   pid: number;
 }
 
+export interface MediaItem {
+  /** Номер вложения внутри поста, как его отдаёт Cobalt (с нуля). */
+  index: number;
+  type: "video" | "photo" | string;
+}
+
+/**
+ * Вложения поста, если их несколько (карусель инстаграма и подобное).
+ *
+ * Для обычной ссылки с одним видео возвращает пустой список: спрашивать там
+ * нечего. Фото остаются в списке, но расшифровывать в них нечего — отбор
+ * делает вызывающий.
+ */
+export async function listMediaItems(url: string): Promise<MediaItem[]> {
+  return new Promise((resolve) => {
+    const proc = spawn(PYTHON_PATH, ["download_youtube.py", "--list", url], {
+      cwd: process.cwd(),
+      env: getCobaltEnv(),
+    });
+    let stdout = "";
+    proc.stdout.on("data", (d: Buffer) => { stdout += d.toString("utf-8"); });
+    const timeout = setTimeout(() => proc.kill("SIGKILL"), 90_000);
+    proc.on("error", () => { clearTimeout(timeout); resolve([]); });
+    proc.on("close", () => {
+      clearTimeout(timeout);
+      try {
+        const data = JSON.parse(stdout.trim().split("\n").pop() || "{}") as { items?: MediaItem[] };
+        resolve(Array.isArray(data.items) ? data.items : []);
+      } catch {
+        resolve([]);
+      }
+    });
+  });
+}
+
 export async function downloadMediaAudio(
   url: string,
   onProgress?: (progress: TranscriptionProgress) => void,
   abortSignal?: AbortSignal,
-  owner?: string
+  owner?: string,
+  item?: string
 ): Promise<MediaDownloadResult> {
   // Cap parallel downloads. Each one spawns Python and then ffmpeg, and
   // unbounded ffmpeg processes starve the transcription doing the real work.
@@ -236,7 +330,7 @@ export async function downloadMediaAudio(
   await ticket.wait(abortSignal);
   downloadGate.logWait(Date.now() - queuedAt, url);
   try {
-    return await runDownload(url, onProgress, abortSignal);
+    return await runDownload(url, onProgress, abortSignal, item);
   } finally {
     ticket.release();
   }
@@ -245,12 +339,15 @@ export async function downloadMediaAudio(
 async function runDownload(
   url: string,
   onProgress?: (progress: TranscriptionProgress) => void,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  item?: string
 ): Promise<MediaDownloadResult> {
   const tmpWav = join(tmpdir(), `tiltab_yt_${Date.now()}.wav`);
 
   const pid = await new Promise<number>((resolve, reject) => {
-    const proc = spawn(PYTHON_PATH, ["download_youtube.py", url, FFMPEG_PATH, tmpWav], {
+    const args = ["download_youtube.py", url, FFMPEG_PATH, tmpWav];
+    if (item) args.push("--item", item);
+    const proc = spawn(PYTHON_PATH, args, {
       cwd: process.cwd(),
       env: getCobaltEnv(),
     });
@@ -333,7 +430,8 @@ export async function transcribeMediaLink(
   onProcessStart?: (pid: number) => void,
   abortSignal?: AbortSignal,
   onQueuePosition?: (position: number) => void,
-  owner?: string
+  owner?: string,
+  item?: string
 ): Promise<TranscriptionResult> {
   // Скачивание и распознавание отчитываются каждое по своей шкале от нуля до
   // ста. На одной полосе это выглядело так: цифра доходила до сотни, а потом
@@ -355,7 +453,8 @@ export async function transcribeMediaLink(
     url,
     onProgress ? band(0, DOWNLOAD_SHARE_END) : undefined,
     abortSignal,
-    owner
+    owner,
+    item
   );
   if (onProcessStart && pid) {
     onProcessStart(pid);

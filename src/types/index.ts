@@ -121,6 +121,12 @@ export interface TranslateRequest {
   sourceUrl?: string;
   /** Optional traceability: 'text' | 'youtube' | 'audio' | 'telegram' | 'web'. */
   sourceType?: string;
+  /**
+   * Сообщает о переведённых кусках длинного текста. Нужен документам: они
+   * приходят целиком, и без этого полоса прогресса стоит на месте всё время
+   * перевода. Из кэша ответ возвращается сразу и ничего не сообщает.
+   */
+  onChunk?: (done: number, total: number) => void;
 }
 
 export interface TranslateResponse {

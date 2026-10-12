@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { authenticate, passwordConfigured } from "../services/adminAuthService";
+import { authenticate } from "../services/adminAuthService";
 import { currentAnnotator } from "../services/datasetAuthService";
 import { isSuperAdmin } from "../services/datasetPermissions";
 
@@ -23,18 +23,13 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
   // заводят, и одно место, где его отключают: пока их было две, отзыв доступа
   // в одной оставлял вторую открытой.
   //
-  // Прежний вход по паролю и машинный токен остаются рабочими намеренно. Это
-  // единственный путь внутрь, если с учётками разметки что-то случится, а
-  // терять доступ к своему серверу из-за ошибки в правах нельзя.
+  // Машинный токен остаётся: им пользуются скрипты, и это запасной путь внутрь,
+  // если с учётками разметки что-то случится.
   const annotator = await currentAnnotator(req);
   if (annotator && isSuperAdmin(annotator)) {
     next();
     return;
   }
 
-  res.status(401).json({
-    error: "Unauthorized",
-    // Lets the panel show a login form instead of a bare error.
-    loginRequired: passwordConfigured(),
-  });
+  res.status(401).json({ error: "Unauthorized" });
 }

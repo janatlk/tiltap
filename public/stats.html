@@ -1,0 +1,343 @@
+<!doctype html>
+<!-- Публичная сводка. Только числа: страница открыта всем. -->
+<html lang="ru" data-scheme="light">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TilTap — статистика</title>
+<meta name="description" content="Сколько текстов переведено и записей расшифровано в TilTap, и как часто случаются отказы.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/web/brand.css">
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--font-sans); -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 1.25rem; }
+
+  .top { border-bottom: 1px solid var(--rule); }
+  .top .wrap { display: flex; align-items: center; gap: 1rem; height: 60px; }
+  .logo { font-weight: 800; letter-spacing: -0.03em; font-size: 1.125rem; color: var(--ink); text-decoration: none; }
+  .top nav { margin-left: auto; display: flex; gap: 1.25rem; }
+  .top nav a { color: var(--ink-soft); text-decoration: none; font-size: 0.9375rem; }
+  .top nav a:hover { color: var(--ink); }
+
+  h1 { font-size: clamp(1.75rem, 3vw, 2.5rem); font-weight: 800; letter-spacing: -0.035em; margin: 2.5rem 0 0.5rem; }
+  .sub { color: var(--ink-soft); margin: 0 0 2rem; font-size: 1rem; }
+
+  /* Плитки. Число крупное, подпись мелкая: читается за один взгляд. */
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.875rem; }
+  @media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+  .tile {
+    border: 1px solid var(--rule); border-radius: var(--r-surface);
+    background: var(--paper-raised); padding: 1.125rem 1.25rem;
+  }
+  .tile .num {
+    font-size: clamp(1.75rem, 3.4vw, 2.375rem); font-weight: 800;
+    letter-spacing: -0.03em; line-height: 1.1; font-variant-numeric: tabular-nums;
+  }
+  .tile .cap { margin-top: 0.375rem; font-size: 0.8125rem; color: var(--ink-faint); }
+  .tile.accent .num { color: var(--accent); }
+  .tile.warn .num { color: var(--danger); }
+
+  .card {
+    border: 1px solid var(--rule); border-radius: var(--r-surface);
+    background: var(--paper-raised); padding: 1.25rem 1.375rem 1rem;
+    margin-top: 1.5rem;
+  }
+  .card h2 { margin: 0; font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.015em; }
+  .card .note { margin: 0.25rem 0 1rem; font-size: 0.8125rem; color: var(--ink-faint); }
+
+  .legend { display: flex; gap: 1rem; flex-wrap: wrap; margin: 0 0 0.75rem; font-size: 0.8125rem; color: var(--ink-soft); }
+  .legend span { display: inline-flex; align-items: center; gap: 0.375rem; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+  svg { display: block; width: 100%; height: auto; }
+  .grid-line { stroke: var(--rule); stroke-width: 1; }
+  .axis-text { fill: var(--ink-faint); font-size: 11px; font-family: var(--font-mono); }
+
+  .bars { display: grid; gap: 0.5rem; }
+  .bar-row { display: grid; grid-template-columns: 5.5rem 1fr 3.5rem; align-items: center; gap: 0.75rem; font-size: 0.875rem; }
+  .bar-track { background: var(--paper-sunk); border-radius: var(--r-press); height: 12px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--accent); border-radius: var(--r-press); }
+  .bar-val { text-align: right; font-family: var(--font-mono); font-size: 0.8125rem; color: var(--ink-soft); }
+
+  footer { margin: 3rem 0 2.5rem; font-size: 0.8125rem; color: var(--ink-faint); }
+  .state { padding: 2rem 0; color: var(--ink-faint); }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="/">TilTap</a>
+    <nav>
+      <a href="/">Главная</a>
+      <a href="/web/">Открыть сервис</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <h1>Статистика</h1>
+  <p class="sub" id="sub">Загружаю…</p>
+
+  <div id="content" hidden>
+    <section class="tiles">
+      <div class="tile accent"><div class="num" id="tTranslations">—</div><div class="cap">переводов</div></div>
+      <div class="tile"><div class="num" id="tTranscriptions">—</div><div class="cap">расшифровок</div></div>
+      <div class="tile"><div class="num" id="tRequests">—</div><div class="cap">запросов всего</div></div>
+      <div class="tile warn"><div class="num" id="tErrors">—</div><div class="cap" id="tErrorsCap">отказов</div></div>
+    </section>
+
+    <section class="card">
+      <h2>Работа за 30 дней</h2>
+      <p class="note">Запросы по дням. Отказы показаны отдельной линией, чтобы их было видно и когда их мало. Редкие всплески упираются в верх шкалы и подписаны настоящим числом.</p>
+      <div class="legend">
+        <span><i class="swatch" style="background: var(--accent)"></i>переводы</span>
+        <span><i class="swatch" style="background: var(--ink-faint)"></i>расшифровки</span>
+        <span><i class="swatch" style="background: var(--danger)"></i>отказы</span>
+      </div>
+      <div id="chartDaily"></div>
+    </section>
+
+    <section class="card">
+      <h2>Языки перевода</h2>
+      <p class="note">На какой язык переводили.</p>
+      <div class="bars" id="chartLanguages"></div>
+    </section>
+
+    <section class="card">
+      <h2>Откуда приходят записи</h2>
+      <p class="note">Источник аудио и видео для расшифровки.</p>
+      <div class="bars" id="chartSources"></div>
+    </section>
+  </div>
+
+  <div class="state" id="error" hidden>Не удалось загрузить статистику. Обновите страницу позже.</div>
+
+  <footer>
+    Данные обновляются раз в пять минут. Показаны только количества —
+    ни текстов, ни ссылок, ни сведений о людях здесь нет.
+  </footer>
+</main>
+
+<script>
+(function () {
+  var LANG_NAMES = {
+    ky: "Кыргызча", tg: "Тоҷикӣ", uz: "Oʻzbekcha",
+    uz_cyrl: "Ўзбекча", ru: "Русский", en: "English"
+  };
+  var SOURCE_NAMES = {
+    youtube: "Ссылки", telegram_media: "Телеграм", web: "Сайт",
+    web_upload: "Сайт", web_document: "Документы"
+  };
+
+  var daily = [];
+
+  function num(n) { return n.toLocaleString("ru-RU"); }
+
+  /**
+   * Достраивает дни, которых нет в ответе.
+   *
+   * База отдаёт только дни, где что-то происходило. Если их просто соединить,
+   * линия пройдёт над пустыми сутками как над обычными, и затишье станет
+   * невидимым — а это ровно то, ради чего на график и смотрят.
+   */
+  function fillGaps(rows) {
+    var byDay = {};
+    rows.forEach(function (r) { byDay[r.day] = r; });
+
+    var out = [];
+    var day = new Date();
+    day.setUTCHours(0, 0, 0, 0);
+    day.setUTCDate(day.getUTCDate() - 29);
+    for (var i = 0; i < 30; i++) {
+      var key = day.toISOString().slice(0, 10);
+      out.push(byDay[key] || { day: key, translations: 0, transcriptions: 0, errors: 0 });
+      day.setUTCDate(day.getUTCDate() + 1);
+    }
+    return out;
+  }
+
+  function el(tag, attrs, children) {
+    var node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (var k in attrs) node.setAttribute(k, attrs[k]);
+    (children || []).forEach(function (c) { node.appendChild(c); });
+    return node;
+  }
+
+  // Линейный график: три ряда на общей шкале. Площадь под переводами залита
+  // слабым тоном — так виден объём, но линии остаются главными.
+  function drawDaily(container, daily) {
+    var narrow = window.innerWidth < 620;
+    var W = narrow ? 420 : 900;
+    var H = narrow ? 300 : 260;
+    var padL = 34, padR = 12, padT = 12, padB = 26;
+    var innerW = W - padL - padR, innerH = H - padT - padB;
+
+    // Потолок шкалы считаем не по максимуму, а по девятому дециля.
+    //
+    // Один день с трёхсотней запросов при обычной десятке прижимает остальные
+    // 29 дней к нулевой линии: график формально честен и совершенно нечитаем.
+    // Такие дни рисуем упёртыми в потолок и подписываем настоящим числом —
+    // выброс видно, и он не съедает всю картину.
+    var values = [];
+    daily.forEach(function (d) {
+      values.push(d.translations, d.transcriptions, d.errors);
+    });
+    values.sort(function (a, b) { return a - b; });
+    var p90 = values[Math.floor(values.length * 0.9)] || 1;
+    var max = values[values.length - 1] || 1;
+    var cap = Math.min(max, Math.max(p90 * 2, 5));
+
+    var ticks = 4;
+    var step = Math.ceil(cap / ticks / 5) * 5 || 1;
+    var top = step * ticks;
+
+    // Округление шкалы может оставить чуть выше потолка день, который вовсе не
+    // выброс: 43 при потолке 40. Обрезать такой — врать на ровном месте, так
+    // что потолок поднимаем до него. Обрезаются только значения, выходящие за
+    // двойной потолок, то есть настоящие всплески.
+    var moderate = values.filter(function (v) { return v > top && v <= top * 2; });
+    if (moderate.length) {
+      step = Math.ceil(moderate[moderate.length - 1] / ticks / 5) * 5 || 1;
+      top = step * ticks;
+    }
+
+    var x = function (i) {
+      return padL + (daily.length < 2 ? innerW / 2 : (i / (daily.length - 1)) * innerW);
+    };
+    var y = function (v) {
+      return padT + innerH - (Math.min(v, top) / top) * innerH;
+    };
+
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, role: "img",
+                          "aria-label": "График запросов за 30 дней" });
+
+    for (var t = 0; t <= ticks; t++) {
+      var value = step * t;
+      svg.appendChild(el("line", { "class": "grid-line", x1: padL, x2: W - padR, y1: y(value), y2: y(value) }));
+      var label = el("text", { "class": "axis-text", x: padL - 8, y: y(value) + 4, "text-anchor": "end" });
+      label.textContent = value;
+      svg.appendChild(label);
+    }
+
+    function path(key) {
+      return daily.map(function (d, i) {
+        return (i ? "L" : "M") + x(i).toFixed(1) + " " + y(d[key]).toFixed(1);
+      }).join(" ");
+    }
+
+    if (daily.length > 1) {
+      svg.appendChild(el("path", {
+        d: path("translations") + " L" + x(daily.length - 1) + " " + y(0) + " L" + x(0) + " " + y(0) + " Z",
+        fill: "var(--accent)", opacity: "0.10"
+      }));
+    }
+
+    [["transcriptions", "var(--ink-faint)", 1.75],
+     ["errors", "var(--danger)", 1.75],
+     ["translations", "var(--accent)", 2.25]].forEach(function (row) {
+      svg.appendChild(el("path", {
+        d: path(row[0]), fill: "none", stroke: row[1], "stroke-width": row[2],
+        "stroke-linejoin": "round", "stroke-linecap": "round"
+      }));
+    });
+
+    daily.forEach(function (d, i) {
+      var peak = Math.max(d.translations, d.transcriptions, d.errors);
+      if (peak > top) {
+        var mark = el("text", {
+          "class": "axis-text", x: x(i), y: padT + 10, "text-anchor": "middle"
+        });
+        mark.textContent = "↑ " + peak;
+        svg.appendChild(mark);
+      }
+
+      var dot = el("circle", { cx: x(i), cy: y(d.translations), r: 7, fill: "transparent" });
+      var title = el("title");
+      title.textContent = d.day + ": переводов " + d.translations +
+        ", расшифровок " + d.transcriptions + ", отказов " + d.errors;
+      dot.appendChild(title);
+      svg.appendChild(dot);
+    });
+
+    [0, daily.length - 1].forEach(function (i) {
+      if (i < 0 || !daily[i]) return;
+      var label = el("text", { "class": "axis-text", x: x(i), y: H - 6,
+                               "text-anchor": i === 0 ? "start" : "end" });
+      label.textContent = daily[i].day.slice(5);
+      svg.appendChild(label);
+    });
+
+    container.innerHTML = "";
+    container.appendChild(svg);
+  }
+
+  function drawBars(container, rows, nameOf) {
+    var max = rows.reduce(function (m, r) { return Math.max(m, r.count); }, 1);
+    container.innerHTML = "";
+    rows.forEach(function (row) {
+      var wrap = document.createElement("div");
+      wrap.className = "bar-row";
+
+      var name = document.createElement("span");
+      name.textContent = nameOf(row);
+
+      var track = document.createElement("div");
+      track.className = "bar-track";
+      var fill = document.createElement("div");
+      fill.className = "bar-fill";
+      fill.style.width = Math.max(2, (row.count / max) * 100) + "%";
+      track.appendChild(fill);
+
+      var value = document.createElement("span");
+      value.className = "bar-val";
+      value.textContent = num(row.count);
+
+      wrap.appendChild(name);
+      wrap.appendChild(track);
+      wrap.appendChild(value);
+      container.appendChild(wrap);
+    });
+  }
+
+  fetch("/api/stats").then(function (r) {
+    if (!r.ok) throw new Error("stats");
+    return r.json();
+  }).then(function (s) {
+    document.getElementById("tTranslations").textContent = num(s.totals.translations);
+    document.getElementById("tTranscriptions").textContent = num(s.totals.transcriptions);
+    document.getElementById("tRequests").textContent = num(s.totals.requests);
+    document.getElementById("tErrors").textContent = num(s.totals.errors);
+    document.getElementById("tErrorsCap").textContent = "отказов · " + s.totals.errorRate + "%";
+
+    document.getElementById("sub").textContent = s.since
+      ? "Сервис работает с " + s.since.split("-").reverse().join(".") + "."
+      : "Сводка по работе сервиса.";
+
+    daily = fillGaps(s.daily);
+    drawDaily(document.getElementById("chartDaily"), daily);
+    // Размер холста зависит от ширины окна, поэтому перерисовываем при её смене.
+    var redrawTimer;
+    window.addEventListener("resize", function () {
+      clearTimeout(redrawTimer);
+      redrawTimer = setTimeout(function () {
+        drawDaily(document.getElementById("chartDaily"), daily);
+      }, 150);
+    });
+    drawBars(document.getElementById("chartLanguages"), s.languages, function (r) {
+      return LANG_NAMES[r.code] || r.code;
+    });
+    drawBars(document.getElementById("chartSources"), s.sources, function (r) {
+      return SOURCE_NAMES[r.source] || r.source;
+    });
+
+    document.getElementById("content").hidden = false;
+  }).catch(function () {
+    document.getElementById("sub").textContent = "";
+    document.getElementById("error").hidden = false;
+  });
+})();
+</script>

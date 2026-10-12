@@ -22,8 +22,16 @@ from collections import Counter
 # Config / defaults
 # ---------------------------------------------------------------------------
 GARBAGE_THRESHOLD = float(os.environ.get("TILTAB_GARBAGE_THRESHOLD", "0.4"))
-FUZZY_MATCH_THRESHOLD = float(os.environ.get("TILTAB_NE_FUZZY_THRESHOLD", "0.80"))
+LOW_CONFIDENCE_THRESHOLD = float(os.environ.get("TILTAB_LOW_CONFIDENCE", "-1.5"))
+# 0.80 пропускал обычные слова: "интизор" (ждёт) совпадает с вариантом имени
+# "Синҷизор" ровно на 0.80, и в переводе появлялось "успех Санҷидзор ждёт".
+# Настоящие искажения имён набирают 0.83-0.90, поэтому порог поднят между ними.
+FUZZY_MATCH_THRESHOLD = float(os.environ.get("TILTAB_NE_FUZZY_THRESHOLD", "0.82"))
 MAX_NE_DISTANCE_CHARS = int(os.environ.get("TILTAB_NE_MAX_DISTANCE", "4"))
+# Короче этого имена по созвучию не угадываем: на такой длине совпадают слова
+# без всякого родства. Точные совпадения с именами и их вариантами работают
+# по-прежнему, независимо от длины.
+MIN_FUZZY_MATCH_CHARS = int(os.environ.get("TILTAB_NE_MIN_FUZZY_CHARS", "5"))
 
 
 def _cleanup_aggressive() -> bool:
@@ -603,11 +611,20 @@ def _has_suspicious_consonant_clusters(text: str) -> bool:
     # A single extremely long run is a clear hallucination.
     if any(r >= 7 for r in runs):
         return True
-    # Several long clusters are suspicious; short 3-consonant runs are normal.
-    if sum(1 for r in runs if r >= 4) >= 3:
+
+    # Дальше считаем не штуки, а плотность на сто знаков.
+    #
+    # Раньше здесь стояли голые счётчики ("шесть трёхсогласных — мусор"), хотя
+    # в комментарии говорилось про короткие куски. В длинной нормальной речи
+    # таких сочетаний всегда много: на тридцати секундах русских новостей их
+    # набиралось больше шести, и кусок целиком заменялся на [неразборчиво].
+    # Так из девятикускового сюжета пропало пять ("тут только половина" —
+    # жалоба от 8 октября).
+    letters = max(len(text), 1)
+    per100 = 100.0 / letters
+    if sum(1 for r in runs if r >= 4) * per100 >= 3.0:
         return True
-    # Many 3-consonant clusters only in very short segments.
-    if sum(1 for r in runs if r >= 3) >= 6:
+    if sum(1 for r in runs if r >= 3) * per100 >= 6.0:
         return True
     return False
 
@@ -679,7 +696,10 @@ DEFAULT_TAJIK_ENTITIES = {
     "Нигора": [],
     "Саодат": [],
     # Tajik places
-    "Конибодом": ["Кони-бодом", "Кунбедон", "Кунабадан", "Кунй"],
+    # "Кунй" отсюда убран намеренно: по созвучию на него садилось обычное
+    # повелительное "кун" (делай), и призыв "оғоз кун" превращался в название
+    # города — "оғоз Конибодом". Лингвист нашёл это трижды в одном ролике.
+    "Конибодом": ["Кони-бодом", "Кунбедон", "Кунабадан"],
     "Санҷидзор": ["Санжитсар", "Синҷизор", "Санҷазор", "Санҷазорӣ"],
     "Суғд": ["Суғдиё"],
     "Дастикам": ["Дасти Кам", "дасткам"],
@@ -937,11 +957,29 @@ class NamedEntityFixer:
             return self._preserve_case(word, self.variant_to_canonical[lower])
         if lower in {c.lower() for c in self.canonical}:
             return word
+
+        # Догадка по созвучию — только для слов подлиннее.
+        #
+        # На трёх-четырёх буквах похожими оказываются слова без всякого родства:
+        # "кун" (делай) отличается от "Кунй" одной буквой, то есть совпадает на
+        # 86% — выше нашего порога. В таджикском такой длины почти сплошь
+        # служебные слова и повелительные формы, и каждая ошибка здесь не
+        # опечатка, а подмена смысла: человек читает название города там, где
+        # ему говорили "начни".
+        if len(stripped) < MIN_FUZZY_MATCH_CHARS:
+            return word
+
         best = None
         best_score = 0.0
         for candidate in self.search_pool:
             candidate_lower = candidate.lower()
             if candidate_lower == lower:
+                continue
+            # Первая буква должна совпадать. Распознавание путает середину и
+            # окончание слова — "Конибодам" вместо "Конибодом", — но начало
+            # обычно слышно. Зато без этого условия под имя подгоняются слова,
+            # похожие только хвостом: "интизор" и "Синҷизор".
+            if candidate_lower[:1] != lower[:1]:
                 continue
             dist = abs(len(candidate) - len(stripped))
             if dist > MAX_NE_DISTANCE_CHARS:
@@ -1370,6 +1408,54 @@ def _apply_tajik_rules_early(text: str) -> str:
     return text
 
 
+_USER_CORRECTIONS: Optional[Dict[str, Dict[str, str]]] = None
+
+
+def _load_user_corrections() -> Dict[str, Dict[str, str]]:
+    """Исправления ошибок распознавания, присланные людьми через отзывы.
+
+    Люди писали в отзывы готовые правки ("Туоротер эмес туалеттер"), а мы их
+    никуда не записывали, и та же ошибка повторялась. Теперь они лежат в
+    data/stt_corrections.json и применяются к каждому распознаванию.
+    """
+    global _USER_CORRECTIONS
+    if _USER_CORRECTIONS is not None:
+        return _USER_CORRECTIONS
+    path = os.environ.get("TILTAB_STT_CORRECTIONS_PATH", "data/stt_corrections.json")
+    table: Dict[str, Dict[str, str]] = {}
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            for lang, pairs in raw.items():
+                if lang.startswith("_") or not isinstance(pairs, dict):
+                    continue
+                table[lang.lower()] = {k.lower(): v for k, v in pairs.items() if k and v}
+    except Exception as e:
+        print(f"[postprocess] failed to load corrections from {path}: {e}", file=sys.stderr)
+    _USER_CORRECTIONS = table
+    return table
+
+
+def apply_user_corrections(text: str, language: str) -> str:
+    """Заменить известные ошибки распознавания. Пословно, регистр сохраняем."""
+    pairs = _load_user_corrections().get((language or "").lower())
+    if not pairs or not text:
+        return text
+
+    def swap(match: "re.Match") -> str:
+        word = match.group(0)
+        fixed = pairs.get(word.lower())
+        if not fixed:
+            return word
+        if word[:1].isupper():
+            return fixed[:1].upper() + fixed[1:]
+        return fixed
+
+    pattern = r"\b(?:%s)\b" % "|".join(sorted((re.escape(k) for k in pairs), key=len, reverse=True))
+    return re.sub(pattern, swap, text, flags=re.IGNORECASE)
+
+
 def postprocess_segment(text: str, language: str, confidence: Optional[float] = None) -> Tuple[str, float, Optional[str]]:
     """Run a single segment through scorer and cleaner. Returns (text, score, warning)."""
     text = text.strip()
@@ -1377,9 +1463,15 @@ def postprocess_segment(text: str, language: str, confidence: Optional[float] = 
         return UNINTELLIGIBLE, 0.0, None
 
     # Whisper sometimes emits low-confidence hallucinations on music/noise.
-    # avg_logprob is negative; values below -1.5 are usually unreliable.
-    if confidence is not None and confidence < -1.5:
+    # avg_logprob is negative; the lower, the less the model believes itself.
+    #
+    # Порог вынесен в настройку, потому что он стоил нам текста: в новостном
+    # сюжете (жалоба "тут только половина") пять кусков из девяти стали
+    # [неразборчиво] именно здесь, хотя речь там была.
+    if confidence is not None and confidence < LOW_CONFIDENCE_THRESHOLD:
         return UNINTELLIGIBLE, 0.0, None
+
+    text = apply_user_corrections(text, language)
 
     # Language-specific rule-based cleanup first so that names, dates, and
     # clitics are normalized before the garbage detector sees the segment.

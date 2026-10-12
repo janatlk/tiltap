@@ -9,15 +9,26 @@ import translateRoutes from "./routes/translate";
 import webRoutes from "./routes/web";
 import adminRoutes from "./routes/admin";
 import { requireAdmin } from "./middleware/requireAdmin";
-import { login, logout, session } from "./services/adminAuthService";
 import betaTestRoutes from "./routes/betaTest";
 import datasetRoutes from "./routes/dataset";
 import { adminListAnnotators, adminCreateAnnotator } from "./controllers/datasetController";
 import { getProvidersHealth } from "./controllers/providersController";
+import { handlePublicStats } from "./controllers/statsController";
+import { currentAnnotator } from "./services/datasetAuthService";
+import { isSuperAdmin } from "./services/datasetPermissions";
 import { isDbHealthy } from "./db";
 import { config } from "./config";
 
 const app = express();
+
+// За обратным прокси настоящий адрес посетителя приходит в заголовке, а сокет
+// показывает петлю — один и тот же адрес для всех. Без этой строки очередь
+// считала бы всех посетителей одним человеком (пять заданий на весь сервис), а
+// пять неудачных попыток входа запирали бы вход всем сразу.
+//
+// Доверяем только петле: заголовку от постороннего верить нельзя, он
+// подделывается одной строкой.
+app.set("trust proxy", "loopback");
 
 app.use(express.json());
 app.use(requestLogger);
@@ -44,9 +55,59 @@ app.get("/health", async (_req, res) => {
 // Provider health & billing snapshot
 app.get("/health/providers", getProvidersHealth);
 
-// Static web UI. The admin HTML shell is public so the token never has to
-// appear in a URL; all admin API endpoints require the token via the
-// X-Admin-Token header and the UI prompts for it.
+// Публичная сводка для страницы статистики. Только счётчики, без содержимого.
+app.get("/api/stats", handlePublicStats);
+
+// Закрытые страницы отдаются только вошедшим.
+//
+// Раньше сама разметка была публичной: считалось, что страница без данных не
+// опасна, ведь API всё равно спрашивает права. Это верно про утечку данных, но
+// не про всё остальное — посторонним видно устройство админки, названия полей
+// и действий, а поисковики такие страницы индексируют. Прятать нечего только
+// тогда, когда прятать нечего.
+//
+// Переброс на клиенте (guard.js) остаётся: он показывает человеку страницу
+// входа вместо голого отказа. Настоящая проверка теперь здесь.
+const SUPER_ADMIN_PAGES = new Set(["/admin.html", "/admin-beta-test.html", "/admin-subtitles.html", "/admin-youtube.html"]);
+const DATASET_PAGES = new Set([
+  "/dataset-tasks.html",
+  "/dataset-task.html",
+  "/dataset-users.html",
+  "/dataset-export.html",
+]);
+
+app.use("/web", async (req: Request, res: Response, next: NextFunction) => {
+  const page = req.path.toLowerCase();
+  const needsSuperAdmin = SUPER_ADMIN_PAGES.has(page);
+  if (!needsSuperAdmin && !DATASET_PAGES.has(page)) {
+    next();
+    return;
+  }
+
+  const annotator = await currentAnnotator(req).catch(() => null);
+  if (annotator && (!needsSuperAdmin || isSuperAdmin(annotator))) {
+    next();
+    return;
+  }
+
+  // Вошедшего, но без прав, ведём в разметку, а не на вход.
+  //
+  // Ссылка "Вход для сотрудников" у всех одна и ведёт в админку. Разметчик,
+  // нажав её, попадал на страницу входа с "next=/web/admin.html", входил,
+  // возвращался в админку, снова получал отказ — и так без конца. Круг рвётся
+  // здесь: человек уже вошёл, спрашивать пароль второй раз бессмысленно.
+  if (annotator) {
+    res.redirect(302, "/web/dataset-tasks.html");
+    return;
+  }
+
+  // Не вошёл вовсе: на вход, запомнив, куда он шёл.
+  const next_ = encodeURIComponent(req.originalUrl);
+  res.redirect(302, `/web/dataset.html?next=${next_}`);
+});
+
+// Остальная разметка публична. Страница входа обязана быть открытой, иначе
+// войти неоткуда.
 app.use("/web", express.static(path.join(process.cwd(), "public/web")));
 app.use(express.static(path.join(process.cwd(), "public")));
 
@@ -57,11 +118,8 @@ app.use("/api/web", webRoutes);
 // Annotation workspace. Its own logins, deliberately not the admin password:
 // a linguist needs to fix transcripts, not to read the request log.
 app.use("/api/dataset", datasetRoutes);
-// Login endpoints sit in front of the gate, or nobody could ever log in.
-app.post("/api/admin/login", login);
-app.post("/api/admin/logout", logout);
-app.get("/api/admin/session", session);
-
+// Отдельного входа в админку нет: пускает учётка супер-админа разметки (или
+// машинный токен для скриптов). Второй пароль заставлял входить дважды.
 // Everything else under /api/admin requires a session or a machine token.
 app.use("/api/admin", requireAdmin);
 app.use("/api/admin", adminRoutes);

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="tiltap">
+<html lang="en" data-theme="tiltap" data-scheme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +7,10 @@
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=2">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=2">
+  <link rel="apple-touch-icon" sizes="512x512" href="/favicon-512.png?v=2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!-- Шрифт обязан покрывать расширенную кириллицу: без этого ө, ү, ң и ҳ, ҷ, ӯ
@@ -229,7 +233,7 @@
       color: var(--ink-soft);
     }
     .kind-chip:empty { display: none; }
-    .kind-chip[data-kind="youtube"] { border-color: var(--accent); color: var(--accent); }
+    .kind-chip[data-kind="link"] { border-color: var(--accent); color: var(--accent); }
     .kind-chip[data-kind="file"] { border-color: var(--accent); color: var(--accent); }
 
     .link-quiet {
@@ -341,16 +345,19 @@
     @media (prefers-reduced-motion: reduce) {
       .btn:active { transform: none; }
     }
+
+    /* Скрытие идёт последним и потому побеждает.
+       Tailwind отдаёт .hidden внутри слоя, а правила этой страницы написаны
+       вне слоёв — любое display здесь перебивало его молча. Так пустое
+       состояние оставалось на виду поверх готового результата. */
+    .hidden { display: none; }
   </style>
 </head>
 <body class="min-h-screen">
 
     <header class="nav" id="nav">
       <div class="nav-inner">
-        <a class="brand" href="/">
-          <span class="brand-mark" aria-hidden="true">T</span>
-          TilTap
-        </a>
+        <a class="brand" href="/"><img src="/logo.png" alt="TilTap" style="height:48px;width:auto;display:block;"></a>
 
         <div class="nav-side">
           <div class="langpick">
@@ -499,6 +506,10 @@
 
         <div id="errorBox" class="alert alert-error hidden mt-4" role="alert"></div>
 
+        <!-- Сообщение о возврате к заданию: тон спокойный, потому что ничего
+             плохого не случилось — работа шла всё это время. -->
+        <div id="restoredNotice" class="alert alert-info hidden mt-4" role="status"></div>
+
         <!-- Режим обработки. Движок читает его через .tab-active, поэтому
              переключатель остаётся в разметке, но человеку он больше не
              показывается: тип материала теперь определяется сам. -->
@@ -606,6 +617,15 @@
       </section>
 
       <section class="fmt-group">
+        <h3 data-i18n="fmtLinks">Ссылки</h3>
+        <p data-i18n="fmtLinksNote">Звук скачивается по ссылке, речь становится текстом.</p>
+        <div class="chips">
+          <span class="chip">YouTube</span><span class="chip">TikTok</span>
+          <span class="chip">Instagram</span><span class="chip">Facebook</span>
+        </div>
+      </section>
+
+      <section class="fmt-group">
         <h3 data-i18n="fmtDocs">Документы</h3>
         <p data-i18n="fmtDocsNote">Текст достаётся и переводится.</p>
         <div class="chips">
@@ -630,12 +650,25 @@
     </div>
   </dialog>
 
+  <!-- Пост с несколькими видео (карусель). Спрашиваем, что взять: молча взять
+       первое значит иногда расшифровать не то, о чём просили. -->
+  <dialog id="itemsDialog" class="sheet">
+    <div class="sheet-head">
+      <h2 data-i18n="itemsTitle">В этом посте несколько видео</h2>
+      <button type="button" class="icon-x" id="itemsClose" data-i18n-title="close" title="Закрыть">✕</button>
+    </div>
+    <div class="sheet-body">
+      <p class="sheet-note" data-i18n="itemsHint">Выберите, что расшифровать. Если не знаете, какое нужно, берите все подряд: они пойдут одной расшифровкой, по порядку.</p>
+      <div class="chips" id="itemsButtons" style="gap:0.5rem"></div>
+    </div>
+  </dialog>
+
   <script>
     // ===================== i18n =====================
     const I18N = {
       en: {
         title: "TilTap Web",
-        subtitle: "Transcribe audio, video, and links from YouTube, TikTok, and Instagram. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.",
+        subtitle: "Transcribe audio, video, and links from YouTube, TikTok, Instagram, and Facebook. Translate into Kyrgyz, Tajik, Uzbek, Russian, or English.",
         adminLink: "Admin panel",
         sourceLangLabel: "Transcription language",
         sourceLanguageLabel: "Source language",
@@ -646,7 +679,7 @@
         tabYouTube: "Video link",
         tabTranslate: "Translate text",
         dropzoneText: "Drag & drop audio/video here or click to browse",
-        youtubeLabel: "Video link (YouTube, TikTok, Instagram)",
+        youtubeLabel: "Video link (YouTube, TikTok, Instagram, Facebook)",
         translateTextLabel: "Text to translate",
         translateTextPlaceholder: "Paste text or a video link, or drop a file here...",
         entryFile: "File",
@@ -667,6 +700,8 @@
         fmtTitle: "What you can send",
         fmtAudio: "Audio and video",
         fmtDocs: "Documents",
+        fmtLinks: "Links",
+        fmtLinksNote: "The audio is downloaded from the link and the speech becomes text.",
         fmtTables: "Tables and subtitles",
         fmtAudioNote: "Speech becomes text with timestamps.",
         fmtDocsNote: "The text is extracted and translated.",
@@ -707,18 +742,25 @@
         translationFailed: "Translation failed",
         errorSelectFile: "Please select a file first",
         errorFileTooLarge: "File is too large ({size} MB). Max allowed is 25 MB.",
+        itemsTitle: "This post has several videos",
+        itemsHint: "Choose what to transcribe. If you are not sure which one you need, take them all: they will come back as one transcript, in order.",
+        itemsAll: "All videos in order",
+        itemsOne: "Video {n}",
         errorEnterUrl: "Please enter a video link",
         errorEnterText: "Please enter text to translate",
         errorUploadFailed: "Upload failed. Please check your connection and try again.",
         errorUploadCancelled: "Upload was cancelled.",
         errorUploadTimeout: "Upload timed out. The file may be too large or the connection is slow.",
         errorNotAvailable: "This video is not available. It may be deleted, private, region-blocked, or the URL is incorrect.",
+        errorDownloadFailed: "Couldn't download the recording from this link. Please try again a bit later, or send the file instead.",
         errorSignInRequired: "This video requires a YouTube sign-in. The bot cannot download it. Try another video.",
         errorPrivate: "This is a private video. The bot cannot download it.",
         errorAgeRestricted: "This video is age-restricted. The bot cannot download it.",
-        errorInvalidUrl: "Unsupported link. Use YouTube, TikTok, or Instagram.",
+        errorInvalidUrl: "Unsupported link. Use YouTube, TikTok, Instagram, or Facebook.",
         errorTimeout: "The link check timed out. Please try again.",
         errorJobFailed: "Job failed",
+        errorJobInterrupted: "The job did not survive a server restart. Please start it again.",
+        restoredNotice: "Returned to your last job — it kept running after you closed the tab.",
         retryButton: "Try again",
         uiLanguageHeader: "Interface language",
         progressQueued: "In queue: position {position}. About {minutes} min.",
@@ -727,7 +769,7 @@
       },
       ru: {
         title: "TilTap Web",
-        subtitle: "Распознавайте аудио, видео и ссылки с YouTube, TikTok и Instagram. Переводите на кыргызский, таджикский, узбекский, русский или английский.",
+        subtitle: "Распознавайте аудио, видео и ссылки с YouTube, TikTok, Instagram и Facebook. Переводите на кыргызский, таджикский, узбекский, русский или английский.",
         adminLink: "Панель администратора",
         sourceLangLabel: "Язык распознавания",
         sourceLanguageLabel: "Язык оригинала",
@@ -738,7 +780,7 @@
         tabYouTube: "Ссылка на видео",
         tabTranslate: "Перевести текст",
         dropzoneText: "Перетащите аудио/видео сюда или нажмите для выбора",
-        youtubeLabel: "Ссылка на видео (YouTube, TikTok, Instagram)",
+        youtubeLabel: "Ссылка на видео (YouTube, TikTok, Instagram, Facebook)",
         translateTextLabel: "Текст для перевода",
         translateTextPlaceholder: "Вставьте текст или ссылку на видео, либо перетащите файл...",
         entryFile: "Файл",
@@ -757,6 +799,8 @@
         fmtTitle: "Что можно прислать",
         fmtAudio: "Звук и видео",
         fmtDocs: "Документы",
+        fmtLinks: "Ссылки",
+        fmtLinksNote: "Звук скачивается по ссылке, речь становится текстом.",
         fmtTables: "Таблицы и субтитры",
         fmtAudioNote: "Речь становится текстом с отметками времени.",
         fmtDocsNote: "Текст достаётся и переводится.",
@@ -799,18 +843,25 @@
         translationFailed: "Ошибка перевода",
         errorSelectFile: "Сначала выберите файл",
         errorFileTooLarge: "Файл слишком большой ({size} МБ). Максимум 25 МБ.",
+        itemsTitle: "В этом посте несколько видео",
+        itemsHint: "Выберите, что расшифровать. Если не знаете, какое нужно, берите все подряд: они придут одной расшифровкой, по порядку.",
+        itemsAll: "Все видео подряд",
+        itemsOne: "Видео {n}",
         errorEnterUrl: "Введите ссылку на видео",
         errorEnterText: "Введите текст для перевода",
         errorUploadFailed: "Ошибка загрузки. Проверьте соединение и попробуйте снова.",
         errorUploadCancelled: "Загрузка отменена.",
         errorUploadTimeout: "Превышено время загрузки. Файл слишком большой или соединение медленное.",
         errorNotAvailable: "Видео недоступно. Возможно, оно удалено, приватное, заблокировано в регионе или URL неверный.",
+        errorDownloadFailed: "Не получилось скачать запись по этой ссылке. Попробуйте чуть позже или пришлите файл.",
         errorSignInRequired: "Видео требует входа в YouTube. Бот не может скачать его. Попробуйте другое видео.",
         errorPrivate: "Это приватное видео. Бот не может скачать его.",
         errorAgeRestricted: "Видео имеет возрастное ограничение. Бот не может скачать его.",
-        errorInvalidUrl: "Ссылка не поддерживается. Подойдут YouTube, TikTok или Instagram.",
+        errorInvalidUrl: "Ссылка не поддерживается. Подойдут YouTube, TikTok, Instagram или Facebook.",
         errorTimeout: "Проверка ссылки превысила время ожидания. Попробуйте снова.",
         errorJobFailed: "Ошибка задания",
+        errorJobInterrupted: "Задание не пережило перезапуск сервера. Запустите его заново.",
+        restoredNotice: "Вернулись к последнему заданию — оно продолжало работать после закрытия вкладки.",
         retryButton: "Попробовать снова",
         uiLanguageHeader: "Язык интерфейса",
         progressQueued: "В очереди: {position}-й. Примерно {minutes} мин.",
@@ -819,7 +870,7 @@
       },
       ky: {
         title: "TilTap Web",
-        subtitle: "Аудио, видео жана YouTube, TikTok, Instagram шилтемелерин таанып, кыргызча, тоҷикча, ўзбекча, орусча же англисча которуңуз.",
+        subtitle: "Аудио, видео жана YouTube, TikTok, Instagram, Facebook шилтемелерин таанып, кыргызча, тоҷикча, ўзбекча, орусча же англисча которуңуз.",
         adminLink: "Админ панели",
         sourceLangLabel: "Таануу тили",
         sourceLanguageLabel: "Баштапкы тил",
@@ -830,7 +881,7 @@
         tabYouTube: "Видео шилтемеси",
         tabTranslate: "Текст которуу",
         dropzoneText: "Аудио/видеону бул жерге сүйрөп алып келиңиз же басып көрүңүз",
-        youtubeLabel: "Видео шилтемеси (YouTube, TikTok, Instagram)",
+        youtubeLabel: "Видео шилтемеси (YouTube, TikTok, Instagram, Facebook)",
         translateTextLabel: "Которула турган текст",
         translateTextPlaceholder: "Которула турган текстти киргизиңиз...",
         entryFile: "Файл",
@@ -849,6 +900,8 @@
         fmtTitle: "Эмне жөнөтсө болот",
         fmtAudio: "Үн жана видео",
         fmtDocs: "Документтер",
+        fmtLinks: "Шилтемелер",
+        fmtLinksNote: "Үн шилтеме аркылуу жүктөлүп алынат, сөз текстке айланат.",
         fmtTables: "Таблицалар жана субтитрлер",
         fmtAudioNote: "Сөз убакыт белгилери бар текстке айланат.",
         fmtDocsNote: "Текст чыгарылып, которулат.",
@@ -891,18 +944,25 @@
         translationFailed: "Которуу ката",
         errorSelectFile: "Алгач файл тандаңыз",
         errorFileTooLarge: "Файл өтө чоң ({size} МБ). Максимум 25 МБ.",
+        itemsTitle: "Бул постто бир нече видео бар",
+        itemsHint: "Эмнени текстке айландырууну тандаңыз. Кайсынысы керек экенин билбесеңиз, баарын алыңыз: алар иретинде бир текст болуп келет.",
+        itemsAll: "Бардык видеолор иретинде",
+        itemsOne: "{n}-видео",
         errorEnterUrl: "Видео шилтемесин киргизиңиз",
         errorEnterText: "Которула турган текстти киргизиңиз",
         errorUploadFailed: "Жүктөө ката. Туташууну текшерип, кайра аракет кылыңыз.",
         errorUploadCancelled: "Жүктөө токтотулду.",
         errorUploadTimeout: "Жүктөө убактысы бүттү. Файл өтө чоң же туташуу жай.",
         errorNotAvailable: "Бул видео жеткиликсиз. Ал өчүрүлгөн, жабык, аймактык блоктоого кабылган же URL туура эмес.",
+        errorDownloadFailed: "Бул шилтемеден жазууну жүктөп алуу мүмкүн болгон жок. Бир аздан кийин кайра аракет кылыңыз же файл жибериңиз.",
         errorSignInRequired: "Бул видео YouTube'га кирүүнү талап кылат. Бот аны жүктөй албайт. Башка видео аракет кылыңыз.",
         errorPrivate: "Бул жабык видео. Бот аны жүктөй албайт.",
         errorAgeRestricted: "Бул видео жаш чектөөсү бар. Бот аны жүктөй албайт.",
-        errorInvalidUrl: "Шилтеме колдоого алынбайт. YouTube, TikTok же Instagram колдонуңуз.",
+        errorInvalidUrl: "Шилтеме колдоого алынбайт. YouTube, TikTok, Instagram же Facebook колдонуңуз.",
         errorTimeout: "Шилтемени текшерүү убактысы бүттү. Кайра аракет кылыңыз.",
         errorJobFailed: "Тапшырма ката",
+        errorJobInterrupted: "Тапшырма сервердин кайра иштетилишине туруштук бере алган жок. Аны кайрадан иштетиңиз.",
+        restoredNotice: "Акыркы тапшырмаңызга кайттык — вкладканы жапканыңыздан кийин да ал иштеп турган.",
         retryButton: "Кайра аракет кылуу",
         uiLanguageHeader: "Интерфейс тили",
         progressQueued: "Кезекте: {position}-орун. Болжол менен {minutes} мүнөт.",
@@ -911,7 +971,7 @@
       },
       tg: {
         title: "TilTap Web",
-        subtitle: "Аудио, видео ва пайвандҳои YouTube, TikTok, Instagram-ро шинос кунед. Ба забони қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ё англисӣ тарҷума кунед.",
+        subtitle: "Аудио, видео ва пайвандҳои YouTube, TikTok, Instagram, Facebook-ро шинос кунед. Ба забони қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ ё англисӣ тарҷума кунед.",
         adminLink: "Панели администратор",
         sourceLangLabel: "Забони шиносоӣ",
         sourceLanguageLabel: "Забони манбаъ",
@@ -922,7 +982,7 @@
         tabYouTube: "Пайванди видео",
         tabTranslate: "Тарҷумаи матн",
         dropzoneText: "Аудио/видео-ро ба ин ҷо кашида оред ё барои интихоб кардан пахш кунед",
-        youtubeLabel: "Пайванди видео (YouTube, TikTok, Instagram)",
+        youtubeLabel: "Пайванди видео (YouTube, TikTok, Instagram, Facebook)",
         translateTextLabel: "Матни тарҷума",
         translateTextPlaceholder: "Матни тарҷумаашро ворид кунед...",
         entryFile: "Файл",
@@ -941,6 +1001,8 @@
         fmtTitle: "Чӣ фиристодан мумкин аст",
         fmtAudio: "Садо ва видео",
         fmtDocs: "Ҳуҷҷатҳо",
+        fmtLinks: "Пайвандҳо",
+        fmtLinksNote: "Овоз тавассути пайванд боргирӣ мешавад, сухан ба матн табдил меёбад.",
         fmtTables: "Ҷадвалҳо ва субтитрҳо",
         fmtAudioNote: "Гуфтор ба матн бо нишонаҳои вақт табдил меёбад.",
         fmtDocsNote: "Матн гирифта шуда, тарҷума карда мешавад.",
@@ -983,18 +1045,25 @@
         translationFailed: "Хатои тарҷума",
         errorSelectFile: "Аввал файлро интихоб кунед",
         errorFileTooLarge: "Файл хеле калон аст ({size} МБ). Ҳадди аксар 25 МБ.",
+        itemsTitle: "Дар ин навишта якчанд видео ҳаст",
+        itemsHint: "Интихоб кунед, кадомашро ба матн табдил диҳем. Агар надонед кадомаш лозим аст, ҳамаашро гиред: онҳо паи ҳам як матн мешаванд.",
+        itemsAll: "Ҳамаи видеоҳо паи ҳам",
+        itemsOne: "Видеои {n}",
         errorEnterUrl: "Пайванди видеоро ворид кунед",
         errorEnterText: "Матни тарҷумаашро воред",
         errorUploadFailed: "Хатои боргузорӣ. Пайвастшавиро тафтиш кунед ва аз нав кӯшиш кунед.",
         errorUploadCancelled: "Боргузорӣ бекор карда шуд.",
         errorUploadTimeout: "Вақти боргузорӣ ба охир расид. Файл хеле калон аст ё пайвастшавӣ суст аст.",
         errorNotAvailable: "Ин видео дастрас нест. Возможно, онро нест кардаанд, хусусӣ, минтақавӣ бастаанд ё пайванд нодуруст аст.",
+        errorDownloadFailed: "Сабтро аз ин пайванд боргирӣ кардан нашуд. Каме баъдтар бори дигар кӯшиш кунед ё файл фиристед.",
         errorSignInRequired: "Ин видео талаб мекунад, ки шумо ба YouTube ворид шавед. Бот онро боргузорӣ карда наметавонад. Видеои дигарро кӯшиш кунед.",
         errorPrivate: "Ин видеои хусусӣ аст. Бот онро боргузорӣ карда наметавонад.",
         errorAgeRestricted: "Ин видео дорои маҳдудияти синну сол аст. Бот онро боргузорӣ карда наметавонад.",
-        errorInvalidUrl: "Пайванд дастгирӣ намешавад. YouTube, TikTok ё Instagram-ро истифода баред.",
+        errorInvalidUrl: "Пайванд дастгирӣ намешавад. YouTube, TikTok, Instagram ё Facebook-ро истифода баред.",
         errorTimeout: "Тафтиши пайванд аз вақт гузашт. Аз нав кӯшиш кунед.",
         errorJobFailed: "Хатои кор",
+        errorJobInterrupted: "Вазифа пас аз бозоғозии сервер нигоҳ дошта нашуд. Онро аз нав оғоз кунед.",
+        restoredNotice: "Ба вазифаи охирин баргаштем — он пас аз бастани лавҳа ҳам кор карданро идома дод.",
         retryButton: "Аз нав кӯшиш кунед",
         uiLanguageHeader: "Забони интерфейс",
         progressQueued: "Дар навбат: ҷои {position}. Тахминан {minutes} дақиқа.",
@@ -1003,7 +1072,7 @@
       },
       uz: {
         title: "TilTap Web",
-        subtitle: "Audio, video va YouTube, TikTok, Instagram havolalarini tanib oling. Qirgʻiz, tojik, oʻzbek, rus yoki ingliz tiliga tarjima qiling.",
+        subtitle: "Audio, video va YouTube, TikTok, Instagram, Facebook havolalarini tanib oling. Qirgʻiz, tojik, oʻzbek, rus yoki ingliz tiliga tarjima qiling.",
         adminLink: "Admin paneli",
         sourceLangLabel: "Tanish tili",
         sourceLanguageLabel: "Manba tili",
@@ -1014,7 +1083,7 @@
         tabYouTube: "Video havolasi",
         tabTranslate: "Matn tarjima",
         dropzoneText: "Audio/videoni bu yerga sudrab olib keling yoki ko'rish uchun bosing",
-        youtubeLabel: "Video havolasi (YouTube, TikTok, Instagram)",
+        youtubeLabel: "Video havolasi (YouTube, TikTok, Instagram, Facebook)",
         translateTextLabel: "Tarjima qilinadigan matn",
         translateTextPlaceholder: "Tarjima qilinadigan matnni kiriting...",
         entryFile: "Fayl",
@@ -1033,6 +1102,8 @@
         fmtTitle: "Nimani yuborish mumkin",
         fmtAudio: "Ovoz va video",
         fmtDocs: "Hujjatlar",
+        fmtLinks: "Havolalar",
+        fmtLinksNote: "Ovoz havola orqali yuklab olinadi, nutq matnga aylanadi.",
         fmtTables: "Jadvallar va subtitrlar",
         fmtAudioNote: "Nutq vaqt belgilari bilan matnga aylanadi.",
         fmtDocsNote: "Matn olinadi va tarjima qilinadi.",
@@ -1075,18 +1146,25 @@
         translationFailed: "Tarjima xatosi",
         errorSelectFile: "Avval faylni tanlang",
         errorFileTooLarge: "Fayl juda katta ({size} MB). Maksimum 25 MB.",
+        itemsTitle: "Bu postda bir nechta video bor",
+        itemsHint: "Nimani matnga aylantirishni tanlang. Qaysi biri kerakligini bilmasangiz, hammasini oling: ular navbat bilan bitta matn bo'lib keladi.",
+        itemsAll: "Hamma video navbat bilan",
+        itemsOne: "{n}-video",
         errorEnterUrl: "Video havolasini kiriting",
         errorEnterText: "Tarjima qilinadigan matnni kiriting",
         errorUploadFailed: "Yuklash xatosi. Ulanishni tekshirib, qayta urinib ko'ring.",
         errorUploadCancelled: "Yuklash bekor qilindi.",
         errorUploadTimeout: "Yuklash vaqti tugadi. Fayl juda katta yoki ulanish sekin.",
         errorNotAvailable: "Bu video mavjud emas. U o'chirilgan, xususiy, mintaqaviy bloklangan yoki URL noto'g'ri bo'lishi mumkin.",
+        errorDownloadFailed: "Bu havoladan yozuvni yuklab bo'lmadi. Birozdan keyin qayta urinib ko'ring yoki fayl yuboring.",
         errorSignInRequired: "Bu video YouTube'ga kirishni talab qiladi. Bot uni yuklay olmaydi. Boshqa videoni sinab ko'ring.",
         errorPrivate: "Bu xususiy video. Bot uni yuklay olmaydi.",
         errorAgeRestricted: "Bu video yosh chegarasiga ega. Bot uni yuklay olmaydi.",
-        errorInvalidUrl: "Havola qo'llab-quvvatlanmaydi. YouTube, TikTok yoki Instagram ishlating.",
+        errorInvalidUrl: "Havola qo'llab-quvvatlanmaydi. YouTube, TikTok, Instagram yoki Facebook ishlating.",
         errorTimeout: "Havolani tekshirish vaqti tugadi. Qayta urinib ko'ring.",
         errorJobFailed: "Vazifa xatosi",
+        errorJobInterrupted: "Vazifa server qayta ishga tushirilgandan soʻng saqlanib qolmadi. Uni qaytadan ishga tushiring.",
+        restoredNotice: "Soʻnggi vazifaga qaytildi — varaq yopilgandan keyin ham u ishlashda davom etdi.",
         retryButton: "Qayta urinish",
         uiLanguageHeader: "Interfeys tili",
         progressQueued: "Navbatda: {position}-o'rin. Taxminan {minutes} daqiqa.",
@@ -1126,6 +1204,8 @@
         fmtTitle: "Нимани юбориш мумкин",
         fmtAudio: "Овоз ва видео",
         fmtDocs: "Ҳужжатлар",
+        fmtLinks: "Ҳаволалар",
+        fmtLinksNote: "Овоз ҳавола орқали юклаб олинади, нутқ матнга айланади.",
         fmtTables: "Жадваллар ва субтитрлар",
         fmtAudioNote: "Нутқ вақт белгилари билан матнга айланади.",
         fmtDocsNote: "Матн олинади ва таржима қилинади.",
@@ -1168,18 +1248,25 @@
         translationFailed: "Таржима хатоси",
         errorSelectFile: "Аввал файлни танланг",
         errorFileTooLarge: "Файл жуда катта ({сизе} МБ). Максимум 25 МБ.",
+        itemsTitle: "Бу постда бир нечта видео бор",
+        itemsHint: "Нимани матнга айлантиришни танланг. Қайси бири кераклигини билмасангиз, ҳаммасини олинг: улар навбат билан битта матн бўлиб келади.",
+        itemsAll: "Ҳамма видео навбат билан",
+        itemsOne: "{n}-видео",
         errorEnterUrl: "Видео ҳаволасини киритинг",
         errorEnterText: "Таржима қилинадиган матнни киритинг",
         errorUploadFailed: "Юклаш хатоси. Уланишни текшириб, қайта уриниб кўринг.",
         errorUploadCancelled: "Юклаш бекор қилинди.",
         errorUploadTimeout: "Юклаш вақти тугади. Файл жуда катта ёки уланиш секин.",
         errorNotAvailable: "Бу видео мавжуд эмас. У ўчирилган, хусусий, минтақавий блокланган ёки УРЛ нотўғри бўлиши мумкин.",
+        errorDownloadFailed: "Бу ҳаволадан ёзувни юклаб бўлмади. Бироздан кейин қайта уриниб кўринг ёки файл юборинг.",
         errorSignInRequired: "Бу видео ЁуТубеъга киришни талаб қилади. Бот уни юклай олмайди. Бошқа видеони синаб кўринг.",
         errorPrivate: "Бу хусусий видео. Бот уни юклай олмайди.",
         errorAgeRestricted: "Бу видео ёш чегарасига эга. Бот уни юклай олмайди.",
         errorInvalidUrl: "Ҳавола қўллаб-қувватланмайди. ЁуТубе, ТикТок ёки Инстаграм ишлатинг.",
         errorTimeout: "Ҳаволани текшириш вақти тугади. Қайта уриниб кўринг.",
         errorJobFailed: "Вазифа хатоси",
+        errorJobInterrupted: "Вазифа сервер қайта ишга туширилгандан сўнг сақланиб қолмади. Уни қайтадан ишга туширинг.",
+        restoredNotice: "Сўнгги вазифага қайтилди — варақ ёпилгандан кейин ҳам у ишлашда давом этди.",
         retryButton: "Қайта уриниш",
         uiLanguageHeader: "Интерфейс тили",
         progressQueued: "Навбатда: {поситион}-ўрин. Тахминан {минутес} дақиқа.",
@@ -1500,19 +1587,46 @@
       startBtn.disabled = false;
     }
 
+    // Площадки, с которых мы умеем качать. Держим рядом с hostOf, чтобы
+    // страница и сервер понимали ссылку одинаково.
+    const SUPPORTED_HOSTS = /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com|tiktok\.com|instagram\.com|facebook\.com|fb\.watch|fb\.com)$/i;
+
+    function normalizeLink(value) {
+      const s = value.trim();
+      return /^https?:/i.test(s) ? s : "https://" + s.replace(/^\/+/, "");
+    }
+
+    function isSupportedLink(value) {
+      try {
+        return SUPPORTED_HOSTS.test(new URL(normalizeLink(value)).hostname);
+      } catch (e) {
+        return false;
+      }
+    }
+
     function mapErrorMessage(error, reason, max) {
       const code = reason || error;
       // Carries a count, so it cannot go in the plain lookup below.
       if (code === "queue_full") return t("errorQueueFull", { max: max });
       const keys = {
         not_available: "errorNotAvailable",
-        sign_in_required: "errorSignInRequired",
         private: "errorPrivate",
         age_restricted: "errorAgeRestricted",
         invalid: "errorInvalidUrl",
-        timeout: "errorTimeout",
+        // Остальное для человека — одно и то же: запись по ссылке не скачалась.
+        // Чем именно недовольны наши источники, ему знать незачем, а код вроде
+        // "cobalt_auth_required" он до сих пор видел как есть.
+        sign_in_required: "errorDownloadFailed",
+        cobalt_auth_required: "errorDownloadFailed",
+        bot_detected: "errorDownloadFailed",
+        missing_deps: "errorDownloadFailed",
+        timeout: "errorDownloadFailed",
+        unknown: "errorDownloadFailed",
       };
-      return t(keys[code]) || error || t("errorJobFailed");
+      if (keys[code]) return t(keys[code]);
+      // Незнакомый код — тоже не для показа: это наша внутренняя пометка.
+      if (/^[a-z0-9_]+$/.test(String(code || ""))) return t("errorDownloadFailed");
+      return error || t("errorJobFailed");
     }
 
     // Matches the estimate the bot uses, so the two surfaces agree.
@@ -1537,12 +1651,14 @@
 
       // "queued:3" — a place in line rather than a stage. The server sends a
       // marker because this page is translated on the client.
-      const queued = /^queued:(\d+)$/.exec(progress.label || "");
+      const queued = /^queued:(\d+)(?::(\d+))?$/.exec(progress.label || "");
       if (queued) {
         const position = Number(queued[1]);
+        // Второе число — оценка сервера по реальной скорости последних работ.
+        const seconds = queued[2] ? Number(queued[2]) : position * QUEUE_ESTIMATE_SEC;
         progressLabel.textContent = t("progressQueued", {
           position: position,
-          minutes: Math.max(1, Math.ceil((position * QUEUE_ESTIMATE_SEC) / 60)),
+          minutes: Math.max(1, Math.ceil(seconds / 60)),
         });
       } else {
         progressLabel.textContent = stageLabel(progress.label);
@@ -1741,26 +1857,68 @@
           data = res.data;
         } else {
           if (!youtubeUrl.value.trim()) throw new Error(t("errorEnterUrl"));
-          const res = await fetch(API + "/api/web/youtube", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: youtubeUrl.value.trim(), sourceLang, targetLang }),
-          });
-          try {
-            data = await res.json();
-          } catch {
-            const text = await res.text().catch(() => "");
-            throw new Error(text || `Server returned ${res.status}`);
+          // Площадку проверяем здесь, до отправки. Иначе человек нажимал
+          // «Начать», ждал и получал отказ — а бывает, что в ссылке просто
+          // потерялись первые буквы при вставке (youtu.be → outu.be).
+          const link = normalizeLink(youtubeUrl.value.trim());
+          if (!isSupportedLink(link)) throw new Error(t("errorInvalidUrl"));
+          const send = async (item) => {
+            const res = await fetch(API + "/api/web/youtube", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: link, sourceLang, targetLang, item }),
+            });
+            let payload;
+            try {
+              payload = await res.json();
+            } catch {
+              const text = await res.text().catch(() => "");
+              throw new Error(text || `Server returned ${res.status}`);
+            }
+            if (!res.ok) throw new Error(mapErrorMessage(payload.error, payload.details?.reason, payload.max) || t("errorJobFailed"));
+            return payload;
+          };
+
+          data = await send();
+          // В посте несколько видео: сервер вернул их список вместо задания.
+          if (data.needsChoice) {
+            const choice = await askItems(data.items);
+            if (!choice) return;
+            data = await send(choice);
           }
-          if (!res.ok) throw new Error(mapErrorMessage(data.error, data.details?.reason, data.max) || t("errorJobFailed"));
         }
 
         currentJobId = data.jobId;
         currentRequestNumber = data.requestNumber || null;
+        rememberJob(currentJobId, currentRequestNumber);
         listenProgress(currentJobId);
       } catch (err) {
         showError(err.message);
       }
+    }
+
+    // Выбор видео в посте-карусели. Возвращает "all", номер или null (закрыли).
+    document.getElementById("itemsClose").addEventListener("click", () => document.getElementById("itemsDialog").close());
+
+    function askItems(indexes) {
+      const dialog = document.getElementById("itemsDialog");
+      const box = document.getElementById("itemsButtons");
+      box.innerHTML = "";
+      return new Promise((resolve) => {
+        let answer = null;
+        const add = (label, value) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "btn btn-sm " + (value === "all" ? "btn-primary" : "btn-outline");
+          btn.textContent = label;
+          btn.onclick = () => { answer = value; dialog.close(); };
+          box.appendChild(btn);
+        };
+        add(t("itemsAll"), "all");
+        indexes.forEach((index, n) => add(t("itemsOne", { n: n + 1 }), String(index)));
+        dialog.addEventListener("close", () => resolve(answer), { once: true });
+        dialog.showModal();
+      });
     }
 
     function renderDirectTranslation(data, targetLang) {
@@ -1789,6 +1947,13 @@
       startBtn.disabled = false;
     }
 
+    // Сервер шлёт признак, а не готовую фразу: перевод сообщения принадлежит
+    // странице, где известен выбранный язык интерфейса.
+    function mapJobError(error) {
+      if (error === "job_interrupted") return t("errorJobInterrupted");
+      return error || t("errorJobFailed");
+    }
+
     function listenProgress(jobId) {
       const es = new EventSource(API + "/api/web/jobs/" + jobId + "/progress");
       es.onmessage = (e) => {
@@ -1796,10 +1961,12 @@
         if (job.progress) updateProgress(job.progress);
         if (job.status === "completed") {
           es.close();
+          forgetJob();
           renderResult(job);
         } else if (job.status === "failed") {
           es.close();
-          showError(job.error || t("errorJobFailed"));
+          forgetJob();
+          showError(mapJobError(job.error));
         }
       };
       es.onerror = () => {
@@ -1817,10 +1984,12 @@
           if (job.progress) updateProgress(job.progress);
           if (job.status === "completed") {
             clearInterval(interval);
+            forgetJob();
             renderResult(job);
           } else if (job.status === "failed") {
             clearInterval(interval);
-            showError(job.error || t("errorJobFailed"));
+            forgetJob();
+            showError(mapJobError(job.error));
           }
         } catch (err) {
           clearInterval(interval);
@@ -1890,6 +2059,77 @@
     loadLanguagePrefs();
 
     startBtn.addEventListener("click", startJob);
+
+    // ---- Восстановление задания -------------------------------------------
+    // Расшифровка идёт на сервере и закрытую вкладку переживает, а вот номер
+    // задания жил только в памяти страницы — закрыл, и текст было не достать.
+    // Теперь номер лежит в браузере, и страница сама возвращается к работе.
+    const ACTIVE_JOB_KEY = "tiltab_active_job";
+
+    function rememberJob(jobId, requestNumber) {
+      try {
+        localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({
+          jobId: jobId,
+          requestNumber: requestNumber || null,
+          startedAt: Date.now(),
+        }));
+      } catch (e) { /* приватный режим — переживём без восстановления */ }
+    }
+
+    function forgetJob() {
+      try { localStorage.removeItem(ACTIVE_JOB_KEY); } catch (e) { /* ignore */ }
+    }
+
+    async function restoreJob() {
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(ACTIVE_JOB_KEY) || "null"); } catch (e) { /* ignore */ }
+      if (!saved || !saved.jobId) return;
+
+      // Сутки — предел, после которого предлагать возврат бессмысленно:
+      // человек давно ушёл, а задание успело уйти из базы вместе с чисткой.
+      if (Date.now() - (saved.startedAt || 0) > 24 * 60 * 60 * 1000) {
+        forgetJob();
+        return;
+      }
+
+      let job;
+      try {
+        const res = await fetch(API + "/api/web/jobs/" + saved.jobId);
+        if (!res.ok) { forgetJob(); return; }
+        job = await res.json();
+      } catch (e) {
+        return; // сети нет — молчим, попробуем в следующий раз
+      }
+
+      if (job.status === "failed") { forgetJob(); return; }
+
+      currentJobId = saved.jobId;
+      currentRequestNumber = job.requestNumber || saved.requestNumber || null;
+
+      if (job.status === "completed") {
+        resetUI();
+        renderResult(job);
+        showRestoredNotice();
+        forgetJob();
+        return;
+      }
+
+      // Задание ещё идёт: возвращаем полосу прогресса и подписку.
+      resetUI();
+      if (job.progress) updateProgress(job.progress);
+      showRestoredNotice();
+      listenProgress(saved.jobId);
+    }
+
+    function showRestoredNotice() {
+      const note = document.getElementById("restoredNotice");
+      if (!note) return;
+      note.textContent = t("restoredNotice");
+      note.classList.remove("hidden");
+      setTimeout(() => note.classList.add("hidden"), 8000);
+    }
+
+    restoreJob();
 
     function formatTime(seconds) {
       const m = Math.floor(seconds / 60);
@@ -2108,7 +2348,10 @@
       // файл. Когда человек уже принёс запись, поле для набора текста ему не
       // нужно и только отнимает место.
       function setState(state) {
-        entryChoice.classList.toggle("hidden", state !== "choose");
+        // Оба входа остаются на виду всё время, пока материал не выбран.
+        // Пока они пропадали при первом набранном символе, кнопка файла
+        // исчезала вместе с ними, и вернуться к ней было нечем.
+        entryChoice.classList.toggle("hidden", state === "file" || state === "link");
         composer.classList.toggle("is-text", state === "text");
         composerFile.classList.toggle("hidden", state !== "file");
         linkCard.classList.toggle("hidden", state !== "link");
@@ -2142,7 +2385,9 @@
             linkName.textContent = trimmed;
           }
           kindChip.textContent = hostOf(trimmed);
-          kindChip.dataset.kind = "youtube";
+          // Метка называет площадку, а не «youtube» для всего подряд: ссылки
+          // приходят и с TikTok, и с Instagram, и с Facebook.
+          kindChip.dataset.kind = "link";
         } else if (trimmed.length > 0) {
           setMode("text");
           setState("text");

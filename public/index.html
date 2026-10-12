@@ -4,14 +4,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TilTap</title>
-<meta name="description" content="Перевод и расшифровка речи для кыргызского, таджикского, узбекского, русского и английского. Текст, документы, аудио, видео и ссылки.">
+<meta name="description" content="Расшифровка речи и перевод для кыргызского, таджикского, узбекского, русского и английского. Текст, документы, аудио, видео и ссылки.">
 <meta name="color-scheme" content="light">
 
 <meta property="og:type" content="website">
 <meta property="og:title" content="TilTap">
-<meta property="og:description" content="Перевод и расшифровка речи для пяти языков: текст, документы, аудио, видео и ссылки.">
+<meta property="og:description" content="Расшифровка речи и перевод для пяти языков: текст, документы, аудио, видео и ссылки.">
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico?v=2">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=2">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=2">
+  <link rel="apple-touch-icon" sizes="512x512" href="/favicon-512.png?v=2">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- Шрифт обязан покрывать расширенную кириллицу: без этого ө, ү, ң и ҳ, ҷ, ӯ
      подменятся системными и строка распадётся на два разных начертания. -->
@@ -233,20 +237,28 @@ a { color: inherit; }
   .reveal { opacity: 1; transform: none; transition: none; }
   .tile:hover, .btn:active { transform: none; }
 }
+/* На телефоне логотип-картинка шире прежней буквы "T": шапка перестаёт
+   помещаться, и кнопка "Открыть" уезжает за край экрана. Та же кнопка есть
+   на первом экране, поэтому в шапке её можно убрать. Кнопки первого экрана
+   разной ширины при переносе выглядят рассыпанными — ставим их в столбик. */
+@media (max-width: 640px) {
+  .brand img { height: 36px !important; }
+  .nav-side > .btn { display: none; }
+  .hero-actions { display: grid; grid-template-columns: 1fr; }
+  .hero-actions .btn { width: 100%; }
+}
 </style>
 </head>
 <body>
 
 <header class="nav" id="nav">
   <div class="nav-inner">
-    <a class="brand" href="/">
-      <span class="brand-mark" aria-hidden="true">T</span>
-      TilTap
-    </a>
+    <a class="brand" href="/"><img src="/logo.png" alt="TilTap" style="height:48px;width:auto;display:block;"></a>
 
     <nav class="nav-links" aria-label="TilTap">
       <a href="#formats" data-i18n="navFormats">Форматы</a>
       <a href="https://t.me/tiltapbot" data-i18n="navBot">Бот</a>
+      <a href="https://wa.me/996550450360?text=%D0%A1%D1%82%D0%B0%D1%80%D1%82" target="_blank" rel="noopener">WhatsApp</a>
     </nav>
 
     <div class="nav-side">
@@ -279,14 +291,22 @@ a { color: inherit; }
   <section class="hero">
     <div class="wrap hero-grid">
       <div>
-        <h1 data-i18n="heroTitle">Перевод для <em>пяти языков</em></h1>
+        <h1 data-i18n="heroTitle">Автоматическая расшифровка речи и перевод <em>для пяти языков</em></h1>
         <p class="lede" data-i18n="heroLede">
-          Кыргызский, таджикский, узбекский, русский, английский. Текст,
-          документы, аудио и видео.
+          Кыргызский, таджикский, узбекский, русский, английский. Речь
+          из аудио и видео становится текстом, а текст — переводом.
         </p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="/web/" data-i18n="ctaOpen">Открыть TilTap</a>
-          <a class="btn btn-quiet" href="https://t.me/tiltapbot" data-i18n="ctaBot">Бот в Telegram</a>
+          <a class="btn btn-quiet" href="https://t.me/tiltapbot" style="display:inline-flex;align-items:center;gap:0.4em;">
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="12" fill="#229ED9"/><path fill="#fff" d="M5.43 11.87c3.5-1.52 5.83-2.53 7-3.02 3.33-1.39 4.02-1.63 4.47-1.64.1 0 .32.02.47.14.12.1.15.23.17.33.02.1.04.33.02.5-.18 1.9-.96 6.5-1.36 8.63-.17.9-.5 1.2-.82 1.23-.7.06-1.23-.46-1.9-.9-1.06-.7-1.66-1.13-2.69-1.8-1.19-.79-.42-1.22.26-1.93.18-.18 3.25-2.98 3.3-3.23.01-.03.01-.15-.06-.21-.07-.06-.17-.04-.25-.02-.1.02-1.79 1.14-5.06 3.35-.48.33-.91.49-1.3.48-.43-.01-1.25-.24-1.86-.44-.75-.24-1.35-.37-1.3-.79.03-.22.33-.44.91-.67z"/></svg>
+            <span data-i18n="ctaBot">Бот в Telegram</span>
+          </a>
+          <a class="btn btn-quiet" href="https://wa.me/996550450360?text=%D0%A1%D1%82%D0%B0%D1%80%D1%82" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:0.4em;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
+            WhatsApp
+            <span style="font-size:0.625rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;padding:0.1em 0.45em;border-radius:999px;background:#25D36622;color:#128C4A;margin-left:0.15em;">Бета</span>
+          </a>
         </div>
       </div>
 
@@ -335,7 +355,7 @@ a { color: inherit; }
       <div class="groups reveal">
         <div class="group">
           <h3 data-i18n="g1Title">Звук и видео</h3>
-          <p data-i18n="g1Text">Речь становится текстом с отметками времени. Можно прислать ссылку на YouTube, TikTok или Instagram.</p>
+          <p data-i18n="g1Text">Речь становится текстом с отметками времени. Можно прислать ссылку на YouTube, TikTok, Instagram или Facebook.</p>
           <div class="chips">
             <span class="chip">MP3</span><span class="chip">WAV</span><span class="chip">OGG</span>
             <span class="chip">M4A</span><span class="chip">MP4</span><span class="chip">MOV</span>
@@ -399,12 +419,104 @@ a { color: inherit; }
   </section>
 </main>
 
+
+<section class="donors-section">
+  <style>
+    .donors-section {
+      border-top: 1px solid var(--rule, #e5e7eb);
+      padding: 2rem 0 1.5rem;
+      background: var(--paper-sunk, #f9fafb);
+    }
+    .donors-inner {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+    .donors-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-faint, #9ca3af);
+      margin-bottom: 0.75rem;
+    }
+    .donors-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 2rem;
+      margin-bottom: 0.5rem;
+    }
+    .donors-row img {
+      height: 36px;
+      width: auto;
+      object-fit: contain;
+    }
+    .donors-row span {
+      font-size: 0.875rem;
+      color: var(--ink-muted, #6b7280);
+    }
+    .donors-grid {
+      display: grid;
+      gap: 0.5rem 3rem;
+      grid-template-columns: auto 1fr;
+      margin-bottom: 1.25rem;
+    }
+    .donors-grid-label {
+      font-size: 0.8125rem;
+      color: var(--ink, #374151);
+      padding-top: 0.5rem;
+      white-space: nowrap;
+    }
+    .disclaimer-text {
+      font-size: 0.75rem;
+      color: var(--ink-faint, #9ca3af);
+      line-height: 1.6;
+      border-top: 1px solid var(--rule, #e5e7eb);
+      padding-top: 1rem;
+      margin-top: 0.5rem;
+    }
+    .copyright-line {
+      font-size: 0.75rem;
+      color: var(--ink-faint, #9ca3af);
+      margin-top: 0.5rem;
+    }
+    @media (max-width: 600px) {
+      .donors-grid { grid-template-columns: 1fr; gap: 0.25rem; }
+    }
+  </style>
+  <div class="donors-inner">
+    <div class="donors-grid">
+      <span class="donors-grid-label">Донор</span>
+      <div class="donors-row">
+        <a href="https://european-union.europa.eu" target="_blank" rel="noopener">
+          <img src="/partners/eu.png" alt="Co-funded by the European Union">
+        </a>
+      </div>
+      <span class="donors-grid-label">Партнёры</span>
+      <div class="donors-row">
+        <img src="/partners/agile.png" alt="AGILE">
+        <img src="/partners/cfi.svg" alt="CFI" style="height:28px;">
+      </div>
+      <span class="donors-grid-label">Исполнитель проекта</span>
+      <div class="donors-row">
+        <span>ОФ &laquo;Дааназат&raquo;</span>
+      </div>
+    </div>
+    <p class="disclaimer-text">
+      TilTap.kg создан при финансовой поддержке Европейского союза. Содержание данного сайта является исключительной ответственностью ОФ &laquo;Дааназат&raquo; и ни при каких обстоятельствах не может рассматриваться как отражение позиции Европейского союза.
+    </p>
+    <p class="copyright-line">&copy; 2026 &middot; ОФ &laquo;Дааназат&raquo;</p>
+  </div>
+</section>
+
 <footer class="foot">
   <div class="wrap">
     <span>TilTap</span>
     <span class="foot-right">
       <a href="/web/" data-i18n="footApp">Рабочий экран</a>
+      <a href="/stats.html" data-i18n="footStats">Статистика</a>
       <a href="https://t.me/tiltapbot">@tiltapbot</a>
+      <a href="https://wa.me/996550450360?text=%D0%A1%D1%82%D0%B0%D1%80%D1%82" target="_blank" rel="noopener">WhatsApp +996 550 450-360</a>
     </span>
   </div>
 </footer>
@@ -427,12 +539,12 @@ var I18N = {
     ctaOpen: "Open TilTap",
     ctaBot: "Telegram bot",
 
-    heroTitle: 'Translation for <em>five languages</em>',
-    heroLede: "Kyrgyz, Tajik, Uzbek, Russian, English. Text, documents, audio and video.",
+    heroTitle: 'Speech to text and translation for <em>five languages</em>',
+    heroLede: "Kyrgyz, Tajik, Uzbek, Russian, English. Speech from audio and video becomes text, and text becomes translation.",
 
     formatsTitle: "What you can send",
     g1Title: "Audio and video",
-    g1Text: "Speech becomes text with timestamps. You can also send a YouTube, TikTok or Instagram link.",
+    g1Text: "Speech becomes text with timestamps. You can also send a YouTube, TikTok, Instagram or Facebook link.",
     g2Title: "Documents",
     g2Text: "The text is extracted and translated.",
     g3Title: "Tables and subtitles",
@@ -448,7 +560,8 @@ var I18N = {
 
     ctaTitle: "Try it on your own material",
     ctaText: "No sign-up needed.",
-    footApp: "Open the app"
+    footApp: "Open the app",
+    footStats: "Statistics"
   },
 
   // Переведено самим TilTap с русского. Машинный перевод на витрине
@@ -457,13 +570,13 @@ var I18N = {
   ky: {
     navFormats: "Форматтар",
     navBot: "Бот",
-    heroTitle: "Беш тилге котормо",
-    heroLede: "Кыргызча, тажикче, өзбекче, орусча, англисче. Текст, документтер, аудио жана видео.",
+    heroTitle: "Сүйлөөнү автоматтык таануу жана беш тилге котормо",
+    heroLede: "Кыргызча, тажикче, өзбекче, орусча, англисче. Аудио жана видеодогу сөз текстке, ал эми текст котормого айланат.",
     ctaOpen: "TilTapты ачуу",
     ctaBot: "Telegramдагы бот",
     formatsTitle: "Эмнени жөнөтсө болот",
     g1Title: "Үн жана видео",
-    g1Text: "Сүйлөө убакыт белгилери коюлган текстке айланат. YouTube, TikTok же Instagram шилтемесин жөнөтсөңүз болот.",
+    g1Text: "Сүйлөө убакыт белгилери коюлган текстке айланат. YouTube, TikTok, Instagram же Facebook шилтемесин жөнөтсөңүз болот.",
     g2Title: "Документтер",
     g2Text: "Текст алынат жана которулат.",
     g3Title: "Таблицалар жана субтитрлер",
@@ -477,19 +590,20 @@ var I18N = {
     l3Text: "Тексттик катмары жок PDF окулбайт.",
     ctaTitle: "Өз материалыңызда текшериңиз",
     ctaText: "Катталуу талап кылынбайт.",
-    footApp: "Иш экраны"
+    footApp: "Иш экраны",
+    footStats: "Статистика"
   },
 
   tg: {
     navFormats: "Форматҳо",
     navBot: "Бот",
-    heroTitle: "Тарҷума барои панҷ забон",
-    heroLede: "Қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ, англисӣ. Матн, ҳуҷҷатҳо, аудио ва видео.",
+    heroTitle: "Транскрипсияи автоматии нутқ ва тарҷума барои панҷ забон",
+    heroLede: "Қирғизӣ, тоҷикӣ, ӯзбекӣ, русӣ, англисӣ. Гуфтори аудио ва видео ба матн табдил меёбад, матн бошад — ба тарҷума.",
     ctaOpen: "Кушодани TilTap",
     ctaBot: "Бот дар Telegram",
     formatsTitle: "Чиро фиристодан мумкин аст",
     g1Title: "Садо ва видео",
-    g1Text: "Сухан ба матн бо нишонаҳои вақт табдил меёбад. Метавонед пайвандеро ба YouTube, TikTok ё Instagram фиристед.",
+    g1Text: "Сухан ба матн бо нишонаҳои вақт табдил меёбад. Метавонед пайвандеро ба YouTube, TikTok, Instagram ё Facebook фиристед.",
     g2Title: "Ҳуҷҷатҳо",
     g2Text: "Матн гирифта ва тарҷума карда мешавад.",
     g3Title: "Ҷадвалҳо ва субтитрҳо",
@@ -503,19 +617,20 @@ var I18N = {
     l3Text: "PDF-и бе қабати матнӣ хонда намешавад.",
     ctaTitle: "Дар маводи худ санҷед",
     ctaText: "Бақайдгирӣ лозим нест.",
-    footApp: "Экрани корӣ"
+    footApp: "Экрани корӣ",
+    footStats: "Омор"
   },
 
   uz: {
     navFormats: "Formatlar",
     navBot: "Бот",
-    heroTitle: "Besh til uchun tarjima",
-    heroLede: "Qirgʻiz tili, tojik tili, oʻzbek tili, rus tili, ingliz tili. Matn, hujjatlar, audio va video.",
+    heroTitle: "Nutqni avtomatik transkripsiya qilish va besh tilga tarjima",
+    heroLede: "Qirgʻiz, tojik, oʻzbek, rus, ingliz. Audio va videodagi nutq matnga, matn esa tarjimaga aylanadi.",
     ctaOpen: "TilTapʼni ochish",
     ctaBot: "Telegramdagi bot",
     formatsTitle: "Nimani yuborish mumkin",
     g1Title: "Ovoz va video",
-    g1Text: "Nutq vaqt belgilari bilan matnga aylanadi. YouTube, TikTok yoki Instagram havolasini yuborish mumkin.",
+    g1Text: "Nutq vaqt belgilari bilan matnga aylanadi. YouTube, TikTok, Instagram yoki Facebook havolasini yuborish mumkin.",
     g2Title: "Hujjatlar",
     g2Text: "Matn olinadi va tarjima qilinadi.",
     g3Title: "Jadvallar va subtitrlar",
@@ -529,14 +644,15 @@ var I18N = {
     l3Text: "Matn qatlami boʻlmagan PDF oʻqilmaydi.",
     ctaTitle: "Oʻz materialingizda tekshirib koʻring",
     ctaText: "Roʻyxatdan oʻtish kerak emas.",
-    footApp: "Ishchi ekran"
+    footApp: "Ishchi ekran",
+    footStats: "Statistika"
   },
 
   uz_cyrl: {
     navFormats: "Форматлар",
     navBot: "Бот",
-    heroTitle: "Беш тил учун таржима",
-    heroLede: "Қирғиз тили, тожик тили, ўзбек тили, рус тили, инглиз тили. Матн, ҳужжатлар, аудио ва видео.",
+    heroTitle: "Нутқни автоматик транскрипсия қилиш ва беш тилга таржима",
+    heroLede: "Қирғиз, тожик, ўзбек, рус, инглиз. Аудио ва видеодаги нутқ матнга, матн эса таржимага айланади.",
     ctaOpen: "TilTapни очиш",
     ctaBot: "Телеграмдаги бот",
     formatsTitle: "Нимани юбориш мумкин",
@@ -555,7 +671,8 @@ var I18N = {
     l3Text: "Матн қатлами бўлмаган ПДФ ўқилмайди.",
     ctaTitle: "Ўз материалингизда текшириб кўринг",
     ctaText: "Рўйхатдан ўтиш керак эмас.",
-    footApp: "Ишчи экран"
+    footApp: "Ишчи экран",
+    footStats: "Статистика"
   },
 };
 
